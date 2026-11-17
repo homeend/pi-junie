@@ -155,11 +155,20 @@ export class PiBackend implements AgentBackend {
 				.map((l) => ({ ...l, displayName: slot.picker[inPicker(l)].name }));
 		}
 		const unknown: ListedModel[] = [];
+		const described: string[] = [];
 		const matched: { listed: ListedModel; known: Model<Api> }[] = [];
 		for (const l of listed) {
-			const known = catalog.find((k) => listingIdMatches(l.id, k.id));
+			let known = catalog.find((k) => listingIdMatches(l.id, k.id));
+			if (!known) {
+				const like = this.describedLike(l, slot, catalog);
+				if (like) described.push(`${l.id} (like ${like.base})`);
+				known = like?.model;
+			}
 			if (known) matched.push({ listed: l, known });
 			else unknown.push(l);
+		}
+		if (described.length) {
+			this.log.warn(`[models-todo] ${slot.id}: not in Pi's ${target.catalogProvider} catalog, described from Junie's definitions: ${described.join(", ")}`);
 		}
 
 		const models = matched.map(({ listed: l, known: m }) => ({
@@ -205,6 +214,14 @@ export class PiBackend implements AgentBackend {
 			);
 		}
 		this.emit();
+	}
+
+	/** A picker model Pi does not know, described as the Pi model Junie says it matches (see PickerModel.like). */
+	private describedLike(listed: ListedModel, slot: SlotDefinition, catalog: Model<Api>[]): { model: Model<Api>; base: string } | undefined {
+		const entry = slot.picker.find((p) => p.like && listingIdMatches(listed.id, p.id));
+		const base = entry?.like && catalog.find((k) => k.id === entry.like!.model);
+		if (!entry?.like || !base) return undefined;
+		return { model: { ...base, id: entry.id, name: entry.name, cost: { ...base.cost, ...entry.like.cost } }, base: base.id };
 	}
 
 	async modelsSettled(timeoutMs: number): Promise<void> {

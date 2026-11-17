@@ -6,6 +6,11 @@ import type { Api } from "@earendil-works/pi-ai";
 export interface PickerModel {
 	id: string;
 	name: string;
+	/**
+	 * For a model Pi's catalog does not know yet: describe it as this Pi model (same family and capabilities in
+	 * Junie's ModelParameters.kt) with Junie's prices, USD per million tokens. Remove once Pi knows the model.
+	 */
+	like?: { model: string; cost: { input: number; output: number; cacheRead: number } };
 }
 
 export interface SlotDefinition {
@@ -63,8 +68,9 @@ export const SLOTS: SlotDefinition[] = [
 			vertex: { piApi: "google-vertex", catalogProvider: "google-vertex", basePath: "" }, // experimental
 		},
 		picker: [
-			{ id: "gemini-4-hydrogen", name: "Gemini 4 Hydrogen" },
-			{ id: "gemini-4-carbon", name: "Gemini 4 Carbon" },
+			// Pi 1.5.2 lacks these; Junie: same capabilities as gemini-4-argon (1M context, vision), own prices.
+			{ id: "gemini-4-hydrogen", name: "Gemini 4 Hydrogen", like: { model: "gemini-4-argon", cost: { input: 1.5, output: 7.5, cacheRead: 0.075 } } },
+			{ id: "gemini-4-carbon", name: "Gemini 4 Carbon", like: { model: "gemini-4-argon", cost: { input: 2.0, output: 10.0, cacheRead: 0.1 } } },
 			{ id: "gemini-4-argon", name: "Gemini 4 Argon" },
 			{ id: "gemini-3.8-flash", name: "Gemini 3.8 Flash" },
 			{ id: "gemini-3.7-flash", name: "Gemini 3.7 Flash" },

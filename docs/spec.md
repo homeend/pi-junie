@@ -111,7 +111,9 @@ group ids (`proxy:<slot>`), `_meta` shapes and stop reasons.
   `docs/junie-proxy-triage.md` §4.1): the account catalog (`/models/user`), else the vendor listing, narrowed by
   `_meta.jetbrains.air.selectedModels`, limited to **Junie's picker policy** (its non-deprecated `ModelOption`
   entries, `picker` in `src/pi/catalog.ts`) for vendor listings, and matched to Pi's catalog. Unknown ids are dropped and logged as
-  `[models-todo]`. A failed discovery offers no models (no fallback). `session/new` waits up to 10 s for discovery;
+  `[models-todo]`. Exception: a picker entry with `like` (Junie says it has the same capabilities as a model Pi
+  knows, e.g. gemini-4-hydrogen/carbon like gemini-4-argon) is offered as a copy of that Pi model with Junie's
+  prices, and still logged as `[models-todo]` until Pi knows it. A failed discovery offers no models (no fallback). `session/new` waits up to 10 s for discovery;
   later results arrive as `config_option_update`.
 - Fixed slots, like Junie's: `anthropic` (apiType `anthropic`), `openai` (`openai`) and `google`
   (`google`/`vertex`, experimental).

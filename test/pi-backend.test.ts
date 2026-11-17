@@ -44,7 +44,7 @@ describe("PiBackend model discovery", () => {
 		await bind(backend, "google", "google");
 		expect(ids(backend, "anthropic")).toEqual(["claude-opus-5-5-20261001", "claude-sonnet-5-5"]);
 		expect(ids(backend, "openai")).toEqual(["gpt-6.1-sol", "gpt-6-luna"]);
-		expect(ids(backend, "google")).toEqual(["gemini-4-argon", "gemini-3.7-flash"]); // Junie picker order; gemini-2.5-pro and embeddings are outside the policy
+		expect(ids(backend, "google")).toEqual(["gemini-4-carbon", "gemini-4-argon", "gemini-3.7-flash"]); // Junie picker order; gemini-2.5-pro and embeddings are outside the policy
 	});
 
 	it("uses the account catalog's metadata and AIR's base path conventions", async () => {
@@ -80,9 +80,13 @@ describe("PiBackend model discovery", () => {
 		const { backend, lines } = await newBackend();
 		await bind(backend, "google", "google");
 		const names = backend.availableModels().find((g) => g.slotId === "google")?.models.map((m) => m.name);
-		expect(names).toEqual(["Gemini 4 Argon", "Gemini 3.7 Flash"]);
-		// in the picker and served by the proxy, but unknown to Pi -> backlog
-		expect(lines.filter((l) => l.includes("[models-todo]"))).toEqual([expect.stringContaining("google/gemini-4-carbon")]);
+		expect(names).toEqual(["Gemini 4 Carbon", "Gemini 4 Argon", "Gemini 3.7 Flash"]);
+		// unknown to Pi but described from Junie's definition (like gemini-4-argon), still on the backlog
+		expect(lines.filter((l) => l.includes("[models-todo]"))).toEqual([expect.stringContaining("gemini-4-carbon (like gemini-4-argon)")]);
+		const carbon = backend.resolveModel({ slotId: "google", modelId: "gemini-4-carbon" })!;
+		const argon = backend.resolveModel({ slotId: "google", modelId: "gemini-4-argon" })!;
+		expect(carbon).toMatchObject({ id: "gemini-4-carbon", api: "google-generative-ai", contextWindow: argon.contextWindow, input: argon.input });
+		expect(carbon.cost).toMatchObject({ input: 2, output: 10, cacheRead: 0.1 });
 	});
 
 	it("narrows an account catalog to AIR's selectedModels, in that order", async () => {
@@ -113,7 +117,7 @@ describe("PiBackend model discovery", () => {
 		const s = await backend.openSession({ cwd: "/tmp" });
 		await s.selectModel({ slotId: "anthropic", modelId: "claude-sonnet-5-5" });
 		backend.unbindProvider("anthropic");
-		expect(s.currentModel()).toEqual({ slotId: "google", modelId: "gemini-4-argon" });
+		expect(s.currentModel()).toEqual({ slotId: "google", modelId: "gemini-4-carbon" }); // first in picker order
 	});
 
 	it("reports a clear error when every provider is switched off", async () => {
