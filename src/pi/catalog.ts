@@ -80,6 +80,18 @@ export function bridgeProviderId(slotId: string): string {
 	return `air-${slotId}`;
 }
 
+/** Junie's placeholders when the client names no Vertex project/location; the proxy fills in the real ones. */
+export const VERTEX_PLACEHOLDER = { projectId: "default-project", location: "default-location" };
+
+/**
+ * Request base for a vertex binding: `base/v1/projects/{p}/locations/{l}`, the path Junie uses through the proxy.
+ * Pi's Vertex client then appends `/publishers/google/models/...` (it treats a base with an API version as complete);
+ * without it Pi would use express mode (`base/v1/publishers/...`), which the JetBrains proxy answers with 404.
+ */
+export function vertexBaseUrl(baseUrl: string, location = VERTEX_PLACEHOLDER): string {
+	return `${baseUrl.replace(/\/+$/, "")}/v1/projects/${encodeURIComponent(location.projectId)}/locations/${encodeURIComponent(location.location)}`;
+}
+
 export function joinBaseUrl(baseUrl: string, basePath: string): string {
 	const trimmed = baseUrl.replace(/\/+$/, "");
 	return basePath && !trimmed.endsWith(basePath) ? `${trimmed}${basePath}` : trimmed;

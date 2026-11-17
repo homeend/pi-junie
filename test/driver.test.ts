@@ -54,6 +54,17 @@ describe("ACP driver", () => {
 		expect(res.error.code).toBe(-32602);
 	});
 
+	it("reads a vertex project/location from _meta.vertex (or _meta.claudeCode.vertex) like Junie", async () => {
+		const { codec } = { codec: await import("../src/acp/codec.ts") };
+		const slots = [{ id: "google", displayName: "Google", supportedApiTypes: ["google", "vertex"], required: false }];
+		const bind = (_meta: unknown, apiType = "vertex") => codec.decodeProviderBinding({ providerId: "google", apiType, baseUrl: "http://p", _meta } as never, slots);
+		expect(bind(undefined).vertex).toBeUndefined();
+		expect(bind({ vertex: { projectId: "p1", location: "us-east5" } }).vertex).toEqual({ projectId: "p1", location: "us-east5" });
+		expect(bind({ claudeCode: { vertex: { projectId: "p2", region: "europe-west4" } } }).vertex).toEqual({ projectId: "p2", location: "europe-west4" });
+		expect(bind({ vertex: { projectId: "p1", location: "x" } }, "google").vertex).toBeUndefined();
+		expect(() => bind({ vertex: { projectId: 1 } })).toThrow(/_meta.vertex/);
+	});
+
 	it("passes AIR's selectedModels to the backend and validates them", async () => {
 		const { call } = await connected();
 		const ok = await call("providers/set", { providerId: "openai", apiType: "openai", baseUrl: "http://x", _meta: { jetbrains: { air: { selectedModels: ["gpt-6.1-sol"] } } } });

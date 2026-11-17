@@ -35,6 +35,8 @@ export interface ProviderBinding {
 	headers: Record<string, string>;
 	/** Model ids the user picked in the client for this provider, in order (narrows a discovered account catalog). */
 	selectedModels?: string[];
+	/** Vertex resource location the client names for a vertex binding (else the proxy's placeholders apply). */
+	vertex?: { projectId: string; location: string };
 }
 
 export interface ProviderSlotState extends ProviderSlot {

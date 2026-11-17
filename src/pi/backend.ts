@@ -20,7 +20,7 @@ import {
 import { type Logger, silentLogger } from "../core/log.ts";
 import type { AgentBackend, BackendSession, PermissionAsk, SessionContext, TurnSink } from "../core/ports.ts";
 import type { CommandInfo, HistoryItem, McpServerSpec, ModelChoice, ModelGroup, ModelRef, PromptInput, ProviderBinding, ProviderSlotState, SessionSummary, SteerResult, TurnResult } from "../core/types.ts";
-import { bridgeProviderId, DEFAULT_MODEL, joinBaseUrl, SLOTS, type SlotDefinition } from "./catalog.ts";
+import { bridgeProviderId, DEFAULT_MODEL, joinBaseUrl, SLOTS, type SlotDefinition, vertexBaseUrl } from "./catalog.ts";
 import { openPiTranscript, type SessionMeta, SessionStore } from "./session-store.ts";
 import { BRIDGE_TOOLS, READ_ONLY_TOOLS, ToolTracker, toolKind, toolLocations, toolResultText, toolTitle } from "./tools.ts";
 import { IDE_ROUTER_TOOL, IDE_SERVER, ideRouterName, ideServerToolExposure, JUNIE_COMPAT_DEFAULTS, type JunieCompatOptions, junieExecuteToolAlias } from "./junie-compat.ts";
@@ -172,7 +172,7 @@ export class PiBackend implements AgentBackend {
 			...(m.thinkingLevelMap ? { thinkingLevelMap: m.thinkingLevelMap } : {}),
 			...(m.compat ? { compat: m.compat } : {}),
 		}));
-		const baseUrl = joinBaseUrl(binding.baseUrl, target.basePath);
+		const baseUrl = target.piApi === "google-vertex" ? vertexBaseUrl(binding.baseUrl, binding.vertex) : joinBaseUrl(binding.baseUrl, target.basePath);
 		if (models.length) {
 			this.runtime.registerProvider(bridgeProviderId(slot.id), {
 				name: `AIR ${slot.displayName}`,

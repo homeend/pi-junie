@@ -12,6 +12,7 @@ const proxy = await startFakeProxy({
 		if (path.endsWith(".anthropic/v1/models")) return [200, LISTINGS.anthropicVendor];
 		if (path.endsWith(".openai/models/user")) return [200, LISTINGS.openaiAccount];
 		if (path.endsWith(".google/v1beta/models")) return [200, LISTINGS.googleVendor];
+		if (path.endsWith(".vertex/v1beta1/publishers/google/models")) return [200, LISTINGS.vertexVendor];
 		if (path.endsWith(".broken/models/user")) return [500, { error: "boom" }];
 		return undefined;
 	},
@@ -57,6 +58,22 @@ describe("PiBackend model discovery", () => {
 		expect(sol?.baseUrl).toBe(`${proxy.url}/jcp.x.openai`); // AIR's openai base already is the /v1 base
 		expect(backend.resolveModel({ slotId: "anthropic", modelId: "claude-sonnet-5-5" })?.baseUrl).toBe(`${proxy.url}/jcp.x.anthropic`);
 		expect(backend.resolveModel({ slotId: "google", modelId: "gemini-4-argon" })?.baseUrl).toBe(`${proxy.url}/jcp.x.google/v1beta`);
+	});
+
+	it("sends vertex requests to Junie's project/location path (placeholders unless AIR names them)", async () => {
+		const posts = () => proxy.requests.filter((r) => r.method === "POST" && r.path.includes(".vertex/")).map((r) => r.path.split("?")[0]);
+		const chat = async (vertex?: { projectId: string; location: string }) => {
+			const { backend } = await newBackend();
+			backend.bindProvider({ slotId: "google", apiType: "vertex", baseUrl: `${proxy.url}/jcp.x.vertex/`, headers: {}, vertex });
+			await backend.modelsSettled(5000);
+			expect(ids(backend, "google")).toEqual(["gemini-3.8-flash"]);
+			const session = await backend.openSession({ cwd: mkdtempSync(join(tmpdir(), "pi-junie-proj-")) });
+			await session.prompt({ text: "hi", images: [] }, () => {}, new AbortController().signal, allowAll); // the fake proxy answers 404
+		};
+		await chat();
+		expect(posts().at(-1)).toBe("/jcp.x.vertex/v1/projects/default-project/locations/default-location/publishers/google/models/gemini-3.8-flash:streamGenerateContent");
+		await chat({ projectId: "my-proj", location: "europe-west4" });
+		expect(posts().at(-1)).toBe("/jcp.x.vertex/v1/projects/my-proj/locations/europe-west4/publishers/google/models/gemini-3.8-flash:streamGenerateContent");
 	});
 
 	it("limits vendor listings to Junie's picker models, with Junie's names", async () => {

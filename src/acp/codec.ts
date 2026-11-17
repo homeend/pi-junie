@@ -68,13 +68,27 @@ export function decodeProviderBinding(params: ProvidersSetParams, slots: Provide
 	if (selected !== undefined && (!Array.isArray(selected) || selected.some((m) => typeof m !== "string"))) {
 		throw RpcError.invalidParams("_meta.jetbrains.air.selectedModels must be an array of strings");
 	}
+	const vertex = params.apiType === "vertex" ? decodeVertexLocation(params._meta) : undefined;
 	return {
 		slotId: params.providerId,
 		apiType: params.apiType,
 		baseUrl: params.baseUrl,
 		headers: params.headers ?? {},
 		...(selected ? { selectedModels: selected as string[] } : {}),
+		...(vertex ? { vertex } : {}),
 	};
+}
+
+/** `_meta.vertex` (else `_meta.claudeCode.vertex`) `{projectId, location | region}`, like Junie. */
+function decodeVertexLocation(meta: Record<string, any> | undefined): { projectId: string; location: string } | undefined {
+	const raw = meta?.vertex ?? meta?.claudeCode?.vertex;
+	if (raw === undefined) return undefined;
+	const invalid = () => RpcError.invalidParams("_meta.vertex must be an object with string values");
+	if (typeof raw !== "object" || raw === null || Array.isArray(raw)) throw invalid();
+	if (Object.values(raw).some((v) => typeof v !== "string")) throw invalid();
+	const projectId = raw.projectId?.trim();
+	const location = (raw.location ?? raw.region)?.trim();
+	return projectId && location ? { projectId, location } : undefined;
 }
 
 // --- models as config option ----------------------------------------------------------------

@@ -32,8 +32,11 @@ otherwise Chat Completions. The gpt-5.x/6.x models use Responses.
 - `openai`: use the base as is, so Pi's `openai-responses` requests `base/responses`. The `/v1` I added was
   wrong and caused `…/v1/v1/responses` (404).
 - `google`: append `/v1beta`. Correct, matches Junie.
-- `vertex`: Pi's `google-vertex` requested `base/v1/publishers/google/models/…` (express mode, no project).
-  Junie uses `/v1/projects/{p}/locations/{l}/publishers/…`. **Needs a fix or a custom path.** Unverified.
+- `vertex`: Pi's `google-vertex` with an API key uses express mode, `base/v1/publishers/google/models/…`, which
+  the JetBrains proxy answers with 404 (seen live). Fixed: the Pi provider's base is
+  `base/v1/projects/{p}/locations/{l}` (`vertexBaseUrl`), so Pi requests Junie's path. Project/location come from
+  `_meta.vertex` / `_meta.claudeCode.vertex` (`projectId`, `location` or `region`), else `default-project` /
+  `default-location`, like Junie (AIR sends no `_meta.vertex` today).
 
 ## 2. Auth headers: JB convention on vendor protocols
 
