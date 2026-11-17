@@ -144,9 +144,19 @@ export class AcpAgent {
 		if (existing) return { configOptions: this.configOptionsFor(existing.backend) };
 		const cwd = typeof params.cwd === "string" ? params.cwd : process.cwd();
 		await this.backend.modelsSettled(MODEL_DISCOVERY_WAIT_MS);
-		const backend = await this.backend.resumeSession({ sessionId, cwd });
-		if (!backend) throw new RpcError(-32002, `Session not found: ${sessionId}`);
+		const resumed = await this.backend.resumeSession({ sessionId, cwd });
+		if (!resumed) throw new RpcError(-32002, `Session not found: ${sessionId}`);
+		const backend = resumed.session;
 		this.sessions.set(backend.id, { backend });
+		if (!resumed.restored) {
+			// After the response, tell the user the model will not see the earlier messages.
+			setTimeout(() =>
+				this.sendUpdate(sessionId, {
+					sessionUpdate: "agent_message_chunk",
+					content: { type: "text", text: "_Pi could not restore the earlier messages of this chat, so it continues without them._\n\n" },
+				}),
+			);
+		}
 		return { configOptions: this.configOptionsFor(backend) };
 	}
 

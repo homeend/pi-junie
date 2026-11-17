@@ -139,9 +139,10 @@ export class FakeBackend implements AgentBackend {
 			},
 		};
 	}
-	async resumeSession({ sessionId, cwd }: { sessionId: string; cwd: string }): Promise<BackendSession | undefined> {
+	async resumeSession({ sessionId, cwd }: { sessionId: string; cwd: string }) {
 		this.calls.push(`resume ${sessionId}`);
-		return sessionId.startsWith("fake-session-") ? this.openSessionWithId(sessionId, cwd) : undefined;
+		if (sessionId.includes("/")) return undefined;
+		return { session: await this.openSessionWithId(sessionId, cwd), restored: sessionId.startsWith("fake-session-") };
 	}
 	private async openSessionWithId(id: string, cwd: string): Promise<BackendSession> {
 		const s = await this.openSession({ cwd });

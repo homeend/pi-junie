@@ -232,15 +232,22 @@ export class PiBackend implements AgentBackend {
 		return new PiSession(meta, this);
 	}
 
-	async resumeSession({ sessionId, cwd }: { sessionId: string; cwd: string }): Promise<BackendSession | undefined> {
+	async resumeSession({ sessionId, cwd }: { sessionId: string; cwd: string }): Promise<{ session: BackendSession; restored: boolean } | undefined> {
+		if (!SessionStore.isValidId(sessionId)) {
+			this.log.error(`session ${sessionId}: resume rejected, invalid id`);
+			return undefined;
+		}
 		const meta = this.store.load(sessionId);
 		if (!meta) {
-			this.log.warn(`session ${sessionId}: resume requested but no saved session exists`);
-			return undefined;
+			const now = new Date().toISOString();
+			const fresh: SessionMeta = { id: sessionId, cwd, createdAt: now, updatedAt: now };
+			this.store.save(fresh);
+			this.log.warn(`session ${sessionId}: nothing saved under this id (created by an older build or deleted); continuing as an empty session`);
+			return { session: new PiSession(fresh, this), restored: false };
 		}
 		if (meta.cwd !== cwd) this.log.info(`session ${sessionId}: resumed with cwd ${cwd} (saved ${meta.cwd})`);
 		this.log.info(`session ${sessionId} resumed (saved model ${fmt(meta.model)}, created ${meta.createdAt})`);
-		return new PiSession({ ...meta, cwd }, this);
+		return { session: new PiSession({ ...meta, cwd }, this), restored: true };
 	}
 
 	/** Resolves a ModelRef to the Pi model registered for its binding. */

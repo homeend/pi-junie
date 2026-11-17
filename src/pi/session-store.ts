@@ -28,12 +28,16 @@ export class SessionStore {
 		mkdirSync(this.piDir, { recursive: true });
 	}
 
+	static isValidId(id: string): boolean {
+		return SAFE_ID.test(id) && id !== "." && id !== "..";
+	}
+
 	save(meta: SessionMeta): void {
 		writeFileSync(this.metaPath(meta.id), `${JSON.stringify({ ...meta, updatedAt: new Date().toISOString() }, null, 2)}\n`);
 	}
 
 	load(id: string): SessionMeta | undefined {
-		if (!SAFE_ID.test(id)) return undefined;
+		if (!SessionStore.isValidId(id)) return undefined;
 		const path = this.metaPath(id);
 		if (!existsSync(path)) return undefined;
 		return JSON.parse(readFileSync(path, "utf8")) as SessionMeta;
@@ -47,7 +51,7 @@ export class SessionStore {
 	}
 
 	private metaPath(id: string): string {
-		if (!SAFE_ID.test(id)) throw new Error(`invalid session id ${id}`);
+		if (!SessionStore.isValidId(id)) throw new Error(`invalid session id ${id}`);
 		return join(this.dir, `${id}.json`);
 	}
 }

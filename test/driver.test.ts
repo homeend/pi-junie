@@ -63,7 +63,17 @@ describe("ACP driver", () => {
 		expect(backend.calls).toContain("resume fake-session-7");
 		const prompt = await call("session/prompt", { sessionId: "fake-session-7", prompt: [{ type: "text", text: "again" }] });
 		expect(prompt.result.stopReason).toBe("end_turn");
-		expect((await call("session/resume", { sessionId: "nope", cwd: "/tmp" })).error.code).toBe(-32002);
+		expect((await call("session/resume", { sessionId: "../x", cwd: "/tmp" })).error.code).toBe(-32002);
+	});
+
+	it("session/resume of an unknown chat continues it empty and tells the user", async () => {
+		const { wire, call } = await connected();
+		const res = await call("session/resume", { sessionId: "pi-old-1", cwd: "/tmp" });
+		expect(res.result.configOptions).toEqual([]);
+		await new Promise((r) => setTimeout(r, 5));
+		const notice = wire.updates("agent_message_chunk").find((u: Obj) => u.sessionId === "pi-old-1") as Obj;
+		expect(notice.update.content.text).toContain("could not restore");
+		expect((await call("session/prompt", { sessionId: "pi-old-1", prompt: [{ type: "text", text: "hi" }] })).result.stopReason).toBe("end_turn");
 	});
 
 	it("advertises session resume", async () => {

@@ -121,7 +121,9 @@ describe("PiBackend session persistence", () => {
 		// "restart": a fresh backend on the same state dir, as after AIR re-launches the agent
 		const second = (await newBackend(stateDir)).backend;
 		await bind(second, "anthropic", "anthropic");
-		const s2 = await second.resumeSession({ sessionId: s1.id, cwd: "/tmp" });
+		const resumed = await second.resumeSession({ sessionId: s1.id, cwd: "/tmp" });
+		expect(resumed?.restored).toBe(true);
+		const s2 = resumed?.session;
 		expect(s2?.currentModel()).toEqual({ slotId: "anthropic", modelId: "claude-opus-5-5-20261001" });
 		let text = "";
 		await s2!.prompt("what did I say?", (e) => e.kind === "text" && (text += e.delta), new AbortController().signal);
@@ -131,9 +133,11 @@ describe("PiBackend session persistence", () => {
 		expect(turns).toEqual(["user:remember 42", "assistant:answer #1", "user:what did I say?"]);
 	});
 
-	it("returns undefined for an unknown session id", async () => {
+	it("continues an unknown session id as an empty session, rejects invalid ids", async () => {
 		const { backend } = await newBackend();
-		expect(await backend.resumeSession({ sessionId: "pi-nope-1", cwd: "/tmp" })).toBeUndefined();
+		const r = await backend.resumeSession({ sessionId: "pi-nope-1", cwd: "/tmp" });
+		expect(r?.restored).toBe(false);
+		expect(r?.session.id).toBe("pi-nope-1");
 		expect(await backend.resumeSession({ sessionId: "../etc/passwd", cwd: "/tmp" })).toBeUndefined();
 	});
 });
