@@ -4,7 +4,7 @@
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { Api, AssistantMessage, Model } from "@earendil-works/pi-ai";
+import { type Api, type AssistantMessage, isContextOverflow, type Model } from "@earendil-works/pi-ai";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai/models";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import {
@@ -24,6 +24,7 @@ import { bridgeProviderId, DEFAULT_MODEL, joinBaseUrl, SLOTS, type SlotDefinitio
 import { openPiTranscript, type SessionMeta, SessionStore } from "./session-store.ts";
 import { BRIDGE_TOOLS, READ_ONLY_TOOLS, ToolTracker, toolKind, toolLocations, toolResultText, toolTitle } from "./tools.ts";
 import { IDE_ROUTER_TOOL, IDE_SERVER, ideRouterName, ideServerToolExposure, JUNIE_COMPAT_DEFAULTS, type JunieCompatOptions, junieExecuteToolAlias } from "./junie-compat.ts";
+import { classifyFailure } from "./failures.ts";
 import { PhaseSplitter, type PhaseSplitterOptions, signaturePhase } from "./phases.ts";
 import { discoverModels, type ListedModel, listingIdMatches } from "./discovery.ts";
 
@@ -488,7 +489,8 @@ class PiSession implements BackendSession {
 				return { stop: "end_turn" };
 			}
 			log.error(`session ${this.id}: compaction failed: ${message}`);
-			return { stop: "error", error: `Compaction failed: ${(err as Error).message}` };
+			const failure = classifyFailure(message);
+			return { stop: "error", error: `Compaction failed: ${message}`, failure: { ...failure, title: `Compaction failed: ${failure.title}` } };
 		}
 	}
 
@@ -685,7 +687,11 @@ class PiSession implements BackendSession {
 		if (this.model && ref !== this.model) log.warn(`session ${this.id}: selected model ${fmt(this.model)} is no longer available, using ${fmt(ref)}`);
 		if (!ref || !model) {
 			log.error(`session ${this.id}: prompt rejected, no provider bound`);
-			return { stop: "error", error: "No model available: the IDE has not configured any provider for Pi." };
+			return {
+				stop: "error",
+				error: "No model available: the IDE has not configured any provider for Pi.",
+				failure: { category: "request", title: "No model available", details: "The IDE has not configured any AI provider for Pi. Choose an AI source or add an API key.", actions: [] },
+			};
 		}
 		if (this.model !== ref) {
 			this.model = ref;
@@ -765,7 +771,7 @@ class PiSession implements BackendSession {
 			await this.drainSteering(pi, signal);
 		} catch (err) {
 			log.error(`session ${this.id}: prompt threw after ${Date.now() - started}ms: ${(err as Error).stack ?? String(err)}`);
-			return { stop: signal.aborted ? "cancelled" : "error", error: (err as Error).message };
+			return { stop: signal.aborted ? "cancelled" : "error", error: (err as Error).message, failure: classifyFailure((err as Error).message) };
 		} finally {
 			this.enterPhase("idle");
 			phases.messageEnd(); // an aborted or failed message still shows what it wrote
@@ -781,7 +787,10 @@ class PiSession implements BackendSession {
 		else log.info(`session ${this.id}: prompt done after ${took}ms stop=${signal.aborted ? "cancelled" : last?.stopReason} ${tokens}`);
 		if (signal.aborted || last?.stopReason === "aborted") return { stop: "cancelled" };
 		const usage = last && { inputTokens: total.input, outputTokens: total.output, cachedReadTokens: total.cacheRead, cachedWriteTokens: total.cacheWrite };
-		if (last?.stopReason === "error") return { stop: "error", error: last.errorMessage ?? "model error", usage };
+		if (last?.stopReason === "error") {
+			const error = last.errorMessage ?? "model error";
+			return { stop: "error", error, usage, failure: classifyFailure(error, { overflow: isContextOverflow(last, model.contextWindow) }) };
+		}
 		if (last?.stopReason === "length") return { stop: "max_tokens", usage };
 		return { stop: "end_turn", usage };
 	}

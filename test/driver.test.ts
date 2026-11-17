@@ -361,6 +361,27 @@ describe("ACP driver", () => {
 		expect(pushes[0]).toEqual({ sessionId: s.result.sessionId, authStatus: { kind: "account", label: "JetBrains AI", detail: "IDE" } });
 	});
 
+	it("reports a failed turn as AIR's typed failure row when asked, else as message text", async () => {
+		const typed = await connected();
+		await typed.call("initialize", { protocolVersion: 1, clientCapabilities: { _meta: { jetbrains: { air: { version: 1, capabilities: ["sessionFailure"] } } } } });
+		const s = await typed.call("session/new", { cwd: "/tmp" });
+		const res = await typed.call("session/prompt", { sessionId: s.result.sessionId, prompt: [{ type: "text", text: "fail" }] });
+		await typed.call("session/prompt", { sessionId: s.result.sessionId, prompt: [{ type: "text", text: "fail" }] });
+		expect(res.result.stopReason).toBe("end_turn");
+		const rows = typed.wire.updates("session_info_update").map((u: Obj) => u.update._meta?.jetbrains?.air).filter((a: Obj | undefined) => a?.sessionFailure);
+		expect(rows[0]).toEqual({
+			version: 1,
+			sessionFailure: { id: "turn-1:error", revision: 1, category: "request", severity: "error", title: "The model provider does not know this model or endpoint (404)", details: "Not Found", actions: [] },
+		});
+		expect(rows[1].sessionFailure.id).toBe("turn-2:error"); // a later failure is a new incident
+		expect(typed.wire.updates("agent_message_chunk").some((u: Obj) => u.update.content.text.includes("Error"))).toBe(false);
+
+		const plain = await connected();
+		const p = await plain.call("session/new", { cwd: "/tmp" });
+		await plain.call("session/prompt", { sessionId: p.result.sessionId, prompt: [{ type: "text", text: "fail" }] });
+		expect(plain.wire.updates("agent_message_chunk").map((u: Obj) => u.update.content.text).join("")).toContain("**Error:**");
+	});
+
 	it("advertises loadSession", async () => {
 		const { call } = await connected();
 		expect((await call("initialize", { protocolVersion: 1 })).result.agentCapabilities.loadSession).toBe(true);

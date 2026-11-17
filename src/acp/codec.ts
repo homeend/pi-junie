@@ -1,6 +1,6 @@
 // Translation between ACP v1 wire shapes and core types. Pure functions.
 
-import type { ClientProfile, CommandInfo, HistoryItem, McpServerSpec, ModelGroup, ModelRef, PromptImage, PromptInput, ProviderBinding, PermissionDecision, PermissionRequest, ProviderSlotState, SessionSummary, ToolUpdate, TurnEvent, TurnResult, MessagePhase } from "../core/types.ts";
+import type { ClientProfile, CommandInfo, HistoryItem, McpServerSpec, ModelGroup, ModelRef, PromptImage, PromptInput, ProviderBinding, PermissionDecision, PermissionRequest, ProviderSlotState, SessionSummary, ToolUpdate, TurnEvent, TurnResult, MessagePhase, TurnFailure } from "../core/types.ts";
 import { RpcError } from "./jsonrpc.ts";
 import type {
 	ContentBlock,
@@ -208,6 +208,30 @@ export function encodeTurnEvent(event: TurnEvent): SessionUpdate | undefined {
 				...(event.costUsd !== undefined ? { cost: { amount: event.costUsd, currency: "USD" } } : {}),
 			};
 	}
+}
+
+/** AIR's typed failure row: `session_info_update` with `_meta.jetbrains.air.sessionFailure` (Junie v1 shape). */
+export function encodeSessionFailure(id: string, failure: TurnFailure): SessionUpdate {
+	const title = failure.title.split(/\r?\n/)[0].trim().slice(0, 240) || "The run stopped";
+	return {
+		sessionUpdate: "session_info_update",
+		_meta: {
+			jetbrains: {
+				air: {
+					version: 1,
+					sessionFailure: {
+						id,
+						revision: 1,
+						category: failure.category,
+						severity: "error",
+						title,
+						...(failure.details?.trim() ? { details: failure.details.trim().slice(0, 2000) } : {}),
+						actions: failure.actions,
+					},
+				},
+			},
+		},
+	};
 }
 
 export function encodePromptResult(result: TurnResult): Record<string, unknown> {

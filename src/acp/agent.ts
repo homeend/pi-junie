@@ -26,6 +26,7 @@ import {
 	encodePermissionRequest,
 	encodeToolUpdate,
 	encodeTurnEvent,
+	encodeSessionFailure,
 } from "./codec.ts";
 import { type JsonObject, JsonRpcPeer, RpcError, type Transport } from "./jsonrpc.ts";
 import { type InitializeParams, type InitializeResult, PROTOCOL_VERSION, type ProvidersSetParams, type SessionPromptParams, type SessionUpdate } from "./wire.ts";
@@ -37,6 +38,8 @@ interface SessionEntry {
 	turn?: AbortController;
 	/** Settles when the running turn has released the session. */
 	turnDone?: Promise<void>;
+	/** Failed turns so far (ids of AIR failure rows). */
+	failures?: number;
 }
 
 /** v1 steering: AIR sends a message typed while a turn runs (only when we advertise `_meta.steering.supported`). */
@@ -325,9 +328,7 @@ export class AcpAgent {
 					turn.signal,
 					(request) => this.requestPermission(sessionId, request, knownTools, turn.signal),
 				);
-				if (result.stop === "error") {
-					this.sendUpdate(sessionId, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: `\n\n**Error:** ${result.error ?? "unknown error"}` } });
-				}
+				if (result.stop === "error") this.reportFailure(sessionId, entry, result);
 				return result;
 			} finally {
 				entry.turn = undefined;
@@ -339,6 +340,20 @@ export class AcpAgent {
 			() => undefined,
 		);
 		return done;
+	}
+
+	/**
+	 * A failed turn: AIR's typed failure row (`sessionFailure`, one incident per turn like Junie) when the client
+	 * opted in, else the error as message text.
+	 */
+	private reportFailure(sessionId: string, entry: SessionEntry, result: TurnResult): void {
+		const failure = result.failure ?? { category: "unknown" as const, title: "The run stopped", details: result.error, actions: ["retry" as const] };
+		if (this.client?.features.includes("sessionFailure")) {
+			entry.failures = (entry.failures ?? 0) + 1;
+			this.sendUpdate(sessionId, encodeSessionFailure(`turn-${entry.failures}:error`, failure));
+		} else {
+			this.sendUpdate(sessionId, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: `\n\n**Error:** ${result.error ?? failure.title}` } });
+		}
 	}
 
 	/** session/request_permission: the client shows the tool call with Allow once / Allow for this chat / Reject. */

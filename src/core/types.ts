@@ -128,9 +128,18 @@ export type MessagePhase = "commentary" | "final_answer";
 
 export type TurnStop = "end_turn" | "cancelled" | "max_tokens" | "refusal" | "error";
 
+/** Why a turn failed, for the client's failure row: a broad group, one line, optional explanation, and recovery. */
+export interface TurnFailure {
+	category: "connection" | "access" | "limit" | "request" | "service" | "unknown";
+	title: string;
+	details?: string;
+	actions: ("retry" | "login" | "new_session")[];
+}
+
 export interface TurnResult {
 	stop: TurnStop;
 	error?: string;
+	failure?: TurnFailure;
 	usage?: { inputTokens: number; outputTokens: number; cachedReadTokens?: number; cachedWriteTokens?: number };
 }
 

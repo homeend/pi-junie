@@ -67,8 +67,7 @@ like a normal chat:
 3. **Thinking / effort**: a `select` config option (`off|low|medium|high`) mapped to Pi `thinkingLevel`, so
    reasoning models think and their thoughts stream as `agent_thought_chunk`. P1, small.
 4. **Images in prompts**: advertise `image: true` and pass image blocks to `pi.prompt(text, {images})`. P1, small.
-5. **Typed errors**: AIR negotiates `sessionFailure`. Today errors arrive as a markdown chunk; keep that until
-   we have the failure contract. P2.
+5. **Typed errors**: done, AIR's `sessionFailure` rows (see spec, Failures).
 
 **For a coding chat (the next step after Q&A):**
 

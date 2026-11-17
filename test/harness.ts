@@ -192,6 +192,9 @@ export class FakeBackend implements AgentBackend {
 		};
 		async function prompt({ text, images, command }: PromptInput, sink: TurnSink, signal: AbortSignal, ask: PermissionAsk): Promise<TurnResult> {
 				calls.push(`prompt ${id}: ${text}${images.length ? ` +${images.length} image(s)` : ""}${command ? ` [command ${command.name}: ${command.args}]` : ""}`);
+				if (text === "fail") {
+					return { stop: "error", error: '{"error":{"message":"","code":404,"status":"Not Found"}}', failure: { category: "request", title: "The model provider does not know this model or endpoint (404)", details: "Not Found", actions: [] } };
+				}
 				if (text.startsWith("slow ") || command?.args.startsWith("slow")) {
 					await new Promise<void>((r) => {
 						backend.slowGate = r;

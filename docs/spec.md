@@ -164,6 +164,12 @@ group ids (`proxy:<slot>`), `_meta` shapes and stop reasons.
 - **Tool events** (`src/pi/tools.ts`, ported from pi-acp, MIT) become neutral `ToolUpdate`s (title, kind,
   status, input, locations with the edit line, output text, edit/write diffs from a pre-execution snapshot).
   The driver turns the first update of an id into `tool_call` and later ones into `tool_call_update`.
+- **Failures** (`src/pi/failures.ts`): a failed turn carries a neutral `TurnFailure` (category connection /
+  access / limit / request / service / unknown, one-line title, the provider's message as details, actions
+  retry / new_session), classified from Pi's error (HTTP status, network errors, Pi's context-overflow check).
+  For a client with AIR's `sessionFailure` capability the driver sends Junie's typed row
+  (`session_info_update` + `_meta.jetbrains.air.sessionFailure`, id `turn-<n>:error`, revision 1); otherwise
+  an "**Error:**" message chunk. The prompt still ends with `end_turn`, like Junie v1.
 - **Message phases** (`src/pi/phases.ts`), like Junie: each assistant text chunk is `commentary` (written while
   working, before tool calls) or `final_answer`, sent as `_meta.jetbrains.air.phase` (plus Junie's `codex` and
   `junie` keys). The first text of a message is held up to 1.5 s / 600 chars: a tool call starting meanwhile makes
