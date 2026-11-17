@@ -144,6 +144,39 @@ describe("ACP driver", () => {
 		expect((await call("initialize", { protocolVersion: 1 })).result.agentCapabilities.loadSession).toBe(true);
 	});
 
+	it("asks the client before a tool runs and streams the tool call", async () => {
+		const { wire, call } = await connected();
+		const asked: Obj[] = [];
+		wire.clientHandler = (method, params) => {
+			asked.push({ method, params });
+			return { outcome: { outcome: "selected", optionId: "allow_once" } };
+		};
+		const s = await call("session/new", { cwd: "/tmp" });
+		const res = await call("session/prompt", { sessionId: s.result.sessionId, prompt: [{ type: "text", text: "run ls -la" }] });
+		expect(res.result.stopReason).toBe("end_turn");
+		expect(asked).toHaveLength(1);
+		expect(asked[0].method).toBe("session/request_permission");
+		expect(asked[0].params.toolCall).toMatchObject({ toolCallId: "tool-1", title: "Run ls -la", kind: "execute", rawInput: { command: "ls -la" } });
+		expect(asked[0].params.options.map((o: Obj) => o.kind)).toEqual(["allow_once", "allow_always", "reject_once"]);
+		const tools = wire.updates().map((u: Obj) => u.update).filter((u: Obj) => u.sessionUpdate.startsWith("tool_call"));
+		expect(tools.map((u: Obj) => [u.sessionUpdate, u.status])).toEqual([
+			["tool_call", "pending"],
+			["tool_call_update", "in_progress"],
+			["tool_call_update", "completed"],
+		]);
+		expect(tools[2].content).toEqual([{ type: "content", content: { type: "text", text: "ok" } }]);
+	});
+
+	it("a rejected or cancelled permission blocks the tool", async () => {
+		const { wire, backend, call } = await connected();
+		wire.clientHandler = () => ({ outcome: { outcome: "cancelled" } });
+		const s = await call("session/new", { cwd: "/tmp" });
+		await call("session/prompt", { sessionId: s.result.sessionId, prompt: [{ type: "text", text: "run make deploy" }] });
+		expect(backend.calls).toContain("permission reject");
+		const last = wire.updates("tool_call_update").at(-1) as Obj;
+		expect(last.update.status).toBe("failed");
+	});
+
 	it("unknown methods get -32601", async () => {
 		const { call } = await connected();
 		expect((await call("_session/goal")).error.code).toBe(-32601);

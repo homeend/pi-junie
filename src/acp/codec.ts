@@ -1,6 +1,6 @@
 // Translation between ACP v1 wire shapes and core types. Pure functions.
 
-import type { ClientProfile, HistoryItem, ModelGroup, ModelRef, PromptImage, PromptInput, ProviderBinding, ProviderSlotState, SessionSummary, TurnEvent, TurnResult } from "../core/types.ts";
+import type { ClientProfile, HistoryItem, ModelGroup, ModelRef, PromptImage, PromptInput, ProviderBinding, PermissionDecision, PermissionRequest, ProviderSlotState, SessionSummary, ToolUpdate, TurnEvent, TurnResult } from "../core/types.ts";
 import { RpcError } from "./jsonrpc.ts";
 import type {
 	ContentBlock,
@@ -167,6 +167,8 @@ export function decodePrompt(prompt: ContentBlock[] | undefined): PromptInput {
 
 export function encodeTurnEvent(event: TurnEvent): SessionUpdate | undefined {
 	switch (event.kind) {
+		case "tool":
+			return undefined; // stateful, see encodeToolUpdate
 		case "text":
 			return { sessionUpdate: "agent_message_chunk", content: { type: "text", text: event.delta } };
 		case "thought":
@@ -237,4 +239,57 @@ export function encodeHistory(items: HistoryItem[]): SessionUpdate[] {
 				return { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: item.text } };
 		}
 	});
+}
+
+// --- tools & permissions ------------------------------------------------------------------
+
+function toolContent(u: ToolUpdate): unknown[] | undefined {
+	if (u.diff) return [{ type: "diff", path: u.diff.path, oldText: u.diff.oldText, newText: u.diff.newText }];
+	if (u.output !== undefined) return [{ type: "content", content: { type: "text", text: u.output } }];
+	return undefined;
+}
+
+/** First update for an id -> `tool_call`, later ones -> `tool_call_update` (only the fields that are set). */
+export function encodeToolUpdate(u: ToolUpdate, known: Set<string>): SessionUpdate {
+	const content = toolContent(u);
+	const fields = {
+		toolCallId: u.id,
+		...(u.title !== undefined ? { title: u.title } : {}),
+		...(u.toolKind !== undefined ? { kind: u.toolKind } : {}),
+		...(u.status !== undefined ? { status: u.status } : {}),
+		...(u.input !== undefined ? { rawInput: u.input } : {}),
+		...(u.locations ? { locations: u.locations } : {}),
+		...(content ? { content } : {}),
+	};
+	if (known.has(u.id)) return { sessionUpdate: "tool_call_update", ...fields } as SessionUpdate;
+	known.add(u.id);
+	return { sessionUpdate: "tool_call", title: u.name, kind: "other", status: "pending", ...fields } as SessionUpdate;
+}
+
+export const PERMISSION_OPTIONS = [
+	{ optionId: "allow_once", name: "Allow once", kind: "allow_once" },
+	{ optionId: "allow_always", name: "Allow for this chat", kind: "allow_always" },
+	{ optionId: "reject", name: "Reject", kind: "reject_once" },
+] as const;
+
+export function encodePermissionRequest(sessionId: string, r: PermissionRequest): Record<string, unknown> {
+	return {
+		sessionId,
+		toolCall: {
+			toolCallId: r.toolCallId,
+			title: r.title,
+			kind: r.toolKind,
+			status: "pending",
+			rawInput: r.input,
+			...(r.locations ? { locations: r.locations } : {}),
+		},
+		options: PERMISSION_OPTIONS,
+	};
+}
+
+/** `{outcome: {outcome: "selected", optionId}}` | `{outcome: {outcome: "cancelled"}}`; anything else rejects. */
+export function decodePermissionOutcome(response: { outcome?: { outcome?: string; optionId?: string } } | undefined): PermissionDecision {
+	const o = response?.outcome;
+	if (o?.outcome !== "selected") return "reject";
+	return o.optionId === "allow_once" || o.optionId === "allow_always" ? o.optionId : "reject";
 }

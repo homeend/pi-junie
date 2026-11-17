@@ -18,6 +18,8 @@ const proxy = await startFakeProxy({
 });
 afterAll(() => proxy.close());
 
+const allowAll = async () => "allow_once" as const;
+
 async function newBackend(stateDir = mkdtempSync(join(tmpdir(), "pi-junie-test-"))) {
 	const lines: string[] = [];
 	const backend = await PiBackend.create({
@@ -102,7 +104,7 @@ describe("PiBackend model discovery", () => {
 		await bind(backend, "anthropic", "anthropic");
 		const s = await backend.openSession({ cwd: "/tmp" });
 		backend.unbindProvider("anthropic");
-		const r = await s.prompt({ text: "hi", images: [] }, () => {}, new AbortController().signal);
+		const r = await s.prompt({ text: "hi", images: [] }, () => {}, new AbortController().signal, allowAll);
 		expect(r).toMatchObject({ stop: "error" });
 		expect(r.error).toContain("No model available");
 	});
@@ -115,7 +117,7 @@ describe("PiBackend session persistence", () => {
 		await bind(first, "anthropic", "anthropic");
 		const s1 = await first.openSession({ cwd: "/tmp" });
 		await s1.selectModel({ slotId: "anthropic", modelId: "claude-opus-5-5-20261001" });
-		const r1 = await s1.prompt({ text: "remember 42", images: [] }, () => {}, new AbortController().signal);
+		const r1 = await s1.prompt({ text: "remember 42", images: [] }, () => {}, new AbortController().signal, allowAll);
 		expect(r1.stop).toBe("end_turn");
 
 		// "restart": a fresh backend on the same state dir, as after AIR re-launches the agent
@@ -126,7 +128,7 @@ describe("PiBackend session persistence", () => {
 		const s2 = resumed?.session;
 		expect(s2?.currentModel()).toEqual({ slotId: "anthropic", modelId: "claude-opus-5-5-20261001" });
 		let text = "";
-		await s2!.prompt({ text: "what did I say?", images: [] }, (e) => e.kind === "text" && (text += e.delta), new AbortController().signal);
+		await s2!.prompt({ text: "what did I say?", images: [] }, (e) => e.kind === "text" && (text += e.delta), new AbortController().signal, allowAll);
 		expect(text).toBe("answer #2");
 		const last = proxy.requests.filter((r) => r.method === "POST").at(-1)!;
 		const turns = last.body.messages.filter((m: { role: string }) => m.role !== "system").map((m: { role: string; content: any }) => `${m.role}:${m.content?.[0]?.text}`);
@@ -150,15 +152,15 @@ describe("session title", () => {
 		const s = await backend.openSession({ cwd: "/tmp" });
 		const titles: string[] = [];
 		const sink = (e: { kind: string; title?: string }) => e.kind === "title" && titles.push(e.title!);
-		await s.prompt({ text: "  How do I rebase\nonto main?", images: [] }, sink, new AbortController().signal);
-		await s.prompt({ text: "second question", images: [] }, sink, new AbortController().signal);
+		await s.prompt({ text: "  How do I rebase\nonto main?", images: [] }, sink, new AbortController().signal, allowAll);
+		await s.prompt({ text: "second question", images: [] }, sink, new AbortController().signal, allowAll);
 		expect(titles).toEqual(["How do I rebase"]);
 
 		const again = (await newBackend(stateDir)).backend;
 		await bind(again, "anthropic", "anthropic");
 		const resumed = (await again.resumeSession({ sessionId: s.id, cwd: "/tmp" }))!.session;
 		const later: string[] = [];
-		await resumed.prompt({ text: "third", images: [] }, (e) => e.kind === "title" && later.push(e.title), new AbortController().signal);
+		await resumed.prompt({ text: "third", images: [] }, (e) => e.kind === "title" && later.push(e.title), new AbortController().signal, allowAll);
 		expect(later).toEqual([]);
 	});
 
@@ -181,7 +183,7 @@ describe("reasoning effort", () => {
 		expect(s.effortLevels()).not.toContain("off");
 		expect(s.currentEffort()).toBe("medium");
 		await s.selectEffort("high");
-		await s.prompt({ text: "think hard", images: [] }, () => {}, new AbortController().signal);
+		await s.prompt({ text: "think hard", images: [] }, () => {}, new AbortController().signal, allowAll);
 		const body = JSON.stringify(proxy.requests.filter((r) => r.method === "POST").at(-1)!.body);
 		expect(body).toContain('"effort":"high"');
 
@@ -198,7 +200,7 @@ describe("image prompts", () => {
 		const { backend } = await newBackend();
 		await bind(backend, "anthropic", "anthropic");
 		const s = await backend.openSession({ cwd: "/tmp" });
-		await s.prompt({ text: "describe", images: [{ data: PNG_1X1, mimeType: "image/png" }] }, () => {}, new AbortController().signal);
+		await s.prompt({ text: "describe", images: [{ data: PNG_1X1, mimeType: "image/png" }] }, () => {}, new AbortController().signal, allowAll);
 		const body = proxy.requests.filter((r) => r.method === "POST").at(-1)!.body;
 		const user = body.messages.find((m: { role: string }) => m.role === "user");
 		expect(user.content.map((c: { type: string }) => c.type)).toEqual(expect.arrayContaining(["text", "image"]));
@@ -212,10 +214,10 @@ describe("session history", () => {
 		const { backend } = await newBackend(stateDir);
 		await bind(backend, "anthropic", "anthropic");
 		const a = await backend.openSession({ cwd: "/proj" });
-		await a.prompt({ text: "first chat", images: [] }, () => {}, new AbortController().signal);
+		await a.prompt({ text: "first chat", images: [] }, () => {}, new AbortController().signal, allowAll);
 		await backend.openSession({ cwd: "/proj" }); // never prompted: not history
 		const b = await backend.openSession({ cwd: "/other" });
-		await b.prompt({ text: "other project", images: [] }, () => {}, new AbortController().signal);
+		await b.prompt({ text: "other project", images: [] }, () => {}, new AbortController().signal, allowAll);
 
 		const again = (await newBackend(stateDir)).backend;
 		expect(again.listSessions({ cwd: "/proj", limit: 50 }).map((s) => [s.id, s.title])).toEqual([[a.id, "first chat"]]);

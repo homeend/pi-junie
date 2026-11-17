@@ -70,11 +70,40 @@ export interface PromptInput {
 	images: PromptImage[];
 }
 
+export type ToolKind = "read" | "edit" | "delete" | "move" | "search" | "execute" | "think" | "fetch" | "other";
+export type ToolStatus = "pending" | "in_progress" | "completed" | "failed";
+
+/** Upsert of one tool call: the first update for an id creates it, later ones change it. */
+export interface ToolUpdate {
+	id: string;
+	name: string;
+	title?: string;
+	toolKind?: ToolKind;
+	status?: ToolStatus;
+	input?: unknown;
+	locations?: { path: string; line?: number }[];
+	/** Full text output so far (replaces earlier output). */
+	output?: string;
+	diff?: { path: string; oldText: string | null; newText: string };
+}
+
+export interface PermissionRequest {
+	toolCallId: string;
+	toolName: string;
+	title: string;
+	toolKind: ToolKind;
+	input: unknown;
+	locations?: { path: string; line?: number }[];
+}
+
+export type PermissionDecision = "allow_once" | "allow_always" | "reject";
+
 export type TurnEvent =
 	| { kind: "text"; delta: string }
 	| { kind: "thought"; delta: string }
 	| { kind: "usage"; inputTokens: number; outputTokens: number; contextUsed?: number; contextSize?: number; costUsd?: number }
-	| { kind: "title"; title: string };
+	| { kind: "title"; title: string }
+	| { kind: "tool"; update: ToolUpdate };
 
 export type TurnStop = "end_turn" | "cancelled" | "max_tokens" | "refusal" | "error";
 

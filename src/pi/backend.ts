@@ -9,21 +9,22 @@ import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import {
 	type AgentSession,
 	createAgentSession,
-	createExtensionRuntime,
+	DefaultResourceLoader,
+	type ExtensionAPI,
 	ModelRuntime,
-	type ResourceLoader,
-	SessionManager,
 	SettingsManager,
 	VERSION as PI_VERSION,
 } from "@earendil-works/pi-coding-agent";
 import { type Logger, silentLogger } from "../core/log.ts";
-import type { AgentBackend, BackendSession, TurnSink } from "../core/ports.ts";
+import type { AgentBackend, BackendSession, PermissionAsk, TurnSink } from "../core/ports.ts";
 import type { HistoryItem, ModelChoice, ModelGroup, ModelRef, PromptInput, ProviderBinding, ProviderSlotState, SessionSummary, TurnResult } from "../core/types.ts";
 import { bridgeProviderId, DEFAULT_MODEL, joinBaseUrl, SLOTS, type SlotDefinition } from "./catalog.ts";
 import { openPiTranscript, type SessionMeta, SessionStore } from "./session-store.ts";
+import { BRIDGE_TOOLS, READ_ONLY_TOOLS, ToolTracker, toolKind, toolLocations, toolTitle } from "./tools.ts";
 import { discoverModels, type ListedModel, listingIdMatches } from "./discovery.ts";
 
-const SYSTEM_PROMPT = "You are Pi, a helpful assistant running inside a JetBrains IDE. Answer concisely. Use Markdown.";
+const IDE_NOTE =
+	"You are running inside a JetBrains IDE (AIR) through the Agent Client Protocol. The user sees your Markdown answers and your tool calls in the IDE; edits and commands need their approval.";
 
 export interface PiBackendOptions {
 	/** Directory for Pi state of this bridge (isolated from the user's ~/.pi/agent). */
@@ -43,6 +44,7 @@ export class PiBackend implements AgentBackend {
 	private readonly discoveryTimeoutMs?: number;
 	private generation = 0;
 	readonly store: SessionStore;
+	private readonly agentDir: string;
 	private readonly listeners = new Set<() => void>();
 	readonly log: Logger;
 	private readonly version: string;
@@ -51,6 +53,7 @@ export class PiBackend implements AgentBackend {
 	private constructor(runtime: ModelRuntime, stateDir: string, options: PiBackendOptions) {
 		this.runtime = runtime;
 		this.store = new SessionStore(stateDir);
+		this.agentDir = join(stateDir, "agent");
 		this.log = options.logger ?? silentLogger;
 		this.version = options.version ?? "0.0.0";
 		this.fetchImpl = options.fetch;
@@ -273,16 +276,33 @@ export class PiBackend implements AgentBackend {
 		return first ? { slotId: first.slotId, modelId: first.modelId } : undefined;
 	}
 
-	async createPiSession(id: string, cwd: string, model: Model<Api>, thinkingLevel: ThinkingLevel): Promise<AgentSession> {
+	/**
+	 * A Pi coding session: Pi's default system prompt and built-in tools, no user extensions/skills/settings
+	 * (isolated agentDir). `gate` is an inline Pi extension that decides on every tool call.
+	 */
+	async createPiSession(id: string, cwd: string, model: Model<Api>, thinkingLevel: ThinkingLevel, gate: (pi: ExtensionAPI) => void): Promise<AgentSession> {
 		const { manager, restored } = this.store.piSessionManager(id, cwd);
 		this.log.info(`session ${id}: Pi transcript ${restored ? `restored (${manager.getEntries().length} entries)` : "created"} at ${manager.getSessionFile() ?? "<memory>"}`);
+		const resourceLoader = new DefaultResourceLoader({
+			cwd,
+			agentDir: this.agentDir,
+			noExtensions: true,
+			noSkills: true,
+			noPromptTemplates: true,
+			noThemes: true,
+			noContextFiles: true,
+			appendSystemPrompt: [IDE_NOTE],
+			extensionFactories: [gate],
+		});
+		await resourceLoader.reload();
 		const { session } = await createAgentSession({
 			cwd,
+			agentDir: this.agentDir,
 			model,
 			thinkingLevel,
 			modelRuntime: this.runtime,
-			resourceLoader: minimalResources(),
-			noTools: "all",
+			resourceLoader,
+			tools: BRIDGE_TOOLS,
 			sessionManager: manager,
 			settingsManager: SettingsManager.inMemory({ compaction: { enabled: false } }),
 		});
@@ -307,6 +327,11 @@ class PiSession implements BackendSession {
 	private readonly meta: SessionMeta;
 	private model?: ModelRef;
 	private pi?: AgentSession;
+	/** Permission callback of the running turn (the Pi gate extension lives as long as the Pi session). */
+	private ask?: PermissionAsk;
+	private readonly alwaysAllowed = new Set<string>();
+	/** Cost of this chat since it was opened in this agent process. */
+	private costUsd = 0;
 
 	constructor(meta: SessionMeta, backend: PiBackend) {
 		this.meta = meta;
@@ -397,7 +422,31 @@ class PiSession implements BackendSession {
 		await this.pi?.setModel(model);
 	}
 
-	async prompt(input: PromptInput, sink: TurnSink, signal: AbortSignal): Promise<TurnResult> {
+	/** Pi extension: read-only tools run; everything else asks the user unless allowed for this chat. */
+	private readonly gate = (pi: ExtensionAPI) => {
+		pi.on("tool_call", async (event) => {
+			const log = this.backend.log;
+			if (READ_ONLY_TOOLS.has(event.toolName) || this.alwaysAllowed.has(event.toolName)) return undefined;
+			if (!this.ask) return { block: true, reason: "No client to ask for permission." };
+			const decision = await this.ask({
+				toolCallId: event.toolCallId,
+				toolName: event.toolName,
+				title: toolTitle(event.toolName, event.input),
+				toolKind: toolKind(event.toolName),
+				input: event.input,
+				locations: toolLocations(event.input, this.cwd),
+			}).catch((err: unknown) => {
+				log.error(`session ${this.id}: permission request failed: ${(err as Error)?.message ?? String(err)}`);
+				return "reject" as const;
+			});
+			log.info(`session ${this.id}: permission ${event.toolName} ${event.toolCallId} -> ${decision}`);
+			if (decision === "allow_always") this.alwaysAllowed.add(event.toolName);
+			if (decision === "reject") return { block: true, reason: "The user rejected this tool call." };
+			return undefined;
+		});
+	};
+
+	async prompt(input: PromptInput, sink: TurnSink, signal: AbortSignal, ask: PermissionAsk): Promise<TurnResult> {
 		let { text } = input;
 		const log = this.backend.log;
 		const ref = this.currentModel();
@@ -411,7 +460,7 @@ class PiSession implements BackendSession {
 			this.model = ref;
 			this.persist();
 		}
-		if (!this.pi) this.pi = await this.backend.createPiSession(this.id, this.cwd, model, this.thinkingLevel());
+		if (!this.pi) this.pi = await this.backend.createPiSession(this.id, this.cwd, model, this.thinkingLevel(), this.gate);
 		else if (this.pi.model?.id !== model.id || this.pi.model?.provider !== model.provider) await this.pi.setModel(model);
 		if (this.pi.thinkingLevel !== this.thinkingLevel()) this.pi.setThinkingLevel(this.thinkingLevel());
 		const pi = this.pi;
@@ -428,21 +477,40 @@ class PiSession implements BackendSession {
 		log.info(`session ${this.id}: prompt start model=${fmt(ref)} effort=${pi.thinkingLevel} api=${model.api} baseUrl=${model.baseUrl} chars=${text.length} images=${images.length}`);
 
 		let last: AssistantMessage | undefined;
+		const total = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };
+		const tools = new ToolTracker(this.cwd);
+		const tool = (update: ReturnType<ToolTracker["finished"]> | undefined) => update && sink({ kind: "tool", update });
+		this.ask = ask;
 		const unsubscribe = pi.subscribe((event) => {
 			if (event.type === "message_update") {
 				const e = event.assistantMessageEvent;
 				if (e.type === "text_delta") sink({ kind: "text", delta: e.delta });
 				else if (e.type === "thinking_delta") sink({ kind: "thought", delta: e.delta });
+				else if (e.type === "toolcall_end") tool(tools.requested(e.toolCall.id, e.toolCall.name, e.toolCall.arguments));
+			} else if (event.type === "tool_execution_start") {
+				log.info(`session ${this.id}: tool ${event.toolName} ${event.toolCallId} start ${JSON.stringify(event.args).slice(0, 200)}`);
+				tool(tools.started(event.toolCallId, event.toolName, event.args));
+			} else if (event.type === "tool_execution_update") {
+				tool(tools.progressed(event.toolCallId, event.toolName, event.partialResult));
+			} else if (event.type === "tool_execution_end") {
+				log.info(`session ${this.id}: tool ${event.toolName} ${event.toolCallId} ${event.isError ? "FAILED" : "done"}${event.durationMs !== undefined ? ` ${event.durationMs}ms` : ""}`);
+				tool(tools.finished(event.toolCallId, event.toolName, event.result, event.isError));
 			} else if (event.type === "message_end" && event.message.role === "assistant") {
 				last = event.message as AssistantMessage;
 				const u = last.usage;
+				total.input += u.input;
+				total.output += u.output;
+				total.cacheRead += u.cacheRead;
+				total.cacheWrite += u.cacheWrite;
+				total.cost += u.cost.total;
+				this.costUsd += u.cost.total;
 				sink({
 					kind: "usage",
 					inputTokens: u.input,
 					outputTokens: u.output,
 					contextUsed: u.input + u.cacheRead + u.cacheWrite + u.output,
 					contextSize: model.contextWindow,
-					costUsd: u.cost.total,
+					costUsd: this.costUsd, // cumulative for the chat, like Junie's usage_update
 				});
 			}
 		});
@@ -455,14 +523,15 @@ class PiSession implements BackendSession {
 			return { stop: signal.aborted ? "cancelled" : "error", error: (err as Error).message };
 		} finally {
 			unsubscribe();
+			this.ask = undefined;
 			signal.removeEventListener("abort", onAbort);
 		}
 		const took = Date.now() - started;
-		const tokens = last ? `in=${last.usage.input} out=${last.usage.output} cost=$${last.usage.cost.total.toFixed(5)}` : "no assistant message";
+		const tokens = last ? `in=${total.input} out=${total.output} cost=$${total.cost.toFixed(5)}` : "no assistant message";
 		if (last?.stopReason === "error") log.error(`session ${this.id}: prompt failed after ${took}ms (${tokens}): ${last.errorMessage}`);
 		else log.info(`session ${this.id}: prompt done after ${took}ms stop=${signal.aborted ? "cancelled" : last?.stopReason} ${tokens}`);
 		if (signal.aborted || last?.stopReason === "aborted") return { stop: "cancelled" };
-		const usage = last && { inputTokens: last.usage.input, outputTokens: last.usage.output, cachedReadTokens: last.usage.cacheRead, cachedWriteTokens: last.usage.cacheWrite };
+		const usage = last && { inputTokens: total.input, outputTokens: total.output, cachedReadTokens: total.cacheRead, cachedWriteTokens: total.cacheWrite };
 		if (last?.stopReason === "error") return { stop: "error", error: last.errorMessage ?? "model error", usage };
 		if (last?.stopReason === "length") return { stop: "max_tokens", usage };
 		return { stop: "end_turn", usage };
@@ -475,21 +544,6 @@ class PiSession implements BackendSession {
 	}
 }
 
-function minimalResources(): ResourceLoader {
-	return {
-		getExtensions: () => ({ extensions: [], errors: [], runtime: createExtensionRuntime() }),
-		getSkills: () => ({ skills: [], diagnostics: [] }),
-		getPrompts: () => ({ prompts: [], diagnostics: [] }),
-		getThemes: () => ({ themes: [], diagnostics: [] }),
-		getAgentsFiles: () => ({ agentsFiles: [] }),
-		getSystemPrompt: () => SYSTEM_PROMPT,
-		getSystemPromptSource: () => undefined,
-		getAppendSystemPrompt: () => [],
-		getAppendSystemPromptSources: () => [],
-		extendResources: () => {},
-		reload: async () => {},
-	};
-}
 
 function fmt(ref: ModelRef | undefined): string {
 	return ref ? `${ref.slotId}/${ref.modelId}` : "none";

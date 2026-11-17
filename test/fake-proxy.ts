@@ -12,8 +12,8 @@ export interface FakeRequest {
 export interface FakeProxyOptions {
 	/** Answer for GET requests (model listings): return [status, json] or undefined for 404. */
 	listing?: (path: string, req: FakeRequest) => [number, unknown] | undefined;
-	/** Text the fake Anthropic model streams back. */
-	reply?: (req: FakeRequest) => string;
+	/** What the fake Anthropic model answers: text, or a tool call. */
+	reply?: (req: FakeRequest) => string | { tool: string; input: unknown };
 }
 
 export async function startFakeProxy(options: FakeProxyOptions = {}): Promise<{ url: string; requests: FakeRequest[]; close: () => Promise<void> }> {
@@ -32,15 +32,23 @@ export async function startFakeProxy(options: FakeProxyOptions = {}): Promise<{ 
 				return;
 			}
 			if (!pathname.endsWith("/v1/messages") || !options.reply) return void res.writeHead(404).end();
-			const text = options.reply(fr);
-			const events: [string, unknown][] = [
-				["message_start", { type: "message_start", message: { id: "msg_1", type: "message", role: "assistant", model: fr.body.model, content: [], stop_reason: null, usage: { input_tokens: 12, output_tokens: 0 } } }],
-				["content_block_start", { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } }],
-				...text.split(/(?<= )/).map((part): [string, unknown] => ["content_block_delta", { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: part } }]),
-				["content_block_stop", { type: "content_block_stop", index: 0 }],
-				["message_delta", { type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { input_tokens: 12, output_tokens: 7 } }],
-				["message_stop", { type: "message_stop" }],
-			];
+			const answer = options.reply(fr);
+			const start: [string, unknown] = ["message_start", { type: "message_start", message: { id: `msg_${requests.length}`, type: "message", role: "assistant", model: fr.body.model, content: [], stop_reason: null, usage: { input_tokens: 12, output_tokens: 0 } } }];
+			const body: [string, unknown][] =
+				typeof answer === "string"
+					? [
+							["content_block_start", { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } }],
+							...answer.split(/(?<= )/).map((part): [string, unknown] => ["content_block_delta", { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: part } }]),
+							["content_block_stop", { type: "content_block_stop", index: 0 }],
+							["message_delta", { type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { input_tokens: 12, output_tokens: 7 } }],
+						]
+					: [
+							["content_block_start", { type: "content_block_start", index: 0, content_block: { type: "tool_use", id: `toolu_${requests.length}`, name: answer.tool, input: {} } }],
+							["content_block_delta", { type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: JSON.stringify(answer.input) } }],
+							["content_block_stop", { type: "content_block_stop", index: 0 }],
+							["message_delta", { type: "message_delta", delta: { stop_reason: "tool_use" }, usage: { input_tokens: 12, output_tokens: 7 } }],
+						];
+			const events: [string, unknown][] = [start, ...body, ["message_stop", { type: "message_stop" }]];
 			res.writeHead(200, { "content-type": "text/event-stream" });
 			for (const [name, data] of events) res.write(`event: ${name}\ndata: ${JSON.stringify(data)}\n\n`);
 			res.end();

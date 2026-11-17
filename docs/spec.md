@@ -118,9 +118,17 @@ group ids (`proxy:<slot>`), `_meta` shapes and stop reasons.
 - `bindProvider` registers a **separate** Pi provider `air-<slot>` with `baseUrl` and `headers` from AIR,
   a placeholder API key, and the curated models copied from Pi's built-in catalog. It never overrides the
   user's real `anthropic`/`openai` providers, so the user's own credentials are never sent to the AIR proxy.
-- Each ACP session gets one Pi `AgentSession`: in memory, `noTools: "all"`, and no extensions, skills or
-  context files. That covers milestone 4, plain Q&A.
-- Pi output is mapped to core `TurnEvent`s (`text`, `thought`, `usage`) and nothing ACP-shaped.
+- Each ACP session gets one Pi `AgentSession` with Pi's coding system prompt plus an IDE note, the built-in
+  tools `read grep find ls edit write bash`, and no user extensions, skills, settings or context files
+  (isolated `agentDir`).
+- **Permissions:** an inline Pi extension handles `tool_call`. Read-only tools (`read grep find ls`) run;
+  `edit write bash` ask the user through the core `PermissionAsk` port, which the driver maps to
+  `session/request_permission` (Allow once / Allow for this chat / Reject). A rejection or cancellation
+  blocks the call, and the model sees "The user rejected this tool call."
+- **Tool events** (`src/pi/tools.ts`, ported from pi-acp, MIT) become neutral `ToolUpdate`s (title, kind,
+  status, input, locations with the edit line, output text, edit/write diffs from a pre-execution snapshot).
+  The driver turns the first update of an id into `tool_call` and later ones into `tool_call_update`.
+- Pi output is mapped to core `TurnEvent`s (`text`, `thought`, `usage`, `title`, `tool`) and nothing ACP-shaped.
 - Sessions are persisted under `~/.pi/pi-junie/sessions` (metadata JSON + Pi transcript with the same id).
   `session/resume` reopens them; `session/list` returns prompted sessions (newest first, AIR's `list.limit`,
   `_meta.jetbrains.air` with `archived:false`, `lastPromptAt`); `session/load` replays the transcript's active
@@ -183,5 +191,5 @@ that unlock each one:
 
 ## 7. Out of scope for now
 
-Tools and permissions, file/terminal client capabilities, MCP servers from `session/new`, auth methods,
+Project context files (AGENTS.md) and skills, file/terminal client capabilities, MCP servers from `session/new`, auth methods,
  plans and goal mode, steering, subagents, `_providers/models`.

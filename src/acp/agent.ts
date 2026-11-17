@@ -4,7 +4,7 @@
 import { resolveFeatures } from "../compat/features.ts";
 import { type Logger, silentLogger } from "../core/log.ts";
 import type { AgentBackend, BackendSession } from "../core/ports.ts";
-import type { ClientProfile } from "../core/types.ts";
+import type { ClientProfile, PermissionDecision, PermissionRequest } from "../core/types.ts";
 import {
 	EFFORT_CONFIG_ID,
 	MODEL_CONFIG_ID,
@@ -18,6 +18,9 @@ import {
 	encodeSessionSummary,
 	encodePromptResult,
 	encodeProviderList,
+	decodePermissionOutcome,
+	encodePermissionRequest,
+	encodeToolUpdate,
 	encodeTurnEvent,
 } from "./codec.ts";
 import { type JsonObject, JsonRpcPeer, RpcError, type Transport } from "./jsonrpc.ts";
@@ -206,14 +209,16 @@ export class AcpAgent {
 		const input = decodePrompt(params.prompt);
 		const turn = new AbortController();
 		entry.turn = turn;
+		const knownTools = new Set<string>();
 		try {
 			const result = await entry.backend.prompt(
 				input,
 				(event) => {
-					const update = encodeTurnEvent(event);
+					const update = event.kind === "tool" ? encodeToolUpdate(event.update, knownTools) : encodeTurnEvent(event);
 					if (update) this.sendUpdate(params.sessionId, update);
 				},
 				turn.signal,
+				(request) => this.requestPermission(params.sessionId, request, knownTools, turn.signal),
 			);
 			if (result.stop === "error") {
 				this.sendUpdate(params.sessionId, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: `\n\n**Error:** ${result.error ?? "unknown error"}` } });
@@ -222,6 +227,20 @@ export class AcpAgent {
 		} finally {
 			entry.turn = undefined;
 		}
+	}
+
+	/** session/request_permission: the client shows the tool call with Allow once / Allow for this chat / Reject. */
+	private async requestPermission(sessionId: string, request: PermissionRequest, knownTools: Set<string>, signal: AbortSignal): Promise<PermissionDecision> {
+		if (signal.aborted) return "reject";
+		knownTools.add(request.toolCallId);
+		const started = Date.now();
+		const response = await Promise.race([
+			this.peer.request<{ outcome?: { outcome?: string; optionId?: string } }>("session/request_permission", encodePermissionRequest(sessionId, request)),
+			new Promise<undefined>((r) => signal.addEventListener("abort", () => r(undefined), { once: true })),
+		]);
+		const decision = decodePermissionOutcome(response);
+		this.log.info(`session/request_permission ${request.toolName} ${request.toolCallId} -> ${decision} after ${Date.now() - started}ms`);
+		return decision;
 	}
 
 	private async closeSession(sessionId: string): Promise<unknown> {

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { AcpAgent } from "../src/acp/agent.ts";
 import type { JsonObject, Transport } from "../src/acp/jsonrpc.ts";
 import type { Logger } from "../src/core/log.ts";
-import type { AgentBackend, BackendSession, TurnSink } from "../src/core/ports.ts";
+import type { AgentBackend, BackendSession, PermissionAsk, TurnSink } from "../src/core/ports.ts";
 import type { HistoryItem, ModelGroup, ModelRef, PromptInput, ProviderBinding, ProviderSlotState, SessionSummary, TurnResult } from "../src/core/types.ts";
 
 export interface Fixture {
@@ -23,6 +23,8 @@ export function loadFixture(name: string): Fixture {
 export class MemoryWire {
 	readonly sent: JsonObject[] = []; // agent -> client
 	private agentListener?: (m: JsonObject) => void;
+	/** Answers requests the agent sends to the client (e.g. session/request_permission). */
+	clientHandler: (method: string, params: any) => unknown = () => ({ outcome: { outcome: "cancelled" } });
 	private readonly waiters = new Map<unknown, (m: JsonObject) => void>();
 
 	readonly agentTransport: Transport = {
@@ -30,6 +32,10 @@ export class MemoryWire {
 			const copy = structuredClone(m);
 			this.sent.push(copy);
 			if (copy.id !== undefined && copy.method === undefined) this.waiters.get(copy.id)?.(copy);
+			if (copy.id !== undefined && typeof copy.method === "string") {
+				const result = this.clientHandler(copy.method, copy.params);
+				setTimeout(() => this.agentListener?.({ jsonrpc: "2.0", id: copy.id, result } as JsonObject));
+			}
 		},
 		onMessage: (l) => {
 			this.agentListener = l;
@@ -147,8 +153,20 @@ export class FakeBackend implements AgentBackend {
 				calls.push(`select ${ref.slotId}/${ref.modelId}`);
 				model = ref;
 			},
-			prompt: async ({ text, images }: PromptInput, sink: TurnSink, signal: AbortSignal): Promise<TurnResult> => {
+			prompt: async ({ text, images }: PromptInput, sink: TurnSink, signal: AbortSignal, ask: PermissionAsk): Promise<TurnResult> => {
 				calls.push(`prompt ${id}: ${text}${images.length ? ` +${images.length} image(s)` : ""}`);
+				if (text.startsWith("run ")) {
+					// a tool call that needs permission, like Pi's bash
+					const tool = { id: "tool-1", name: "bash" };
+					sink({ kind: "tool", update: { ...tool, title: `Run ${text.slice(4)}`, toolKind: "execute", status: "pending", input: { command: text.slice(4) } } });
+					const decision = await ask({ toolCallId: tool.id, toolName: "bash", title: `Run ${text.slice(4)}`, toolKind: "execute", input: { command: text.slice(4) } });
+					calls.push(`permission ${decision}`);
+					if (decision === "reject") sink({ kind: "tool", update: { ...tool, status: "failed", output: "rejected" } });
+					else {
+						sink({ kind: "tool", update: { ...tool, status: "in_progress" } });
+						sink({ kind: "tool", update: { ...tool, status: "completed", output: "ok" } });
+					}
+				}
 				sink({ kind: "text", delta: "echo: " });
 				await new Promise((r) => setTimeout(r, 5));
 				if (signal.aborted) return { stop: "cancelled" };
