@@ -142,6 +142,12 @@ group ids (`proxy:<slot>`), `_meta` shapes and stop reasons.
   `execute_tool` with Junie's description that forwards to `mcp__jetbrains_air_ide__execute_tool`; the MCP
   router itself stays callable but is not declared (`toolExposure: codemode`). The forwarded call is approved
   with its parent and gets no separate tool card.
+- **Commands:** after `session/new` / resume / load the driver sends `available_commands_update` with the
+  session's `CommandInfo`s: `new` (AIR `commandAction: openNewSession`), `compact` (free-text instructions),
+  and every loaded skill as `$<skill>` with AIR's `_meta.jetbrains.air {kind: "skill", skillPath}`. A prompt
+  starting with `/name` or `$skill` (also `/skill:name`) is decoded into `PromptInput.command`; the bridge runs
+  `/compact` as Pi compaction ("nothing to compact yet" for short chats) and skills through Pi's own
+  `/skill:name args` invocation.
 - **Tool events** (`src/pi/tools.ts`, ported from pi-acp, MIT) become neutral `ToolUpdate`s (title, kind,
   status, input, locations with the edit line, output text, edit/write diffs from a pre-execution snapshot).
   The driver turns the first update of an id into `tool_call` and later ones into `tool_call_update`.

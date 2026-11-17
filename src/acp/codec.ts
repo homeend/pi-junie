@@ -1,6 +1,6 @@
 // Translation between ACP v1 wire shapes and core types. Pure functions.
 
-import type { ClientProfile, HistoryItem, McpServerSpec, ModelGroup, ModelRef, PromptImage, PromptInput, ProviderBinding, PermissionDecision, PermissionRequest, ProviderSlotState, SessionSummary, ToolUpdate, TurnEvent, TurnResult } from "../core/types.ts";
+import type { ClientProfile, CommandInfo, HistoryItem, McpServerSpec, ModelGroup, ModelRef, PromptImage, PromptInput, ProviderBinding, PermissionDecision, PermissionRequest, ProviderSlotState, SessionSummary, ToolUpdate, TurnEvent, TurnResult } from "../core/types.ts";
 import { RpcError } from "./jsonrpc.ts";
 import type {
 	ContentBlock,
@@ -368,4 +368,40 @@ export function decodeSkillRoots(params: Record<string, unknown>, cwd: string): 
 	const out: string[] = [];
 	for (const r of list) if (typeof r === "string" && r.startsWith("/") && r !== cwd && !out.includes(r)) out.push(r);
 	return out;
+}
+
+// --- commands -----------------------------------------------------------------------------
+
+/**
+ * `available_commands_update` entries. Skills follow Junie/AIR: `$<skill>` plus AIR's live-session skill
+ * decoration (`_meta.jetbrains.air.kind = "skill"`, `skillPath`), which Junie itself does not send.
+ * `new` is AIR's own action (`commandAction: openNewSession`).
+ */
+export function encodeCommands(commands: CommandInfo[]): Record<string, unknown>[] {
+	return commands.map((c) => {
+		const input = c.hint ? { input: { type: "unstructured", hint: c.hint } } : {};
+		switch (c.kind) {
+			case "new_session":
+				return { name: c.name, description: c.description, _meta: { jetbrains: { air: { commandAction: { kind: "openNewSession" } } } } };
+			case "skill":
+				return {
+					name: `$${c.name}`,
+					description: c.description,
+					...input,
+					_meta: { jetbrains: { air: { version: 1, kind: "skill", ...(c.skillPath ? { skillPath: c.skillPath } : {}) } } },
+				};
+			default:
+				return { name: c.name, description: c.description, ...input };
+		}
+	});
+}
+
+/** `/name args` (built-ins, skills) or `$name args` (skills) at the start of a prompt -> the invoked command. */
+export function decodeCommand(text: string, commands: CommandInfo[]): { name: string; args: string } | undefined {
+	const m = /^\s*([/$])(?:skill:)?([^\s]+)(?:\s+([\s\S]*))?$/.exec(text);
+	if (!m) return undefined;
+	const [, sigil, name, args = ""] = m;
+	const command = commands.find((c) => c.name === name && c.kind !== "new_session");
+	if (!command || (sigil === "$" && command.kind !== "skill")) return undefined;
+	return { name, args: args.trim() };
 }

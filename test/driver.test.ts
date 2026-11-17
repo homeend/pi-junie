@@ -211,6 +211,43 @@ describe("ACP driver", () => {
 		expect(init.agentCapabilities.sessionCapabilities.additionalDirectories).toEqual({});
 	});
 
+	it("publishes the session's commands for AIR's popup after session/new", async () => {
+		const { wire, call } = await connected();
+		const s = await call("session/new", { cwd: "/tmp" });
+		await new Promise((r) => setTimeout(r, 5));
+		const [update] = wire.updates("available_commands_update") as Obj[];
+		expect(update.sessionId).toBe(s.result.sessionId);
+		expect(update.update.availableCommands).toEqual([
+			{ name: "new", description: "Open a new empty chat", _meta: { jetbrains: { air: { commandAction: { kind: "openNewSession" } } } } },
+			{ name: "compact", description: "Summarize", input: { type: "unstructured", hint: "optional instructions" } },
+			{
+				name: "$release-notes",
+				description: "Write release notes",
+				input: { type: "unstructured", hint: "optional task" },
+				_meta: { jetbrains: { air: { version: 1, kind: "skill", skillPath: "/skills/release-notes/SKILL.md" } } },
+			},
+		]);
+	});
+
+	it("recognises invoked commands in the prompt text", async () => {
+		const { backend, call } = await connected();
+		const s = await call("session/new", { cwd: "/tmp" });
+		const send = (text: string) => call("session/prompt", { sessionId: s.result.sessionId, prompt: [{ type: "text", text }] });
+		await send("/compact keep the decisions");
+		await send("$release-notes for 1.2");
+		await send("/release-notes");
+		await send("/unknown thing");
+		await send("$compact");
+		const prompts = backend.calls.filter((c) => c.startsWith("prompt"));
+		expect(prompts.map((c) => c.split(": ").slice(1).join(": "))).toEqual([
+			"/compact keep the decisions [command compact: keep the decisions]",
+			"$release-notes for 1.2 [command release-notes: for 1.2]",
+			"/release-notes [command release-notes: ]",
+			"/unknown thing",
+			"$compact",
+		]);
+	});
+
 	it("advertises loadSession", async () => {
 		const { call } = await connected();
 		expect((await call("initialize", { protocolVersion: 1 })).result.agentCapabilities.loadSession).toBe(true);

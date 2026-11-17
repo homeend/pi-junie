@@ -146,6 +146,46 @@ describe("Pi bridge tools", () => {
 		expect(failed.terminal?.exitCode).toBe(3);
 	});
 
+	it("offers skills as commands and runs a skill through Pi's skill invocation", async () => {
+		const { cwd, session, run } = await chat();
+		const { mkdirSync } = await import("node:fs");
+		mkdirSync(join(cwd, ".agents", "skills", "release-notes"), { recursive: true });
+		writeFileSync(
+			join(cwd, ".agents", "skills", "release-notes", "SKILL.md"),
+			"---\nname: release-notes\ndescription: Write release notes from the git log.\n---\n\nSTEP ONE: read the git log.\n",
+		);
+		const commands = await session.commands();
+		// user-level ~/.agents/skills may add more skills on a developer machine
+		expect(commands.slice(0, 2).map((c) => [c.name, c.kind])).toEqual([
+			["new", "new_session"],
+			["compact", "builtin"],
+		]);
+		const skill = commands.find((c) => c.name === "release-notes");
+		expect(skill).toMatchObject({ kind: "skill", skillPath: join(cwd, ".agents", "skills", "release-notes", "SKILL.md") });
+		script = ["drafting notes"];
+		await session.prompt({ text: "$release-notes for v1.2", images: [], command: { name: "release-notes", args: "for v1.2" } }, () => {}, new AbortController().signal, async () => "allow_once");
+		const user = JSON.stringify(proxy.requests.filter((r) => r.method === "POST").at(-1)!.body.messages);
+		expect(user).toContain("STEP ONE: read the git log.");
+		expect(user).toContain("for v1.2");
+		void run;
+	});
+
+	it("/compact summarizes the conversation, and says so when there is nothing yet", async () => {
+		const { session, run } = await chat();
+		let text = "";
+		const sink = (e: { kind: string; delta?: string }) => e.kind === "text" && (text += e.delta);
+		await session.prompt({ text: "/compact", images: [], command: { name: "compact", args: "" } }, sink, new AbortController().signal, async () => "allow_once");
+		expect(text).toBe("Nothing to compact yet.");
+		script = ["first answer", "summary of the chat"];
+		await run("remember 42", () => "allow_once");
+		text = "";
+		const r = await session.prompt({ text: "/compact keep numbers", images: [], command: { name: "compact", args: "keep numbers" } }, sink, new AbortController().signal, async () => "allow_once");
+		expect(r.error).toBeUndefined();
+		expect(r.stop).toBe("end_turn");
+		// a short chat: Pi keeps recent turns, so there is nothing older to summarize yet
+		expect(text).toMatch(/^(Compacted the conversation \(\d+ tokens before|Nothing to compact yet)/);
+	});
+
 	it("sums usage over all model calls of a tool turn", async () => {
 		const { run } = await chat();
 		script = [{ tool: "ls", input: {} }, "listed"];

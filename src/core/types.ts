@@ -66,10 +66,22 @@ export interface PromptImage {
 	mimeType: string;
 }
 
-/** One user turn: text plus optional images. */
+/** One user turn: text plus optional images; `command` when the user invoked one of the session's commands. */
 export interface PromptInput {
 	text: string;
 	images: PromptImage[];
+	command?: { name: string; args: string };
+}
+
+/** A command the session offers (shown in the client's command popup). */
+export interface CommandInfo {
+	name: string;
+	description: string;
+	/** Placeholder for free-text arguments; absent when the command takes none. */
+	hint?: string;
+	/** `new_session` is handled by the client itself; `skill` runs one of the session's skills. */
+	kind: "builtin" | "skill" | "new_session";
+	skillPath?: string;
 }
 
 export type ToolKind = "read" | "edit" | "delete" | "move" | "search" | "execute" | "think" | "fetch" | "other";

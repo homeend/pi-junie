@@ -19,7 +19,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { type Logger, silentLogger } from "../core/log.ts";
 import type { AgentBackend, BackendSession, PermissionAsk, SessionContext, TurnSink } from "../core/ports.ts";
-import type { HistoryItem, McpServerSpec, ModelChoice, ModelGroup, ModelRef, PromptInput, ProviderBinding, ProviderSlotState, SessionSummary, TurnResult } from "../core/types.ts";
+import type { CommandInfo, HistoryItem, McpServerSpec, ModelChoice, ModelGroup, ModelRef, PromptInput, ProviderBinding, ProviderSlotState, SessionSummary, TurnResult } from "../core/types.ts";
 import { bridgeProviderId, DEFAULT_MODEL, joinBaseUrl, SLOTS, type SlotDefinition } from "./catalog.ts";
 import { openPiTranscript, type SessionMeta, SessionStore } from "./session-store.ts";
 import { BRIDGE_TOOLS, READ_ONLY_TOOLS, ToolTracker, toolKind, toolLocations, toolResultText, toolTitle } from "./tools.ts";
@@ -298,21 +298,14 @@ export class PiBackend implements AgentBackend {
 	 * (AGENTS.md/CLAUDE.md up the tree) and skills. No extensions, prompt templates or user Pi settings
 	 * (isolated agentDir). `gate` is an inline Pi extension that decides on every tool call.
 	 */
-	async createPiSession(
-		id: string,
-		cwd: string,
-		model: Model<Api>,
-		thinkingLevel: ThinkingLevel,
-		gate: (pi: ExtensionAPI) => void,
-		context: SessionContext,
-	): Promise<AgentSession> {
-		const mcpServers = context.mcpServers ?? [];
-		const hasIde = mcpServers.some((s) => s.name === IDE_SERVER);
-		const routerAlias = hasIde && this.junieCompat.executeToolAlias;
+	/**
+	 * Pi resources for a session: context files, project + client skills, the IDE note. Shared by the Pi session
+	 * and by the command list (which needs the skills before the first prompt).
+	 */
+	async resources(cwd: string, context: SessionContext, extensionFactories: ((pi: ExtensionAPI) => void)[] = []) {
+		const hasIde = (context.mcpServers ?? []).some((s) => s.name === IDE_SERVER);
 		// Client skill roots (AIR's IDE skills, e.g. ij-debugger) are read like Junie: <root>/.agents/skills and <root>/.junie/skills.
 		const clientSkillPaths = (context.skillRoots ?? []).flatMap((r) => [join(r, ".agents", "skills"), join(r, ".junie", "skills")]).filter((p) => existsSync(p));
-		const { manager, restored } = this.store.piSessionManager(id, cwd);
-		this.log.info(`session ${id}: Pi transcript ${restored ? `restored (${manager.getEntries().length} entries)` : "created"} at ${manager.getSessionFile() ?? "<memory>"}`);
 		// The project the IDE opened is trusted for skills (project extensions stay off; edits/commands still ask).
 		const settingsManager = SettingsManager.inMemory({}, { projectTrusted: this.trustProject });
 		const resourceLoader = new DefaultResourceLoader({
@@ -324,10 +317,32 @@ export class PiBackend implements AgentBackend {
 			noThemes: true,
 			additionalSkillPaths: clientSkillPaths,
 			appendSystemPrompt: [IDE_NOTE, ...(hasIde ? [ideRouterNote(ideRouterName(this.junieCompat))] : [])],
-			// The client's MCP servers (e.g. the IDE's own) are registered for this session and connected by Pi's MCP extension.
-			extensionFactories: [gate, registerClientMcpServers(mcpServers, this.junieCompat), createMcpExtension(), ...(routerAlias ? [junieExecuteToolAlias] : [])],
+			extensionFactories,
 		});
 		await resourceLoader.reload();
+		return { resourceLoader, settingsManager };
+	}
+
+	async createPiSession(
+		id: string,
+		cwd: string,
+		model: Model<Api>,
+		thinkingLevel: ThinkingLevel,
+		gate: (pi: ExtensionAPI) => void,
+		context: SessionContext,
+	): Promise<AgentSession> {
+		const mcpServers = context.mcpServers ?? [];
+		const hasIde = mcpServers.some((s) => s.name === IDE_SERVER);
+		const routerAlias = hasIde && this.junieCompat.executeToolAlias;
+		const { manager, restored } = this.store.piSessionManager(id, cwd);
+		this.log.info(`session ${id}: Pi transcript ${restored ? `restored (${manager.getEntries().length} entries)` : "created"} at ${manager.getSessionFile() ?? "<memory>"}`);
+		const { resourceLoader, settingsManager } = await this.resources(cwd, context, [
+			gate,
+			// The client's MCP servers (e.g. the IDE's own) are registered for this session and connected by Pi's MCP extension.
+			registerClientMcpServers(mcpServers, this.junieCompat),
+			createMcpExtension(),
+			...(routerAlias ? [junieExecuteToolAlias] : []),
+		]);
 		const contextFiles = resourceLoader.getAgentsFiles().agentsFiles.map((f) => f.path);
 		const skills = resourceLoader.getSkills().skills.map((s) => s.name);
 		this.log.info(
@@ -422,6 +437,44 @@ class PiSession implements BackendSession {
 
 	title(): string | undefined {
 		return this.meta.title;
+	}
+
+	private commandList?: Promise<CommandInfo[]>;
+
+	commands(): Promise<CommandInfo[]> {
+		this.commandList ??= this.backend.resources(this.cwd, this.context).then(({ resourceLoader }) => [
+			{ name: "new", description: "Open a new empty chat", kind: "new_session" },
+			{ name: "compact", description: "Summarize the conversation so far to free up context", hint: "optional instructions for the summary", kind: "builtin" },
+			...resourceLoader.getSkills().skills.map(
+				(sk): CommandInfo => ({ name: sk.name, description: sk.description, hint: "optional task for the skill", kind: "skill", skillPath: sk.filePath }),
+			),
+		]);
+		return this.commandList;
+	}
+
+	/** `/compact [instructions]`: Pi's compaction of the current conversation. */
+	private async compact(args: string, sink: TurnSink): Promise<TurnResult> {
+		const log = this.backend.log;
+		const pi = this.pi;
+		if (!pi || pi.sessionManager.getEntries().length === 0) {
+			sink({ kind: "text", delta: "Nothing to compact yet." });
+			return { stop: "end_turn" };
+		}
+		try {
+			const r = await pi.compact(args || undefined);
+			log.info(`session ${this.id}: compacted ${r.tokensBefore} -> ${r.estimatedTokensAfter ?? "?"} tokens`);
+			sink({ kind: "text", delta: `Compacted the conversation (${r.tokensBefore} tokens before${r.estimatedTokensAfter ? `, about ${r.estimatedTokensAfter} after` : ""}).` });
+			return { stop: "end_turn" };
+		} catch (err) {
+			const message = (err as Error).message;
+			// Pi keeps the recent turns; a short conversation has nothing older to summarize.
+			if (/nothing to compact/i.test(message)) {
+				sink({ kind: "text", delta: "Nothing to compact yet: the conversation is still short enough." });
+				return { stop: "end_turn" };
+			}
+			log.error(`session ${this.id}: compaction failed: ${message}`);
+			return { stop: "error", error: `Compaction failed: ${(err as Error).message}` };
+		}
 	}
 
 	history(): HistoryItem[] {
@@ -547,6 +600,12 @@ class PiSession implements BackendSession {
 
 	async prompt(input: PromptInput, sink: TurnSink, signal: AbortSignal, ask: PermissionAsk): Promise<TurnResult> {
 		let { text } = input;
+		if (signal.aborted) return { stop: "cancelled" };
+		const command = input.command;
+		if (command?.name === "compact") return this.compact(command.args, sink);
+		// A skill command runs through Pi's own skill invocation (loads SKILL.md, appends the task).
+		const skillCommand = command && (await this.commands()).some((c) => c.kind === "skill" && c.name === command.name);
+		if (skillCommand) text = `/skill:${command.name}${command.args ? ` ${command.args}` : ""}`;
 		const log = this.backend.log;
 		const ref = this.currentModel();
 		const model = this.backend.resolveModel(ref);
@@ -621,7 +680,7 @@ class PiSession implements BackendSession {
 		const onAbort = () => void pi.abort();
 		signal.addEventListener("abort", onAbort, { once: true });
 		try {
-			await pi.prompt(text, { images, expandPromptTemplates: false });
+			await pi.prompt(text, { images, expandPromptTemplates: !!skillCommand });
 		} catch (err) {
 			log.error(`session ${this.id}: prompt threw after ${Date.now() - started}ms: ${(err as Error).stack ?? String(err)}`);
 			return { stop: signal.aborted ? "cancelled" : "error", error: (err as Error).message };

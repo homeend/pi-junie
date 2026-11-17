@@ -145,6 +145,11 @@ export class FakeBackend implements AgentBackend {
 			id,
 			cwd,
 			currentModel: () => model,
+			commands: async () => [
+				{ name: "new", description: "Open a new empty chat", kind: "new_session" },
+				{ name: "compact", description: "Summarize", hint: "optional instructions", kind: "builtin" },
+				{ name: "release-notes", description: "Write release notes", hint: "optional task", kind: "skill", skillPath: "/skills/release-notes/SKILL.md" },
+			],
 			history: () => history,
 			title: () => (history.length ? "Old chat" : undefined),
 			effortLevels: () => (model ? ["low", "medium", "high"] : []),
@@ -157,8 +162,8 @@ export class FakeBackend implements AgentBackend {
 				calls.push(`select ${ref.slotId}/${ref.modelId}`);
 				model = ref;
 			},
-			prompt: async ({ text, images }: PromptInput, sink: TurnSink, signal: AbortSignal, ask: PermissionAsk): Promise<TurnResult> => {
-				calls.push(`prompt ${id}: ${text}${images.length ? ` +${images.length} image(s)` : ""}`);
+			prompt: async ({ text, images, command }: PromptInput, sink: TurnSink, signal: AbortSignal, ask: PermissionAsk): Promise<TurnResult> => {
+				calls.push(`prompt ${id}: ${text}${images.length ? ` +${images.length} image(s)` : ""}${command ? ` [command ${command.name}: ${command.args}]` : ""}`);
 				if (text.startsWith("run ")) {
 					// a tool call that needs permission, like Pi's bash
 					const tool = { id: "tool-1", name: "bash" };

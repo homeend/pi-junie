@@ -12,9 +12,11 @@ import {
 	decodeModelValue,
 	decodePrompt,
 	decodeProviderBinding,
+	decodeCommand,
 	decodeListLimit,
 	decodeMcpServers,
 	decodeSkillRoots,
+	encodeCommands,
 	encodeConfigOptions,
 	encodeHistory,
 	encodeSessionSummary,
@@ -146,6 +148,7 @@ export class AcpAgent {
 		await this.backend.modelsSettled(MODEL_DISCOVERY_WAIT_MS);
 		const backend = await this.backend.openSession(this.sessionContext(params, cwd));
 		this.sessions.set(backend.id, { backend });
+		this.publishCommands(backend);
 		return { sessionId: backend.id, configOptions: this.configOptionsFor(backend) };
 	}
 
@@ -157,6 +160,16 @@ export class AcpAgent {
 			`session context: mcp [${servers.map((s) => `${s.name} (${s.transport})`).join(", ")}]${skipped.length ? ` skipped [${skipped.join(", ")}]` : ""} skill roots [${skillRoots.join(", ")}]`,
 		);
 		return { cwd, mcpServers: servers, skillRoots };
+	}
+
+	/** Sends the session's commands (built-ins, skills) after the lifecycle response. */
+	private publishCommands(session: BackendSession): void {
+		setTimeout(() => {
+			session.commands().then(
+				(commands) => this.sendUpdate(session.id, { sessionUpdate: "available_commands_update", availableCommands: encodeCommands(commands) }),
+				(err: unknown) => this.log.warn(`session ${session.id}: command list failed: ${(err as Error).message}`),
+			);
+		});
 	}
 
 	private listSessions(params: JsonObject): unknown {
@@ -175,6 +188,7 @@ export class AcpAgent {
 		if (!resumed || !resumed.restored) throw new RpcError(-32002, `Session not found: ${sessionId}`);
 		const backend = resumed.session;
 		this.sessions.set(backend.id, { backend });
+		this.publishCommands(backend);
 		const history = backend.history();
 		for (const update of encodeHistory(history)) this.sendUpdate(sessionId, update);
 		const title = backend.title();
@@ -194,6 +208,7 @@ export class AcpAgent {
 		if (!resumed) throw new RpcError(-32002, `Session not found: ${sessionId}`);
 		const backend = resumed.session;
 		this.sessions.set(backend.id, { backend });
+		this.publishCommands(backend);
 		if (!resumed.restored) {
 			// After the response, tell the user the model will not see the earlier messages.
 			setTimeout(() =>
@@ -221,10 +236,16 @@ export class AcpAgent {
 		const entry = this.requireSession(params.sessionId);
 		if (entry.turn) throw new RpcError(-32000, "A prompt is already running in this session");
 		const input = decodePrompt(params.prompt);
+		// The turn exists before any await, so a session/cancel arriving right away is not lost.
 		const turn = new AbortController();
 		entry.turn = turn;
 		const knownTools = new Set<string>();
 		try {
+			const command = decodeCommand(input.text, await entry.backend.commands());
+			if (command) {
+				input.command = command;
+				this.log.info(`session ${params.sessionId}: command ${command.name}${command.args ? ` (${command.args.length} chars of args)` : ""}`);
+			}
 			const result = await entry.backend.prompt(
 				input,
 				(event) => {
