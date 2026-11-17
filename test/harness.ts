@@ -149,7 +149,15 @@ export interface ReplayResult {
 }
 
 /** Replays the fixture's client messages in order, remapping recorded session ids to ours. */
-export async function replay(fixture: Fixture, backend: AgentBackend, agentLog?: (l: string) => void): Promise<ReplayResult> {
+export interface ReplayOptions {
+	agentLog?: (line: string) => void;
+	/** Rewrites each client message before sending (e.g. point provider baseUrls at a local fake). */
+	transform?: (message: JsonObject) => JsonObject;
+	timeoutMs?: number;
+}
+
+export async function replay(fixture: Fixture, backend: AgentBackend, options: ReplayOptions = {}): Promise<ReplayResult> {
+	const agentLog = options.agentLog;
 	const wire = new MemoryWire();
 	new AcpAgent(wire.agentTransport, backend, { log: agentLog });
 	const responses = new Map<unknown, JsonObject>();
@@ -164,8 +172,8 @@ export async function replay(fixture: Fixture, backend: AgentBackend, agentLog?:
 	};
 
 	for (const original of fixture.client) {
-		const message = remap(original) as JsonObject;
-		const response = await wire.send(message);
+		const message = (options.transform ?? ((m) => m))(remap(original) as JsonObject);
+		const response = await wire.send(message, options.timeoutMs);
 		if (!response) continue;
 		requests.set(message.id, message);
 		responses.set(message.id, response);

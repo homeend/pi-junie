@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# ACP entry point for JetBrains AIR. Register in ~/.jetbrains/acp.json:
+#   "pi-junie": { "command": "<repo>/bin/pi-air", "args": [], "env": {} }
+# Env: PI_AIR_LOG=<file>  wire + diagnostics log (default: <repo>/.pi-dev/pi-air.log)
+#      PI_AIR_NODE=<node> node binary (AIR does not load your shell profile / nvm)
+set -euo pipefail
+ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+mkdir -p "$ROOT/.pi-dev"
+export PI_AIR_LOG="${PI_AIR_LOG:-$ROOT/.pi-dev/pi-air.log}"
+
+NODE="${PI_AIR_NODE:-}"
+if [[ -z "$NODE" ]]; then
+  if command -v node >/dev/null 2>&1; then NODE="$(command -v node)"
+  else NODE="$(ls -d "$HOME"/.nvm/versions/node/v2[4-9]*/bin/node 2>/dev/null | sort -V | tail -1)"; fi
+fi
+[[ -x "$NODE" ]] || { echo "pi-air: node >= 22.19 not found; set PI_AIR_NODE" >&2; exit 1; }
+
+exec "$NODE" "$ROOT/src/main.ts" "$@"
