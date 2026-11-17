@@ -39,7 +39,8 @@ function ideRouterNote(name: string): string {
 }
 
 const IDE_NOTE =
-	"You are running inside a JetBrains IDE (AIR) through the Agent Client Protocol. The user sees your Markdown answers and your tool calls in the IDE; edits and commands need their approval.";
+	"You are running inside a JetBrains IDE (AIR) through the Agent Client Protocol. The user sees your Markdown answers and your tool calls in the IDE; edits and commands may need their approval.\n" +
+	"In the user's messages, `@name` mentions a file or folder (existing or to be created) by its path relative to the project: the `@` is not part of the name. `create @notes/a.txt` means the file `notes/a.txt`.";
 
 export interface PiBackendOptions {
 	/** Directory for Pi state of this bridge (isolated from the user's ~/.pi/agent). */

@@ -131,6 +131,7 @@ describe("Pi bridge tools", () => {
 		expect(system).toContain("Always run `make check` before committing.");
 		expect(system).toContain("release-notes");
 		expect(system).toContain("JetBrains IDE");
+		expect(system).toContain("the `@` is not part of the name"); // AIR's @-mentions are paths
 	});
 
 	it("replays tool calls with their final status when a chat is reopened", async () => {
