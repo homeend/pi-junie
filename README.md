@@ -1,21 +1,57 @@
 # pi-junie
 
-Pi extension in development.
+Pi as an ACP agent for JetBrains AIR, plus a small Pi extension dev setup.
+Design: [docs/spec.md](docs/spec.md).
 
-## Run
+## Pi in AIR
 
-```bash
-./scripts/dev.sh                 # installed `pi` with this extension loaded (-e)
-./scripts/dev.sh --clean         # only this extension, no others
-./scripts/dev.sh --cwd ~/project # work in another directory
-./scripts/dev.sh --source        # Pi from ../pi checkout (needs `npm install` there)
-./scripts/dev.sh -- --model x    # extra pi args
+The agent is registered in `~/.jetbrains/acp.json` as `pi-junie`. A backup of the original file is at
+`~/.jetbrains/acp.json.bak-pi-junie`.
+
+```json
+"pi-junie": { "command": "<repo>/bin/pi-air", "args": [], "env": {} }
 ```
 
-Edit `index.ts` and run `/reload` inside Pi. There's no build step.
-Type check with `npm run typecheck`.
+Pick **pi-junie** in AIR. AIR configures its proxy through `providers/set`, and the model picker then lists
+Pi's models for the anthropic, openai and google slots. You can chat with the selected model. Tools are off.
 
-## Reference
+- Log of the wire traffic and diagnostics: `.pi-dev/pi-air.log` (override with `PI_AIR_LOG`).
+- Node binary: taken from `PATH`, otherwise the newest `~/.nvm` Node 24+. Override with `PI_AIR_NODE`.
+- Pi state for the bridge is kept apart from your `~/.pi/agent` (in `~/.pi/pi-junie/`), so your own Pi
+  logins are never sent to AIR's proxy.
 
-- Extension API: `../pi/packages/coding-agent/docs/extensions.md`
-- Examples: `../pi/packages/coding-agent/examples/extensions/`
+## Layout
+
+```
+src/core/     neutral types + ports (no ACP, no Pi)
+src/acp/      ACP driver: JSON-RPC, v1 wire types, codec, method dispatch
+src/pi/       Pi bridge: provider slots, curated models, AgentSession per ACP session
+src/compat/   AIR feature <-> Pi plugin requirement registry
+src/main.ts   composition root (stdio)
+bin/pi-air    launcher used by AIR
+test/         replay simulator + fixtures extracted from Junie <-> AIR recordings
+```
+
+## Tests and the replay workflow
+
+```bash
+npm test                 # vitest: driver, replay (fake backend), Pi bridge replay (fake proxy), boundaries
+npm run typecheck
+```
+
+New recording (a Junie `acp-messages.jsonl`) to a fixture (redacts headers, tokens and home paths):
+
+```bash
+node scripts/extract-fixture.ts acp-examples/<session>/derived/acp-messages.jsonl <name> [--max-prompts N]
+```
+
+Then add a test in `test/replay.test.ts` that replays it and asserts the behaviour.
+`acp-examples/` holds raw recordings and is git-ignored, because it contains keys.
+
+## Pi extension dev setup (separate)
+
+```bash
+./scripts/dev.sh [--clean] [--cwd dir] [--source] [-- pi args]   # pi with ./index.ts loaded, /reload to refresh
+```
+
+Edit `index.ts` and run `/reload` inside Pi. Extension API: `../pi/packages/coding-agent/docs/extensions.md`.
