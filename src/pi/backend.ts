@@ -26,7 +26,7 @@ import { BRIDGE_TOOLS, READ_ONLY_TOOLS, ToolTracker, toolKind, toolLocations, to
 import { discoverModels, type ListedModel, listingIdMatches } from "./discovery.ts";
 
 const IDE_ROUTER_NOTE =
-	"The IDE tool `mcp__jetbrains_air_ide__execute_tool` is a router that runs IDE tools by name (`command: \"<tool> --param value ...\"`). Use it only when the user or a skill you have read for the task tells you to, with the tool names and arguments that skill documents. Never guess tool names; if no skill covers what the user asks, say that the IDE does not offer it.";
+	"The IDE tool `mcp__jetbrains_air_ide__execute_tool` runs IDE tools by name: `command: \"<tool> --param value ...\"`. Use it when the user asks you to do something in the IDE, or when a skill you read for the task directs you to. Take tool names from such skills, from the router's own description, or from its error messages (they say which parameter is missing). Do not cycle through guessed names: after one 'not found', tell the user which IDE capability seems to be missing.";
 
 const IDE_NOTE =
 	"You are running inside a JetBrains IDE (AIR) through the Agent Client Protocol. The user sees your Markdown answers and your tool calls in the IDE; edits and commands need their approval.";
@@ -485,6 +485,22 @@ class PiSession implements BackendSession {
 	/** Pi extension: read-only tools run; everything else asks the user unless allowed for this chat. */
 	/** Tool metadata from the Pi session (set when the gate extension loads). */
 	private toolInfo?: (name: string) => { annotations?: { readOnlyHint?: boolean } } | undefined;
+	private allTools?: () => { name: string; description?: string; parameters?: unknown; annotations?: { readOnlyHint?: boolean } }[];
+
+	private mcpToolsLogged = false;
+
+	/** Logs what each connected MCP server offers (name, read-only flag, description, parameters), once per session. */
+	private logMcpToolsOnce(): void {
+		if (this.mcpToolsLogged || !this.allTools) return;
+		const mcp = this.allTools().filter((t) => t.name.startsWith("mcp__"));
+		if (!mcp.length) return;
+		this.mcpToolsLogged = true;
+		for (const t of mcp) {
+			this.backend.log.info(
+				`session ${this.id}: mcp tool ${t.name}${t.annotations?.readOnlyHint ? " (read-only)" : ""} description=${JSON.stringify(t.description ?? "")} parameters=${JSON.stringify(t.parameters ?? {})}`,
+			);
+		}
+	}
 
 	/** Runs without asking: built-in read-only tools, MCP tools the server marks read-only, tools allowed for this chat. */
 	private runsWithoutAsking(toolName: string): boolean {
@@ -493,6 +509,7 @@ class PiSession implements BackendSession {
 
 	private readonly gate = (pi: ExtensionAPI) => {
 		this.toolInfo = (name) => pi.getAllTools().find((t) => t.name === name);
+		this.allTools = () => pi.getAllTools();
 		pi.on("tool_call", async (event) => {
 			const log = this.backend.log;
 			if (this.runsWithoutAsking(event.toolName)) return undefined;
@@ -552,6 +569,7 @@ class PiSession implements BackendSession {
 		const tool = (update: ReturnType<ToolTracker["finished"]> | undefined) => update && sink({ kind: "tool", update });
 		this.ask = ask;
 		this.onApproved = (id, name) => tool(tools.approved(id, name));
+		this.logMcpToolsOnce();
 		const unsubscribe = pi.subscribe((event) => {
 			if (event.type === "message_update") {
 				const e = event.assistantMessageEvent;
@@ -597,6 +615,7 @@ class PiSession implements BackendSession {
 			unsubscribe();
 			this.ask = undefined;
 			this.onApproved = undefined;
+			this.logMcpToolsOnce(); // servers may only have connected during this turn
 			signal.removeEventListener("abort", onAbort);
 		}
 		const took = Date.now() - started;

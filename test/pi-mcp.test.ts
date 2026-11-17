@@ -71,7 +71,7 @@ describe("client MCP servers in Pi sessions", () => {
 		await session.prompt({ text: "hi", images: [] }, () => {}, new AbortController().signal, async () => "allow_once");
 		const system = JSON.stringify(proxy.requests.filter((q) => q.method === "POST").at(-1)!.body.system);
 		expect(system).toContain("ij-debugger");
-		expect(system).toContain("Never guess tool names");
+		expect(system).toContain("Do not cycle through guessed names");
 		await session.close();
 	}, 20000);
 });
