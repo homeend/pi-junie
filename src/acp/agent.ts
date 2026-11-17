@@ -26,6 +26,8 @@ import {
 	encodePermissionRequest,
 	encodeToolUpdate,
 	encodeTurnEvent,
+	MessageIds,
+	standaloneMessage,
 	encodeSessionFailure,
 	encodeQuestionForm,
 	decodeQuestionAnswers,
@@ -198,7 +200,7 @@ export class AcpAgent {
 	private sendWelcome(sessionId: string): void {
 		const text = this.backend.welcome();
 		if (!text) return;
-		setTimeout(() => this.sendUpdate(sessionId, { sessionUpdate: "agent_message_chunk", content: { type: "text", text } }));
+		setTimeout(() => this.sendUpdate(sessionId, standaloneMessage(text)));
 	}
 
 	/** Sends the session's commands (built-ins, skills) and the auth label after the lifecycle response. */
@@ -321,6 +323,7 @@ export class AcpAgent {
 		const turn = new AbortController();
 		entry.turn = turn;
 		const knownTools = new Set<string>();
+		const messages = new MessageIds();
 		const run = async (): Promise<TurnResult> => {
 			try {
 				const command = decodeCommand(input.text, await entry.backend.commands());
@@ -331,8 +334,12 @@ export class AcpAgent {
 				const result = await entry.backend.prompt(
 					input,
 					(event) => {
+						if (event.kind === "tool") messages.break();
 						const update =
 							event.kind === "tool" ? encodeToolUpdate(event.update, knownTools, { liveTerminal: this.client?.liveTerminal }) : encodeTurnEvent(event);
+						if (update && (update.sessionUpdate === "agent_message_chunk" || update.sessionUpdate === "agent_thought_chunk")) {
+							update.messageId = messages.next(event.kind === "thought" ? "thought" : "text", event.kind === "text" ? event.phase : undefined);
+						}
 						if (update) this.sendUpdate(sessionId, update);
 					},
 					turn.signal,
@@ -363,7 +370,7 @@ export class AcpAgent {
 			entry.failures = (entry.failures ?? 0) + 1;
 			this.sendUpdate(sessionId, encodeSessionFailure(`turn-${entry.failures}:error`, failure));
 		} else {
-			this.sendUpdate(sessionId, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: `\n\n**Error:** ${result.error ?? failure.title}` } });
+			this.sendUpdate(sessionId, standaloneMessage(`**Error:** ${result.error ?? failure.title}`));
 		}
 	}
 

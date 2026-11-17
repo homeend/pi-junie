@@ -22,9 +22,16 @@ describe("ACP driver", () => {
 		await new Promise((r) => setTimeout(r, 10));
 		const chunks = wire.updates("agent_message_chunk") as Obj[];
 		expect(chunks.map((u) => [u.sessionId, u.update.content.text])).toEqual([[s.result.sessionId, "**Pi** ready.\n\n- **Subagents: available**"]]);
+		// its own message: the first reply must not be appended to it
+		await call("providers/set", { providerId: "anthropic", apiType: "anthropic", baseUrl: "http://proxy/a" });
+		await call("session/prompt", { sessionId: s.result.sessionId, prompt: [{ type: "text", text: "hello" }] });
+		const ids = (wire.updates("agent_message_chunk") as Obj[]).filter((u) => u.update.content.text).map((u) => u.update.messageId);
+		expect(ids.every(Boolean)).toBe(true);
+		expect(new Set(ids).size).toBe(2); // welcome + the reply (whose chunks share one id)
+		const before = wire.updates("agent_message_chunk").length;
 		await call("session/resume", { sessionId: s.result.sessionId, cwd: "/tmp" });
 		await new Promise((r) => setTimeout(r, 10));
-		expect(wire.updates("agent_message_chunk")).toHaveLength(1);
+		expect(wire.updates("agent_message_chunk")).toHaveLength(before);
 	});
 
 	it("returns no model option until a provider is bound, then pushes config_option_update", async () => {

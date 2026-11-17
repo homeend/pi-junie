@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 // Translation between ACP v1 wire shapes and core types. Pure functions.
 
 import type { ClientProfile, CommandInfo, HistoryItem, McpServerSpec, ModelGroup, ModelRef, PromptImage, PromptInput, ProviderBinding, PermissionDecision, PermissionRequest, ProviderSlotState, SessionSummary, ToolUpdate, TurnEvent, TurnResult, MessagePhase, QuestionAnswers, QuestionForm, TurnFailure } from "../core/types.ts";
@@ -251,6 +252,30 @@ function phaseMeta(phase: MessagePhase | undefined): { _meta?: Record<string, un
 	return { _meta: { codex: { phase }, jetbrains: { air: { phase } }, junie: { version: 1, phase } } };
 }
 
+/**
+ * Message identity for streamed chunks (ACP `messageId`, as Junie sends): chunks of one message share an id, so the
+ * client keeps separate messages apart. A new message starts when the chunk kind (text/thought) or the phase
+ * changes, or after a tool call.
+ */
+export class MessageIds {
+	private current?: { id: string; key: string };
+	/** The id for a chunk of this kind and phase. */
+	next(kind: "text" | "thought", phase?: string): string {
+		const key = `${kind}:${phase ?? ""}`;
+		if (this.current?.key !== key) this.current = { id: randomUUID(), key };
+		return this.current.id;
+	}
+	/** Ends the current message (a tool call came in between). */
+	break(): void {
+		this.current = undefined;
+	}
+}
+
+/** A one-off message of its own (welcome, error notes). */
+export function standaloneMessage(text: string): SessionUpdate {
+	return { sessionUpdate: "agent_message_chunk", content: { type: "text", text }, messageId: randomUUID() };
+}
+
 export function encodeTurnEvent(event: TurnEvent): SessionUpdate | undefined {
 	switch (event.kind) {
 		case "tool":
@@ -347,9 +372,9 @@ export function encodeHistory(items: HistoryItem[]): SessionUpdate[] {
 				return { sessionUpdate: "user_message_chunk", content: { type: "text", text } };
 			}
 			case "assistant":
-				return { sessionUpdate: "agent_message_chunk", content: { type: "text", text: item.text }, ...phaseMeta(item.phase) };
+				return { sessionUpdate: "agent_message_chunk", content: { type: "text", text: item.text }, messageId: randomUUID(), ...phaseMeta(item.phase) };
 			case "thought":
-				return { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: item.text } };
+				return { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: item.text }, messageId: randomUUID() };
 		}
 	});
 }
