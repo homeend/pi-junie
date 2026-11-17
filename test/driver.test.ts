@@ -156,6 +156,30 @@ describe("ACP driver", () => {
 		});
 	});
 
+	it("encodes terminal tools with AIR's v1 terminal envelope only for clients that asked for it", async () => {
+		const { encodeToolUpdate } = await import("../src/acp/codec.ts");
+		const live = new Set<string>();
+		const start = encodeToolUpdate({ id: "b1", name: "bash", title: "Run ls", toolKind: "execute", status: "pending", input: { command: "ls" }, terminal: { command: "ls", cwd: "/p" } }, live, { liveTerminal: true }) as Obj;
+		expect(start).toMatchObject({ sessionUpdate: "tool_call", toolCallId: "b1", kind: "execute", rawInput: { command: "ls", cwd: "/p" }, content: [{ type: "terminal", terminalId: "b1" }] });
+		const chunk = encodeToolUpdate({ id: "b1", name: "bash", status: "in_progress", output: "a\n", terminal: { command: "", cwd: "/p", delta: "a\n" } }, live, { liveTerminal: true }) as Obj;
+		expect(chunk).toEqual({ sessionUpdate: "tool_call_update", toolCallId: "b1", status: "in_progress", _meta: { terminal_output_delta: { data: "a\n", terminal_id: "b1" } } });
+		const end = encodeToolUpdate({ id: "b1", name: "bash", status: "completed", output: "a\n", terminal: { command: "", cwd: "/p", exitCode: 0 } }, live, { liveTerminal: true }) as Obj;
+		expect(end._meta).toEqual({ terminal_exit: { exit_code: 0, signal: null, terminal_id: "b1" } });
+		expect(end.rawOutput).toEqual({ output: "a\n", exitCode: 0 });
+
+		const plain = encodeToolUpdate({ id: "b2", name: "bash", status: "completed", output: "a\n", terminal: { command: "ls", cwd: "/p", exitCode: 0 } }, new Set(), { liveTerminal: false }) as Obj;
+		expect(plain.content).toEqual([{ type: "content", content: { type: "text", text: "a\n" } }]);
+		expect(plain._meta).toBeUndefined();
+	});
+
+	it("detects AIR's live terminal opt-in from its initialize message", async () => {
+		const { decodeClientProfile } = await import("../src/acp/codec.ts");
+		const { loadFixture } = await import("./harness.ts");
+		const init = loadFixture("junie-hello").client.find((m) => m.method === "initialize") as Obj;
+		expect(decodeClientProfile(init.params).liveTerminal).toBe(true);
+		expect(decodeClientProfile({ protocolVersion: 1 }).liveTerminal).toBe(false);
+	});
+
 	it("advertises loadSession", async () => {
 		const { call } = await connected();
 		expect((await call("initialize", { protocolVersion: 1 })).result.agentCapabilities.loadSession).toBe(true);

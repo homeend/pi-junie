@@ -118,7 +118,9 @@ export class AcpAgent {
 	private initialize(params: InitializeParams): InitializeResult {
 		this.client = decodeClientProfile(params);
 		const features = resolveFeatures(this.backend.installedPlugins(), this.client.features);
-		this.log.info(`client ${this.client.name} ${this.client.version ?? ""} protocol=${params.protocolVersion} air features=[${this.client.features.join(", ")}]`);
+		this.log.info(
+			`client ${this.client.name} ${this.client.version ?? ""} protocol=${params.protocolVersion} liveTerminal=${this.client.liveTerminal} air features=[${this.client.features.join(", ")}]`,
+		);
 		for (const u of features.unavailable) this.log.debug(`feature ${u.feature} unavailable: ${u.reason}`);
 		const id = this.backend.identity();
 		return {
@@ -214,7 +216,8 @@ export class AcpAgent {
 			const result = await entry.backend.prompt(
 				input,
 				(event) => {
-					const update = event.kind === "tool" ? encodeToolUpdate(event.update, knownTools) : encodeTurnEvent(event);
+					const update =
+						event.kind === "tool" ? encodeToolUpdate(event.update, knownTools, { liveTerminal: this.client?.liveTerminal }) : encodeTurnEvent(event);
 					if (update) this.sendUpdate(params.sessionId, update);
 				},
 				turn.signal,

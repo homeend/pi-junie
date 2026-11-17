@@ -36,6 +36,7 @@ export function decodeClientProfile(params: InitializeParams): ClientProfile {
 		title: params.clientInfo?.title,
 		version: params.clientInfo?.version,
 		features,
+		liveTerminal: params.clientCapabilities?._meta?.terminal_output_delta === true || params.clientCapabilities?._meta?.terminal_output === true,
 	};
 }
 
@@ -252,8 +253,13 @@ function toolContent(u: ToolUpdate): unknown[] | undefined {
 	return undefined;
 }
 
-/** First update for an id -> `tool_call`, later ones -> `tool_call_update` (only the fields that are set). */
-export function encodeToolUpdate(u: ToolUpdate, known: Set<string>): SessionUpdate {
+/**
+ * First update for an id -> `tool_call`, later ones -> `tool_call_update` (only the fields that are set).
+ * With `liveTerminal`, terminal tools use AIR's v1 envelope: terminal content on the call, then
+ * `_meta.terminal_output_delta` / `_meta.terminal_exit` (see docs/junie AIR reference, "Terminal output").
+ */
+export function encodeToolUpdate(u: ToolUpdate, known: Set<string>, options: { liveTerminal?: boolean } = {}): SessionUpdate {
+	if (options.liveTerminal && u.terminal) return encodeTerminalUpdate(u, known);
 	const content = toolContent(u);
 	const fields = {
 		toolCallId: u.id,
@@ -267,6 +273,32 @@ export function encodeToolUpdate(u: ToolUpdate, known: Set<string>): SessionUpda
 	if (known.has(u.id)) return { sessionUpdate: "tool_call_update", ...fields } as SessionUpdate;
 	known.add(u.id);
 	return { sessionUpdate: "tool_call", title: u.name, kind: "other", status: "pending", ...fields } as SessionUpdate;
+}
+
+function encodeTerminalUpdate(u: ToolUpdate, known: Set<string>): SessionUpdate {
+	const t = u.terminal!;
+	const meta: Record<string, unknown> = {};
+	if (t.delta) meta.terminal_output_delta = { data: t.delta, terminal_id: u.id };
+	if (t.exitCode !== undefined) meta.terminal_exit = { exit_code: t.exitCode, signal: null, terminal_id: u.id };
+	const fields = {
+		toolCallId: u.id,
+		...(u.title !== undefined ? { title: u.title } : {}),
+		...(u.toolKind !== undefined ? { kind: u.toolKind } : {}),
+		...(u.status !== undefined ? { status: u.status } : {}),
+		...(u.output !== undefined && t.exitCode !== undefined ? { rawOutput: { output: u.output, exitCode: t.exitCode } } : {}),
+		...(Object.keys(meta).length ? { _meta: meta } : {}),
+	};
+	if (known.has(u.id)) return { sessionUpdate: "tool_call_update", ...fields } as SessionUpdate;
+	known.add(u.id);
+	return {
+		sessionUpdate: "tool_call",
+		title: u.name,
+		kind: "execute",
+		status: "pending",
+		...fields,
+		rawInput: { command: t.command, cwd: t.cwd },
+		content: [{ type: "terminal", terminalId: u.id }],
+	} as SessionUpdate;
 }
 
 export const PERMISSION_OPTIONS = [

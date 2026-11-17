@@ -130,6 +130,20 @@ describe("Pi bridge tools", () => {
 		expect(read.update.output).toContain("alpha");
 	});
 
+	it("reports bash as a terminal: command, output deltas, exit code", async () => {
+		const { tools, run } = await chat();
+		script = [{ tool: "bash", input: { command: "printf 'one\\ntwo\\n'" } }, { tool: "bash", input: { command: "echo oops >&2; exit 3" } }, "ran both"];
+		await run("run things", () => "allow_once");
+		const first = tools.filter((t) => t.input && (t.input as { command?: string }).command?.startsWith("printf"))[0];
+		expect(first.terminal).toMatchObject({ command: "printf 'one\\ntwo\\n'" });
+		const okEnd = tools.find((t) => t.name === "bash" && t.status === "completed")!;
+		expect(okEnd.terminal?.exitCode).toBe(0);
+		const streamed = tools.filter((t) => t.id === okEnd.id).map((t) => t.terminal?.delta ?? "").join("");
+		expect(streamed).toContain("one\ntwo");
+		const failed = tools.find((t) => t.name === "bash" && t.status === "failed")!;
+		expect(failed.terminal?.exitCode).toBe(3);
+	});
+
 	it("sums usage over all model calls of a tool turn", async () => {
 		const { run } = await chat();
 		script = [{ tool: "ls", input: {} }, "listed"];

@@ -122,6 +122,8 @@ export class ToolTracker {
 	private readonly cwd: string;
 	private readonly snapshots = new Map<string, { path: string; oldText: string | null }>();
 	private readonly announced = new Set<string>();
+	/** Output already reported per bash call (Pi's partial results are cumulative). */
+	private readonly terminalOutput = new Map<string, string>();
 
 	constructor(cwd: string) {
 		this.cwd = cwd;
@@ -131,7 +133,16 @@ export class ToolTracker {
 	requested(id: string, name: string, args: unknown): ToolUpdate | undefined {
 		if (this.announced.has(id)) return undefined;
 		this.announced.add(id);
-		return { id, name, title: toolTitle(name, args), toolKind: toolKind(name), status: "pending", input: args, locations: toolLocations(args, this.cwd) };
+		return {
+			id,
+			name,
+			title: toolTitle(name, args),
+			toolKind: toolKind(name),
+			status: "pending",
+			input: args,
+			locations: toolLocations(args, this.cwd),
+			...this.terminal(name, args),
+		};
 	}
 
 	/**
@@ -168,7 +179,20 @@ export class ToolTracker {
 			status: needsApproval ? "pending" : "in_progress",
 			input: args,
 			locations: toolLocations(args, this.cwd, line),
+			...this.terminal(name, args),
 		};
+	}
+
+	private terminal(name: string, args: unknown): Pick<ToolUpdate, "terminal"> {
+		const command = (args as { command?: unknown } | undefined)?.command;
+		return name === "bash" && typeof command === "string" ? { terminal: { command, cwd: this.cwd } } : {};
+	}
+
+	/** New output since the last report, from a cumulative snapshot. */
+	private terminalDelta(id: string, full: string): string {
+		const previous = this.terminalOutput.get(id) ?? "";
+		this.terminalOutput.set(id, full);
+		return full.startsWith(previous) ? full.slice(previous.length) : full;
 	}
 
 	approved(id: string, name: string): ToolUpdate {
@@ -178,7 +202,12 @@ export class ToolTracker {
 	progressed(id: string, name: string, partial: unknown): ToolUpdate | undefined {
 		if (this.snapshots.has(id)) return undefined; // file mutations report a diff at the end
 		const output = toolResultText(partial);
-		return output ? { id, name, status: "in_progress", output } : undefined;
+		if (!output) return undefined;
+		if (name === "bash") {
+			const delta = this.terminalDelta(id, output);
+			return delta ? { id, name, status: "in_progress", output, terminal: { command: "", cwd: this.cwd, delta } } : undefined;
+		}
+		return { id, name, status: "in_progress", output };
 	}
 
 	finished(id: string, name: string, result: unknown, isError: boolean): ToolUpdate {
@@ -193,6 +222,15 @@ export class ToolTracker {
 				// fall through to text
 			}
 		}
-		return { id, name, status, output: toolResultText(result) };
+		const output = toolResultText(result);
+		if (name === "bash") {
+			const r = result as { structuredContent?: { exit_code?: unknown }; details?: { exitCode?: unknown } } | undefined;
+			const reported = [r?.structuredContent?.exit_code, r?.details?.exitCode].find((v): v is number => typeof v === "number");
+			const exitCode = reported ?? (isError ? 1 : 0);
+			const delta = this.terminalDelta(id, output);
+			this.terminalOutput.delete(id);
+			return { id, name, status, output, terminal: { command: "", cwd: this.cwd, exitCode, ...(delta ? { delta } : {}) } };
+		}
+		return { id, name, status, output };
 	}
 }

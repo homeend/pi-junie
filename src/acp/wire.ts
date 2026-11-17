@@ -14,7 +14,7 @@ export interface WithMeta {
 
 export interface InitializeParams {
 	protocolVersion: number;
-	clientCapabilities?: WithMeta & Record<string, unknown>;
+	clientCapabilities?: { _meta?: { jetbrains?: { air?: AirMetaEnvelope }; terminal_output_delta?: unknown; terminal_output?: unknown; [key: string]: unknown } } & Record<string, unknown>;
 	clientInfo?: { name: string; title?: string; version?: string };
 }
 

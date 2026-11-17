@@ -14,6 +14,8 @@ export interface ClientProfile {
 	version?: string;
 	/** Product-specific feature flags the client says it understands (e.g. AIR capability strings). */
 	features: string[];
+	/** The client renders live terminal output from deltas. */
+	liveTerminal: boolean;
 }
 
 /** A fixed provider slot the agent can route through an external endpoint. */
@@ -85,6 +87,8 @@ export interface ToolUpdate {
 	/** Full text output so far (replaces earlier output). */
 	output?: string;
 	diff?: { path: string; oldText: string | null; newText: string };
+	/** A command running in a terminal: output arrives as deltas, the exit code at the end. */
+	terminal?: { command: string; cwd: string; delta?: string; exitCode?: number };
 }
 
 export interface PermissionRequest {
