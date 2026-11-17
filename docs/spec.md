@@ -219,9 +219,21 @@ that unlock each one:
   startup log also says `subagents: available` / `subagents: not available`.
 - Subagents (`@tintinweb/pi-subagents`, chosen because its children are in-process Pi sessions on the
   bridge's model runtime, reachable as live `AgentSession`s): sessions get its `Agent`, `get_subagent_result`
-  and `steer_subagent` tools. Planned: children as AIR native subagent sessions (`subagent_spawned`, child
-  stream on the child session id, `subagent_state_update`), the bridge's permission gate in children,
-  foreground runs only (`run_in_background: false`) at first.
+  and `steer_subagent` tools (they run without asking; the children's own tools are gated).
+- Subagent child sessions (`src/pi/subagents.ts`): the plugin builds each child with `createAgentSession` +
+  `bindExtensions` inside the parent's `Agent` call. The bridge observes `AgentSession.bindExtensions` once per
+  process; a session bound inside a bridge turn (AsyncLocalStorage scope) that the bridge did not create is that
+  turn's child. The child is announced with its `Agent` call (matched by prompt; `subagent_type` = name,
+  `description` = task, `prompt`), its events go through the same `TranscriptStream` as the parent's, its tool
+  calls pass the parent's permission gate (wrapped around Pi's `agent.beforeToolCall`, after the plugin's own
+  hooks; "Allow for this chat" is shared with the parent), and it finishes when its `Agent` call returns.
+  `Agent` calls are forced to the foreground (`run_in_background: false`), so children live within the turn and
+  parallel `Agent` calls run concurrently (Pi's parallel tool execution).
+- ACP (when the client lists `nativeSubagentSessions`, advertised once the plugin is present): `subagent_spawned`
+  on the parent (`capabilities: {cancel:false, close:false}`), the child's transcript as ordinary updates on the
+  child id (`<parent>:subagent-<n>`), child permission requests on the child id, `subagent_state_update` on the
+  parent; the parent's `Agent` tool rows are hidden. Without the capability, only the `Agent` rows show.
+  Not yet: background subagents, replay of children on session/load.
 
 ## 4. Testing: replay simulator
 

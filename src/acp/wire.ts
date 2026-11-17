@@ -75,4 +75,8 @@ export type SessionUpdate =
 	| { sessionUpdate: "available_commands_update"; availableCommands: Record<string, unknown>[] }
 	| { sessionUpdate: "tool_call"; toolCallId: string; [key: string]: unknown }
 	| { sessionUpdate: "tool_call_update"; toolCallId: string; [key: string]: unknown }
-	| { sessionUpdate: "usage_update"; used: number; size: number; cost?: { amount: number; currency: string } };
+	| { sessionUpdate: "usage_update"; used: number; size: number; cost?: { amount: number; currency: string } }
+	// AIR native subagent sessions (ACP draft "Subagent Sessions", sent on the parent session; the child's own
+	// updates are ordinary updates addressed to subagentSessionId).
+	| { sessionUpdate: "subagent_spawned"; subagentSessionId: string; name: string; task: string; prompt?: string; capabilities: { cancel: boolean; close: boolean } }
+	| { sessionUpdate: "subagent_state_update"; subagentSessionId: string; state: "completed" | "failed" | "cancelled" | "disconnected" };

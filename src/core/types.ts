@@ -95,6 +95,8 @@ export type ToolStatus = "pending" | "in_progress" | "completed" | "failed";
 export interface ToolUpdate {
 	id: string;
 	name: string;
+	/** The tool starts a subagent (whose child session clients may show instead of this row). */
+	launchesSubagent?: boolean;
 	title?: string;
 	toolKind?: ToolKind;
 	status?: ToolStatus;
@@ -114,6 +116,8 @@ export interface PermissionRequest {
 	toolKind: ToolKind;
 	input: unknown;
 	locations?: { path: string; line?: number }[];
+	/** Set when a subagent (child session) wants to run the tool. */
+	subagentId?: string;
 }
 
 export type PermissionDecision = "allow_once" | "allow_always" | "reject";
@@ -123,7 +127,19 @@ export type TurnEvent =
 	| { kind: "thought"; delta: string }
 	| { kind: "usage"; inputTokens: number; outputTokens: number; contextUsed?: number; contextSize?: number; costUsd?: number }
 	| { kind: "title"; title: string }
-	| { kind: "tool"; update: ToolUpdate };
+	| { kind: "tool"; update: ToolUpdate }
+	| SubagentEvent;
+
+/**
+ * A subagent: a child agent session the turn started, with its own transcript. `subagentId` is unique per process;
+ * the child's own events arrive wrapped in `subagent_update` (never a usage or title of the parent).
+ */
+export type SubagentEvent =
+	| { kind: "subagent_spawned"; subagentId: string; name: string; task: string; prompt?: string }
+	| { kind: "subagent_update"; subagentId: string; event: TurnEvent }
+	| { kind: "subagent_finished"; subagentId: string; state: SubagentState };
+
+export type SubagentState = "completed" | "failed" | "cancelled";
 
 /** "commentary": text the agent writes while working (before tool calls); "final_answer": its answer. */
 export type MessagePhase = "commentary" | "final_answer";

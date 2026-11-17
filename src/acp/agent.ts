@@ -4,7 +4,7 @@
 import { resolveFeatures } from "../compat/features.ts";
 import { type Logger, silentLogger } from "../core/log.ts";
 import type { AgentBackend, BackendSession } from "../core/ports.ts";
-import type { ClientProfile, PermissionDecision, PermissionRequest, PromptInput, QuestionAnswers, QuestionForm, TurnResult } from "../core/types.ts";
+import type { ClientProfile, PermissionDecision, PermissionRequest, PromptInput, QuestionAnswers, QuestionForm, SubagentEvent, TurnEvent, TurnResult } from "../core/types.ts";
 import {
 	EFFORT_CONFIG_ID,
 	MODEL_CONFIG_ID,
@@ -36,6 +36,15 @@ import { type JsonObject, JsonRpcPeer, RpcError, type Transport } from "./jsonrp
 import { type InitializeParams, type InitializeResult, PROTOCOL_VERSION, type ProvidersSetParams, type SessionPromptParams, type SessionUpdate } from "./wire.ts";
 
 const MODEL_DISCOVERY_WAIT_MS = 10_000;
+
+/** Per-transcript stream state: tool calls already announced, message ids. */
+interface TranscriptState {
+	knownTools: Set<string>;
+	messages: MessageIds;
+}
+
+/** AIR capability: subagents as child sessions. */
+const NATIVE_SUBAGENT_SESSIONS = "nativeSubagentSessions";
 
 interface SessionEntry {
 	backend: BackendSession;
@@ -322,8 +331,9 @@ export class AcpAgent {
 		// The turn exists before any await, so a session/cancel arriving right away is not lost.
 		const turn = new AbortController();
 		entry.turn = turn;
-		const knownTools = new Set<string>();
-		const messages = new MessageIds();
+		const stream: TranscriptState = { knownTools: new Set<string>(), messages: new MessageIds() };
+		const knownTools = stream.knownTools;
+		const children = new Map<string, TranscriptState>();
 		const run = async (): Promise<TurnResult> => {
 			try {
 				const command = decodeCommand(input.text, await entry.backend.commands());
@@ -334,16 +344,23 @@ export class AcpAgent {
 				const result = await entry.backend.prompt(
 					input,
 					(event) => {
-						if (event.kind === "tool") messages.break();
-						const update =
-							event.kind === "tool" ? encodeToolUpdate(event.update, knownTools, { liveTerminal: this.client?.liveTerminal }) : encodeTurnEvent(event);
-						if (update && (update.sessionUpdate === "agent_message_chunk" || update.sessionUpdate === "agent_thought_chunk")) {
-							update.messageId = messages.next(event.kind === "thought" ? "thought" : "text", event.kind === "text" ? event.phase : undefined);
+						// Native subagent sessions replace the launching tool's row (like Junie).
+						if (event.kind === "tool" && event.update.launchesSubagent && this.nativeSubagents()) return;
+						if (event.kind === "subagent_spawned" || event.kind === "subagent_update" || event.kind === "subagent_finished") {
+							this.relaySubagent(sessionId, event, children);
+							return;
 						}
+						const update = this.encodeStreamed(event, stream);
 						if (update) this.sendUpdate(sessionId, update);
 					},
 					turn.signal,
-					(request) => this.requestPermission(sessionId, request, knownTools, turn.signal),
+					(request) => {
+						// A subagent's tool asks on the child session (AIR resolves it through the parent's request flow).
+						const child = request.subagentId ? children.get(request.subagentId) : undefined;
+						return child && request.subagentId
+							? this.requestPermission(request.subagentId, request, child.knownTools, turn.signal)
+							: this.requestPermission(sessionId, request, knownTools, turn.signal);
+					},
 					(form, signal) => this.askQuestions(sessionId, form, signal),
 				);
 				if (result.stop === "error") this.reportFailure(sessionId, entry, result);
@@ -364,6 +381,54 @@ export class AcpAgent {
 	 * A failed turn: AIR's typed failure row (`sessionFailure`, one incident per turn like Junie) when the client
 	 * opted in, else the error as message text.
 	 */
+	/** One streamed event of a transcript (the session's own or a subagent's) as an update; none for unknown kinds. */
+	private encodeStreamed(event: TurnEvent, state: TranscriptState): SessionUpdate | undefined {
+		if (event.kind === "tool") state.messages.break();
+		const update = event.kind === "tool" ? encodeToolUpdate(event.update, state.knownTools, { liveTerminal: this.client?.liveTerminal }) : encodeTurnEvent(event);
+		if (update && (update.sessionUpdate === "agent_message_chunk" || update.sessionUpdate === "agent_thought_chunk")) {
+			update.messageId = state.messages.next(event.kind === "thought" ? "thought" : "text", event.kind === "text" ? event.phase : undefined);
+		}
+		return update;
+	}
+
+	/**
+	 * Subagents as AIR native child sessions (like Junie): `subagent_spawned` on the parent, the child's transcript
+	 * on the child id, `subagent_state_update` on the parent. Clients without `nativeSubagentSessions` see only the
+	 * parent's Agent tool row.
+	 */
+	private nativeSubagents(): boolean {
+		return this.client?.features.includes(NATIVE_SUBAGENT_SESSIONS) === true;
+	}
+
+	private relaySubagent(sessionId: string, event: SubagentEvent, children: Map<string, TranscriptState>): void {
+		if (!this.nativeSubagents()) return;
+		switch (event.kind) {
+			case "subagent_spawned":
+				children.set(event.subagentId, { knownTools: new Set(), messages: new MessageIds() });
+				this.sendUpdate(sessionId, {
+					sessionUpdate: "subagent_spawned",
+					subagentSessionId: event.subagentId,
+					name: event.name,
+					task: event.task,
+					...(event.prompt ? { prompt: event.prompt } : {}),
+					capabilities: { cancel: false, close: false },
+				});
+				return;
+			case "subagent_update": {
+				const child = children.get(event.subagentId);
+				// The child's usage and title are its own business; the parent reports the turn's usage.
+				if (!child || event.event.kind === "usage" || event.event.kind === "title") return;
+				const update = this.encodeStreamed(event.event, child);
+				if (update) this.sendUpdate(event.subagentId, update);
+				return;
+			}
+			case "subagent_finished":
+				if (!children.has(event.subagentId)) return;
+				this.sendUpdate(sessionId, { sessionUpdate: "subagent_state_update", subagentSessionId: event.subagentId, state: event.state });
+				return;
+		}
+	}
+
 	private reportFailure(sessionId: string, entry: SessionEntry, result: TurnResult): void {
 		const failure = result.failure ?? { category: "unknown" as const, title: "The run stopped", details: result.error, actions: ["retry" as const] };
 		if (this.client?.features.includes("sessionFailure")) {

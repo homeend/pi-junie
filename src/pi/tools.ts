@@ -134,6 +134,8 @@ export function toolResultText(result: unknown): string {
 export class ToolTracker {
 	private readonly cwd: string;
 	private readonly snapshots = new Map<string, { path: string; oldText: string | null }>();
+	/** Last progress text per tool call (unchanged progress is not reported again). */
+	private readonly lastOutput = new Map<string, string>();
 	private readonly announced = new Set<string>();
 	/** Output already reported per bash call (Pi's partial results are cumulative). */
 	private readonly terminalOutput = new Map<string, string>();
@@ -220,10 +222,14 @@ export class ToolTracker {
 			const delta = this.terminalDelta(id, output);
 			return delta ? { id, name, status: "in_progress", output, terminal: { command: "", cwd: this.cwd, delta } } : undefined;
 		}
+		// Tools that repaint their progress (spinners) repeat the same text: report changes only.
+		if (this.lastOutput.get(id) === output) return undefined;
+		this.lastOutput.set(id, output);
 		return { id, name, status: "in_progress", output };
 	}
 
 	finished(id: string, name: string, result: unknown, isError: boolean): ToolUpdate {
+		this.lastOutput.delete(id);
 		const snapshot = this.snapshots.get(id);
 		this.snapshots.delete(id);
 		const status = isError ? "failed" : "completed";

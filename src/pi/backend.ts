@@ -22,12 +22,14 @@ import type { AgentBackend, BackendSession, PermissionAsk, QuestionAsk, SessionC
 import type { CommandInfo, HistoryItem, McpServerSpec, ModelChoice, ModelGroup, ModelRef, PromptInput, ProviderBinding, ProviderSlotState, SessionSummary, SteerResult, TurnResult } from "../core/types.ts";
 import { bridgeProviderId, DEFAULT_MODEL, joinBaseUrl, SLOTS, type SlotDefinition, vertexBaseUrl } from "./catalog.ts";
 import { openPiTranscript, type SessionMeta, SessionStore } from "./session-store.ts";
-import { BRIDGE_TOOLS, READ_ONLY_TOOLS, ToolTracker, toolKind, toolLocations, toolResultText, toolTitle } from "./tools.ts";
+import { BRIDGE_TOOLS, READ_ONLY_TOOLS, toolKind, toolLocations, toolResultText, toolTitle } from "./tools.ts";
 import { IDE_ROUTER_TOOL, IDE_SERVER, ideRouterName, ideServerToolExposure, JUNIE_COMPAT_DEFAULTS, type JunieCompatOptions, junieExecuteToolAlias } from "./junie-compat.ts";
 import { classifyFailure } from "./failures.ts";
 import { PLACEHOLDER_API_KEY } from "./proxy-auth.ts";
 import { ASK_USER_TOOL, askUserTool } from "./ask-user.ts";
-import { PhaseSplitter, type PhaseSplitterOptions, signaturePhase } from "./phases.ts";
+import { type PhaseSplitterOptions, signaturePhase } from "./phases.ts";
+import { TranscriptStream } from "./transcript.ts";
+import { AGENT_TOOL, installChildSessionHook, markBridgeSession, SubagentRelay, withChildHost } from "./subagents.ts";
 import { type DetectedPlugin, detectPlugins, pluginWelcomeLines, SUBAGENT_TOOLS, SUBAGENTS_PLUGIN } from "./plugins.ts";
 import { discoverModels, type ListedModel, listingIdMatches } from "./discovery.ts";
 
@@ -89,6 +91,7 @@ export class PiBackend implements AgentBackend {
 		this.phaseHold = options.phaseHold;
 		this.junieCompat = { ...JUNIE_COMPAT_DEFAULTS, ...options.junieCompat };
 		this.plugins = options.piAgentDir ? detectPlugins(options.piAgentDir, this.log) : [];
+		if (this.plugins.some((p) => p.name === SUBAGENTS_PLUGIN)) installChildSessionHook();
 		this.showWelcome = options.welcome ?? false;
 		const subagents = this.plugins.some((p) => p.name === SUBAGENTS_PLUGIN);
 		this.log.info(`subagents: ${subagents ? "available" : "not available"}`);
@@ -404,6 +407,7 @@ export class PiBackend implements AgentBackend {
 			sessionManager: manager,
 			settingsManager,
 		});
+		markBridgeSession(session); // never adopted as a subagent of another session
 		// Emits session_start: Pi's MCP extension starts connecting the servers (prompts wait for direct tools).
 		await session.bindExtensions({});
 		if (mcpServers.length) {
@@ -636,36 +640,46 @@ class PiSession implements BackendSession {
 	/** Runs without asking: built-in read-only tools, MCP tools the server marks read-only, tools allowed for this chat. */
 	private runsWithoutAsking(toolName: string): boolean {
 		// ask_user is itself a question to the user: no separate permission.
-		return READ_ONLY_TOOLS.has(toolName) || toolName === ASK_USER_TOOL || this.alwaysAllowed.has(toolName) || this.toolInfo?.(toolName)?.annotations?.readOnlyHint === true;
+		// The subagent tools only start or steer children, whose own tools pass this gate.
+		return READ_ONLY_TOOLS.has(toolName) || toolName === ASK_USER_TOOL || SUBAGENT_TOOLS.includes(toolName) || this.alwaysAllowed.has(toolName) || this.toolInfo?.(toolName)?.annotations?.readOnlyHint === true;
 	}
 
 	private readonly gate = (pi: ExtensionAPI) => {
 		this.toolInfo = (name) => pi.getAllTools().find((t) => t.name === name);
 		this.allTools = () => pi.getAllTools();
 		pi.on("tool_call", async (event) => {
-			const log = this.backend.log;
 			// A call made by another tool (e.g. the execute_tool alias forwarding to the IDE router) was approved with its parent.
 			if ((event as { parentToolCallId?: string }).parentToolCallId) return undefined;
-			if (this.runsWithoutAsking(event.toolName)) return undefined;
-			if (!this.ask) return { block: true, reason: "No client to ask for permission." };
-			const decision = await this.ask({
-				toolCallId: event.toolCallId,
-				toolName: event.toolName,
-				title: toolTitle(event.toolName, event.input),
-				toolKind: toolKind(event.toolName),
-				input: event.input,
-				locations: toolLocations(event.input, this.cwd),
-			}).catch((err: unknown) => {
-				log.error(`session ${this.id}: permission request failed: ${(err as Error)?.message ?? String(err)}`);
-				return "reject" as const;
-			});
-			log.info(`session ${this.id}: permission ${event.toolName} ${event.toolCallId} -> ${decision}`);
-			if (decision === "allow_always") this.alwaysAllowed.add(event.toolName);
-			if (decision === "reject") return { block: true, reason: "The user rejected this tool call." };
-			this.onApproved?.(event.toolCallId, event.toolName);
-			return undefined;
+			// Subagents run in the foreground for now: their child session lives within the parent's turn.
+			if (event.toolName === AGENT_TOOL) (event.input as Record<string, unknown>).run_in_background = false;
+			const verdict = await this.permit({ toolCallId: event.toolCallId, toolName: event.toolName, input: event.input as Record<string, unknown> });
+			if (!verdict && !this.runsWithoutAsking(event.toolName)) this.onApproved?.(event.toolCallId, event.toolName);
+			return verdict;
 		});
 	};
+
+	/** Asks the user (unless the tool runs without asking); a block verdict when it must not run. Also for subagents' tools. */
+	private async permit(call: { toolCallId: string; toolName: string; input: Record<string, unknown> }, subagentId?: string): Promise<{ block: true; reason: string } | undefined> {
+		const log = this.backend.log;
+		if (this.runsWithoutAsking(call.toolName)) return undefined;
+		if (!this.ask) return { block: true, reason: "No client to ask for permission." };
+		const decision = await this.ask({
+			toolCallId: call.toolCallId,
+			toolName: call.toolName,
+			title: toolTitle(call.toolName, call.input),
+			toolKind: toolKind(call.toolName),
+			input: call.input,
+			locations: toolLocations(call.input, this.cwd),
+			...(subagentId ? { subagentId } : {}),
+		}).catch((err: unknown) => {
+			log.error(`session ${this.id}: permission request failed: ${(err as Error)?.message ?? String(err)}`);
+			return "reject" as const;
+		});
+		log.info(`session ${this.id}${subagentId ? ` subagent ${subagentId}` : ""}: permission ${call.toolName} ${call.toolCallId} -> ${decision}`);
+		if (decision === "allow_always") this.alwaysAllowed.add(call.toolName);
+		if (decision === "reject") return { block: true, reason: "The user rejected this tool call." };
+		return undefined;
+	}
 
 	/** Runs a turn, tracking its phase so messages typed meanwhile (steer) know where to go. */
 	async prompt(input: PromptInput, sink: TurnSink, signal: AbortSignal, ask: PermissionAsk, askUser?: QuestionAsk): Promise<TurnResult> {
@@ -768,36 +782,30 @@ class PiSession implements BackendSession {
 
 		let last: AssistantMessage | undefined;
 		const total = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };
-		const tools = new ToolTracker(this.cwd);
-		const tool = (update: ReturnType<ToolTracker["finished"]> | undefined) => update && sink({ kind: "tool", update });
+		const transcript = new TranscriptStream(sink, {
+			cwd: this.cwd,
+			phaseHold: this.backend.phaseHold,
+			needsApproval: (name) => !this.runsWithoutAsking(name),
+			launchesSubagent: (name) => name === AGENT_TOOL,
+			log: (line) => log.info(`session ${this.id}: ${line}`),
+		});
 		this.ask = ask;
-		this.onApproved = (id, name) => tool(tools.approved(id, name));
+		this.onApproved = (id, name) => transcript.approved(id, name);
 		this.logMcpToolsOnce();
-		const phases = new PhaseSplitter((delta, phase) => sink({ kind: "text", delta, phase }), this.backend.phaseHold);
+		const subagents = new SubagentRelay({
+			parentId: this.id,
+			cwd: this.cwd,
+			sink,
+			gate: (subagentId, call) => this.permit(call, subagentId),
+			needsApproval: (name) => !this.runsWithoutAsking(name),
+			phaseHold: this.backend.phaseHold,
+			log,
+		});
 		const unsubscribe = pi.subscribe((event) => {
-			if (event.type === "message_start" && event.message.role === "assistant") phases.messageStart();
-			if (event.type === "message_update") {
-				const e = event.assistantMessageEvent;
-				if (e.type === "text_delta") phases.text(e.delta);
-				else if (e.type === "text_end") {
-					const block = e.partial.content[e.contentIndex] as { textSignature?: string } | undefined;
-					phases.textEnd(signaturePhase(block?.textSignature));
-				} else if (e.type === "thinking_delta") sink({ kind: "thought", delta: e.delta });
-				else if (e.type === "toolcall_start") phases.toolCall();
-				else if (e.type === "toolcall_end") tool(tools.requested(e.toolCall.id, e.toolCall.name, e.toolCall.arguments));
-			} else if ((event.type === "tool_execution_start" || event.type === "tool_execution_update" || event.type === "tool_execution_end") && (event as { parentToolCallId?: string }).parentToolCallId) {
-				// nested call (reported through its parent tool's card)
-			} else if (event.type === "tool_execution_start") {
-				log.info(`session ${this.id}: tool ${event.toolName} ${event.toolCallId} start ${JSON.stringify(event.args).slice(0, 200)}`);
-				const needsApproval = !this.runsWithoutAsking(event.toolName);
-			tool(tools.started(event.toolCallId, event.toolName, event.args, needsApproval));
-			} else if (event.type === "tool_execution_update") {
-				tool(tools.progressed(event.toolCallId, event.toolName, event.partialResult));
-			} else if (event.type === "tool_execution_end") {
-				log.info(`session ${this.id}: tool ${event.toolName} ${event.toolCallId} ${event.isError ? "FAILED" : "done"}${event.durationMs !== undefined ? ` ${event.durationMs}ms` : ""}`);
-				tool(tools.finished(event.toolCallId, event.toolName, event.result, event.isError));
-			} else if (event.type === "message_end" && event.message.role === "assistant") {
-				phases.messageEnd();
+			transcript.handle(event);
+			if (event.type === "tool_execution_start" && event.toolName === AGENT_TOOL) subagents.agentCallStarted(event.toolCallId, event.args);
+			if (event.type === "tool_execution_end" && event.toolName === AGENT_TOOL) subagents.agentCallEnded(event.toolCallId, event.isError, signal.aborted);
+			if (event.type === "message_end" && event.message.role === "assistant") {
 				last = event.message as AssistantMessage;
 				const u = last.usage;
 				total.input += u.input;
@@ -820,14 +828,17 @@ class PiSession implements BackendSession {
 		signal.addEventListener("abort", onAbort, { once: true });
 		this.enterPhase("running");
 		try {
-			await pi.prompt(text, { images, expandPromptTemplates: !!skillCommand });
-			await this.drainSteering(pi, signal);
+			await withChildHost(subagents, async () => {
+				await pi.prompt(text, { images, expandPromptTemplates: !!skillCommand });
+				await this.drainSteering(pi, signal);
+			});
 		} catch (err) {
 			log.error(`session ${this.id}: prompt threw after ${Date.now() - started}ms: ${(err as Error).stack ?? String(err)}`);
 			return { stop: signal.aborted ? "cancelled" : "error", error: (err as Error).message, failure: classifyFailure((err as Error).message) };
 		} finally {
 			this.enterPhase("idle");
-			phases.messageEnd(); // an aborted or failed message still shows what it wrote
+			transcript.flush(); // an aborted or failed message still shows what it wrote
+			subagents.close(signal.aborted);
 			unsubscribe();
 			this.ask = undefined;
 			this.onApproved = undefined;
