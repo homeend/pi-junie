@@ -139,6 +139,23 @@ describe("ACP driver", () => {
 		expect((await call("session/load", { sessionId: "pi-unknown", cwd: "/tmp" })).error.code).toBe(-32002);
 	});
 
+	it("replays tool calls as complete tool_call updates", async () => {
+		const { encodeHistory } = await import("../src/acp/codec.ts");
+		const updates = encodeHistory([
+			{ kind: "user", text: "q", imageCount: 0 },
+			{ kind: "tool", update: { id: "t1", name: "read", title: "Read a.txt", toolKind: "read", status: "completed", input: { path: "a.txt" }, output: "alpha" } },
+		]) as Obj[];
+		expect(updates[1]).toEqual({
+			sessionUpdate: "tool_call",
+			toolCallId: "t1",
+			title: "Read a.txt",
+			kind: "read",
+			status: "completed",
+			rawInput: { path: "a.txt" },
+			content: [{ type: "content", content: { type: "text", text: "alpha" } }],
+		});
+	});
+
 	it("advertises loadSession", async () => {
 		const { call } = await connected();
 		expect((await call("initialize", { protocolVersion: 1 })).result.agentCapabilities.loadSession).toBe(true);

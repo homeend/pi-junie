@@ -19,7 +19,8 @@ beforeEach(() => {
 
 async function chat() {
 	const cwd = mkdtempSync(join(tmpdir(), "pi-junie-proj-"));
-	const backend = await PiBackend.create({ stateDir: mkdtempSync(join(tmpdir(), "pi-junie-test-")) });
+	const stateDir = mkdtempSync(join(tmpdir(), "pi-junie-test-"));
+	const backend = await PiBackend.create({ stateDir });
 	backend.bindProvider({ slotId: "anthropic", apiType: "anthropic", baseUrl: `${proxy.url}/a`, headers: {} });
 	await backend.modelsSettled(3000);
 	const session = await backend.openSession({ cwd });
@@ -35,7 +36,7 @@ async function chat() {
 				return decide(r);
 			},
 		);
-	return { cwd, session, asked, tools, run };
+	return { cwd, stateDir, session, asked, tools, run };
 }
 
 const toolResultTexts = () =>
@@ -106,6 +107,27 @@ describe("Pi bridge tools", () => {
 		expect(system).toContain("Always run `make check` before committing.");
 		expect(system).toContain("release-notes");
 		expect(system).toContain("JetBrains IDE");
+	});
+
+	it("replays tool calls with their final status when a chat is reopened", async () => {
+		const { cwd, stateDir, session, run } = await chat();
+		writeFileSync(join(cwd, "a.txt"), "alpha\n");
+		script = [{ tool: "read", input: { path: "a.txt" } }, { tool: "bash", input: { command: "false" } }, "done reading"];
+		await run("read a.txt then fail", (r) => (r.toolName === "bash" ? "reject" : "allow_once"));
+
+		const reopened = await PiBackend.create({ stateDir });
+		reopened.bindProvider({ slotId: "anthropic", apiType: "anthropic", baseUrl: `${proxy.url}/a`, headers: {} });
+		await reopened.modelsSettled(3000);
+		const history = (await reopened.resumeSession({ sessionId: session.id, cwd }))!.session.history();
+		expect(history.map((h) => (h.kind === "tool" ? `tool:${h.update.name}:${h.update.status}` : h.kind))).toEqual([
+			"user",
+			"tool:read:completed",
+			"tool:bash:failed",
+			"assistant",
+		]);
+		const read = history[1] as Extract<(typeof history)[number], { kind: "tool" }>;
+		expect(read.update).toMatchObject({ title: "Read a.txt", toolKind: "read", locations: [{ path: join(cwd, "a.txt") }] });
+		expect(read.update.output).toContain("alpha");
 	});
 
 	it("sums usage over all model calls of a tool turn", async () => {

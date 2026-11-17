@@ -124,4 +124,8 @@ export interface SessionSummary {
 }
 
 /** One past item of a conversation, replayed when a client reopens a session. */
-export type HistoryItem = { kind: "user"; text: string; imageCount: number } | { kind: "assistant"; text: string } | { kind: "thought"; text: string };
+export type HistoryItem =
+	| { kind: "user"; text: string; imageCount: number }
+	| { kind: "assistant"; text: string }
+	| { kind: "thought"; text: string }
+	| { kind: "tool"; update: ToolUpdate };

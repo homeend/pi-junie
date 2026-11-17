@@ -227,8 +227,11 @@ export function encodeSessionSummary(s: SessionSummary): Record<string, unknown>
 
 /** History replay for session/load (ACP: the agent streams the whole conversation before answering). */
 export function encodeHistory(items: HistoryItem[]): SessionUpdate[] {
+	const known = new Set<string>();
 	return items.map((item): SessionUpdate => {
 		switch (item.kind) {
+			case "tool":
+				return encodeToolUpdate(item.update, known);
 			case "user": {
 				const text = item.imageCount ? `${item.text}${item.text ? "\n\n" : ""}[${item.imageCount} image(s)]` : item.text;
 				return { sessionUpdate: "user_message_chunk", content: { type: "text", text } };

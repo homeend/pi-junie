@@ -20,7 +20,7 @@ import type { AgentBackend, BackendSession, PermissionAsk, TurnSink } from "../c
 import type { HistoryItem, ModelChoice, ModelGroup, ModelRef, PromptInput, ProviderBinding, ProviderSlotState, SessionSummary, TurnResult } from "../core/types.ts";
 import { bridgeProviderId, DEFAULT_MODEL, joinBaseUrl, SLOTS, type SlotDefinition } from "./catalog.ts";
 import { openPiTranscript, type SessionMeta, SessionStore } from "./session-store.ts";
-import { BRIDGE_TOOLS, READ_ONLY_TOOLS, ToolTracker, toolKind, toolLocations, toolTitle } from "./tools.ts";
+import { BRIDGE_TOOLS, READ_ONLY_TOOLS, ToolTracker, toolKind, toolLocations, toolResultText, toolTitle } from "./tools.ts";
 import { discoverModels, type ListedModel, listingIdMatches } from "./discovery.ts";
 
 const IDE_NOTE =
@@ -393,18 +393,40 @@ class PiSession implements BackendSession {
 		const manager = this.pi?.sessionManager ?? openPiTranscript(this.backend.store, this.id, this.cwd);
 		if (!manager) return [];
 		const items: HistoryItem[] = [];
+		const toolItems = new Map<string, Extract<HistoryItem, { kind: "tool" }>>();
 		for (const entry of manager.getBranch()) {
 			if (entry.type !== "message") continue;
-			const message = entry.message as { role: string; content: unknown };
+			const message = entry.message as { role: string; content: unknown; toolCallId?: string; isError?: boolean };
 			if (message.role === "user") {
 				const parts = typeof message.content === "string" ? [{ type: "text", text: message.content }] : (message.content as { type: string; text?: string }[]);
 				const text = parts.filter((p) => p.type === "text").map((p) => p.text ?? "").join("\n");
 				items.push({ kind: "user", text, imageCount: parts.filter((p) => p.type === "image").length });
 			} else if (message.role === "assistant") {
-				for (const part of message.content as { type: string; text?: string; thinking?: string }[]) {
+				for (const part of message.content as { type: string; text?: string; thinking?: string; id?: string; name?: string; arguments?: unknown }[]) {
 					if (part.type === "thinking" && part.thinking) items.push({ kind: "thought", text: part.thinking });
 					else if (part.type === "text" && part.text) items.push({ kind: "assistant", text: part.text });
+					else if (part.type === "toolCall" && part.id && part.name) {
+						const item: Extract<HistoryItem, { kind: "tool" }> = {
+							kind: "tool",
+							update: {
+								id: part.id,
+								name: part.name,
+								title: toolTitle(part.name, part.arguments),
+								toolKind: toolKind(part.name),
+								status: "pending", // completed by its toolResult below; stays pending if the turn was cut off
+								input: part.arguments,
+								locations: toolLocations(part.arguments, this.cwd),
+							},
+						};
+						toolItems.set(part.id, item);
+						items.push(item);
+					}
 				}
+			} else if (message.role === "toolResult" && message.toolCallId) {
+				const item = toolItems.get(message.toolCallId);
+				if (!item) continue;
+				item.update.status = message.isError ? "failed" : "completed";
+				item.update.output = truncate(toolResultText({ content: message.content }), HISTORY_OUTPUT_MAX);
 			}
 		}
 		return items;
@@ -567,6 +589,12 @@ function fmt(ref: ModelRef | undefined): string {
 }
 
 const DEFAULT_EFFORT = "medium";
+/** Replayed tool output is cut to keep session/load small (the model still has the full transcript). */
+const HISTORY_OUTPUT_MAX = 4000;
+
+function truncate(text: string, max: number): string {
+	return text.length > max ? `${text.slice(0, max)}\n… (${text.length - max} more characters)` : text;
+}
 const TITLE_MAX = 60;
 
 export function titleFromPrompt(text: string): string | undefined {
