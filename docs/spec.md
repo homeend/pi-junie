@@ -42,10 +42,15 @@ reach through those bindings as the `model` config option on `session/new`, and 
 curated model list per slot.
 
 **Ingrazzio slot** (`src/pi/ingrazzio.ts`). Like Junie, the agent also lists an `ingrazzio` slot (apiType
-`ingrazzio`, JetBrains' own API). It serves no models. When AIR binds it, the bridge reads the account's feature
+`ingrazzio`, JetBrains' own API). When AIR binds it, the bridge reads the account's feature
 flags through that route, `GET <baseUrl>/api/feature-flags/ga` with the binding's headers, as Junie does
 (`RemoteFeatureFlags.kt`). The flags include `JUNIE_MIXES` (Junie's Default model group: Lite/Normal/Hard/Frontier as
 model + effort + Eco) and `ECO_MODE_IMPLEMENTATION`. For now the bridge only loads and logs them.
+It also offers **Junie Lite** (group "JetBrains AI") there, called like Junie does: Qwen3.6 27B
+(`Qwen/Qwen3.6-27B-FP8`) as OpenAI chat completions at `<baseUrl>/llm/vllm/v1/chat/completions`, with Ingrazzio's
+routing headers `X-LLM-Model: jbai`, `X-Keep-Path: true` and the free license (`X-Forced-License-Free: true`,
+`X-Accept-EAP-License: false`, `X-Accept-Release-License: false`); no effort. Ingrazzio has no vLLM listing, so it is
+offered without discovery (as in Junie).
 
 ACP version: v1, matching the Junie examples. The codec keeps version-specific paths (v1
 `clientCapabilities`/`agentCapabilities`, v2 `capabilities`) in one place so v2 can be added later.

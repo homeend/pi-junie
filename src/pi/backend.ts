@@ -31,7 +31,7 @@ import { type PhaseSplitterOptions, signaturePhase } from "./phases.ts";
 import { TranscriptStream } from "./transcript.ts";
 import { TODO_TOOL, todoPlan } from "./todo.ts";
 import { PLAN_COMPLETE_TOOL, PLAN_MODE_PLUGIN, PLAN_MODE_TOOLS, readPlanModeState, REVIEW_PLAN_ID, runPlanCommand } from "./plan-mode.ts";
-import { type FeatureFlags, INGRAZZIO_SLOT, loadFeatureFlags } from "./ingrazzio.ts";
+import { type FeatureFlags, INGRAZZIO_SLOT, ingrazzioProvider, loadFeatureFlags } from "./ingrazzio.ts";
 import { isReadOnlyCommand } from "./safe-commands.ts";
 import { FETCH_CONTENT_TOOL, WEB_READ_TOOLS, withoutBackgroundFetch } from "./web-access.ts";
 import { AGENT_TOOL, installChildSessionHook, markBridgeSession, SubagentRelay, subagentModelsNote, withChildHost } from "./subagents.ts";
@@ -148,10 +148,12 @@ export class PiBackend implements AgentBackend {
 		});
 	}
 
-	/** The Ingrazzio route serves no models: it is where the client's account feature flags are read. */
+	/** The Ingrazzio route: the account's feature flags, and Junie Lite (offered without discovery, like Junie). */
 	private bindIngrazzio(binding: ProviderBinding): void {
 		const generation = ++this.generation;
 		this.ingrazzio = { binding, generation };
+		this.runtime.registerProvider(bridgeProviderId(INGRAZZIO_SLOT.id), ingrazzioProvider(binding, PLACEHOLDER_API_KEY));
+		this.emit();
 		this.log.info(`bind ${INGRAZZIO_SLOT.id}: apiType=${binding.apiType} baseUrl=${binding.baseUrl} headers=[${Object.keys(binding.headers).join(", ")}] -> loading feature flags`);
 		const done = loadFeatureFlags(binding, { fetch: this.fetchImpl, log: this.log }).then((flags) => {
 			if (this.ingrazzio?.generation === generation) this.ingrazzio.flags = flags;
@@ -297,8 +299,10 @@ export class PiBackend implements AgentBackend {
 
 	unbindProvider(slotId: string): void {
 		if (slotId === INGRAZZIO_SLOT.id) {
-			this.log.info(`unbind ${slotId}: ${this.ingrazzio ? "feature flags dropped" : "was not bound"}`);
+			this.log.info(`unbind ${slotId}: ${this.ingrazzio ? "feature flags and Junie Lite dropped" : "was not bound"}`);
 			this.ingrazzio = undefined;
+			this.runtime.unregisterProvider(bridgeProviderId(slotId));
+			this.emit();
 			return;
 		}
 		if (!this.bindings.delete(slotId)) {
@@ -311,7 +315,8 @@ export class PiBackend implements AgentBackend {
 	}
 
 	availableModels(): ModelGroup[] {
-		return SLOTS.filter((s) => this.bindings.has(s.id)).map((s) => ({
+		const slots = [...SLOTS.filter((s) => this.bindings.has(s.id)), ...(this.ingrazzio ? [INGRAZZIO_SLOT] : [])];
+		return slots.map((s) => ({
 			slotId: s.id,
 			name: s.displayName,
 			models: this.runtime
