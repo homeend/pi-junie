@@ -53,7 +53,10 @@ describe("Pi plugins", () => {
 
 	it("loads an installed subagents plugin into sessions and reports it to the compat layer", async () => {
 		const piAgentDir = piAgentDirWithSubagents();
-		const backend = await PiBackend.create({ stateDir: mkdtempSync(join(tmpdir(), "pi-junie-test-")), piAgentDir });
+		const stateDir = mkdtempSync(join(tmpdir(), "pi-junie-test-"));
+		const backend = await PiBackend.create({ stateDir, piAgentDir });
+		// the plugin's saved children stay in the bridge's state dir, not in Pi's session list the IDE shows
+		expect(process.env.PI_CODING_AGENT_SESSION_DIR).toBe(join(stateDir, "subagents"));
 		expect(backend.installedPlugins()).toEqual([{ name: SUBAGENTS_PLUGIN, version: "0.26.0" }]);
 		expect(await toolsSentToModel(piAgentDir)).toContain("Agent");
 	});

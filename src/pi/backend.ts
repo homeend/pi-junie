@@ -91,7 +91,14 @@ export class PiBackend implements AgentBackend {
 		this.phaseHold = options.phaseHold;
 		this.junieCompat = { ...JUNIE_COMPAT_DEFAULTS, ...options.junieCompat };
 		this.plugins = options.piAgentDir ? detectPlugins(options.piAgentDir, this.log) : [];
-		if (this.plugins.some((p) => p.name === SUBAGENTS_PLUGIN)) installChildSessionHook();
+		if (this.plugins.some((p) => p.name === SUBAGENTS_PLUGIN)) {
+			installChildSessionHook();
+			// The plugin saves its children as ordinary Pi sessions in Pi's default session dir (its `rememberAgents`),
+			// where the IDE lists them as Pi chats. In this process they belong to the bridge: keep them in its state dir.
+			// (Bridge sessions always pass their own dir, so only the plugin reads this.)
+			process.env.PI_CODING_AGENT_SESSION_DIR = join(stateDir, "subagents");
+			this.log.info(`subagent transcripts go to ${process.env.PI_CODING_AGENT_SESSION_DIR}`);
+		}
 		this.showWelcome = options.welcome ?? false;
 		const subagents = this.plugins.some((p) => p.name === SUBAGENTS_PLUGIN);
 		this.log.info(`subagents: ${subagents ? "available" : "not available"}`);
