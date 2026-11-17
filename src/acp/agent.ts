@@ -81,6 +81,8 @@ export class AcpAgent {
 				return {};
 			case "session/new":
 				return this.newSession(params);
+			case "session/resume":
+				return this.resumeSession(params);
 			case "session/set_config_option":
 				return this.setConfigOption(params);
 			case "session/prompt":
@@ -117,7 +119,7 @@ export class AcpAgent {
 				loadSession: false,
 				promptCapabilities: { audio: false, image: false, embeddedContext: true },
 				mcpCapabilities: { http: false, sse: false },
-				sessionCapabilities: { list: {}, close: {} },
+				sessionCapabilities: { list: {}, close: {}, resume: {} },
 				providers: {},
 			},
 			authMethods: [],
@@ -133,6 +135,19 @@ export class AcpAgent {
 		const backend = await this.backend.openSession({ cwd });
 		this.sessions.set(backend.id, { backend });
 		return { sessionId: backend.id, configOptions: this.configOptionsFor(backend) };
+	}
+
+	/** AIR resumes its chat after restarting the agent (e.g. when the LLM proxy identity changed). */
+	private async resumeSession(params: JsonObject): Promise<unknown> {
+		const sessionId = String(params.sessionId);
+		const existing = this.sessions.get(sessionId);
+		if (existing) return { configOptions: this.configOptionsFor(existing.backend) };
+		const cwd = typeof params.cwd === "string" ? params.cwd : process.cwd();
+		await this.backend.modelsSettled(MODEL_DISCOVERY_WAIT_MS);
+		const backend = await this.backend.resumeSession({ sessionId, cwd });
+		if (!backend) throw new RpcError(-32002, `Session not found: ${sessionId}`);
+		this.sessions.set(backend.id, { backend });
+		return { configOptions: this.configOptionsFor(backend) };
 	}
 
 	private async setConfigOption(params: JsonObject): Promise<unknown> {

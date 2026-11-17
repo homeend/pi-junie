@@ -56,6 +56,23 @@ describe("ACP driver", () => {
 		expect((await pending).result.stopReason).toBe("cancelled");
 	});
 
+	it("session/resume reopens a saved session and fails for an unknown one", async () => {
+		const { backend, call } = await connected();
+		const res = await call("session/resume", { sessionId: "fake-session-7", cwd: "/tmp", mcpServers: [] });
+		expect(res.result.configOptions).toEqual([]);
+		expect(backend.calls).toContain("resume fake-session-7");
+		const prompt = await call("session/prompt", { sessionId: "fake-session-7", prompt: [{ type: "text", text: "again" }] });
+		expect(prompt.result.stopReason).toBe("end_turn");
+		expect((await call("session/resume", { sessionId: "nope", cwd: "/tmp" })).error.code).toBe(-32002);
+	});
+
+	it("advertises session resume", async () => {
+		const wire = new MemoryWire();
+		new AcpAgent(wire.agentTransport, new FakeBackend());
+		const init = (await wire.send({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: 1 } })) as Obj;
+		expect(init.result.agentCapabilities.sessionCapabilities.resume).toEqual({});
+	});
+
 	it("unknown methods get -32601", async () => {
 		const { call } = await connected();
 		expect((await call("_session/goal")).error.code).toBe(-32601);

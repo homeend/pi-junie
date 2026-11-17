@@ -18,6 +18,7 @@ import { type Logger, silentLogger } from "../core/log.ts";
 import type { AgentBackend, BackendSession, TurnSink } from "../core/ports.ts";
 import type { ModelChoice, ModelGroup, ModelRef, ProviderBinding, ProviderSlotState, TurnResult } from "../core/types.ts";
 import { bridgeProviderId, DEFAULT_MODEL, joinBaseUrl, SLOTS, type SlotDefinition } from "./catalog.ts";
+import { type SessionMeta, SessionStore } from "./session-store.ts";
 import { discoverModels, type ListedModel, listingIdMatches } from "./discovery.ts";
 
 const SYSTEM_PROMPT = "You are Pi, a helpful assistant running inside a JetBrains IDE. Answer concisely. Use Markdown.";
@@ -39,13 +40,15 @@ export class PiBackend implements AgentBackend {
 	private readonly fetchImpl?: typeof fetch;
 	private readonly discoveryTimeoutMs?: number;
 	private generation = 0;
+	readonly store: SessionStore;
 	private readonly listeners = new Set<() => void>();
 	readonly log: Logger;
 	private readonly version: string;
 	private counter = 0;
 
-	private constructor(runtime: ModelRuntime, options: PiBackendOptions) {
+	private constructor(runtime: ModelRuntime, stateDir: string, options: PiBackendOptions) {
 		this.runtime = runtime;
+		this.store = new SessionStore(stateDir);
 		this.log = options.logger ?? silentLogger;
 		this.version = options.version ?? "0.0.0";
 		this.fetchImpl = options.fetch;
@@ -56,7 +59,7 @@ export class PiBackend implements AgentBackend {
 		const stateDir = options.stateDir ?? join(homedir(), ".pi", "pi-junie");
 		// Isolated credentials/models: the user's own Pi logins are never loaded, so they can't reach the proxy.
 		const runtime = await ModelRuntime.create({ authPath: join(stateDir, "auth.json"), modelsPath: null, modelsStorePath: join(stateDir, "models-store.json") });
-		return new PiBackend(runtime, options);
+		return new PiBackend(runtime, stateDir, options);
 	}
 
 	identity() {
@@ -213,8 +216,22 @@ export class PiBackend implements AgentBackend {
 
 	async openSession({ cwd }: { cwd: string }): Promise<BackendSession> {
 		const id = `pi-${Date.now().toString(36)}-${++this.counter}`;
+		const now = new Date().toISOString();
+		const meta: SessionMeta = { id, cwd, createdAt: now, updatedAt: now };
+		this.store.save(meta);
 		this.log.info(`session ${id} opened (cwd ${cwd}), default model ${fmt(this.defaultModel())}`);
-		return new PiSession(id, cwd, this);
+		return new PiSession(meta, this);
+	}
+
+	async resumeSession({ sessionId, cwd }: { sessionId: string; cwd: string }): Promise<BackendSession | undefined> {
+		const meta = this.store.load(sessionId);
+		if (!meta) {
+			this.log.warn(`session ${sessionId}: resume requested but no saved session exists`);
+			return undefined;
+		}
+		if (meta.cwd !== cwd) this.log.info(`session ${sessionId}: resumed with cwd ${cwd} (saved ${meta.cwd})`);
+		this.log.info(`session ${sessionId} resumed (saved model ${fmt(meta.model)}, created ${meta.createdAt})`);
+		return new PiSession({ ...meta, cwd }, this);
 	}
 
 	/** Resolves a ModelRef to the Pi model registered for its binding. */
@@ -229,7 +246,9 @@ export class PiBackend implements AgentBackend {
 		return first ? { slotId: first.slotId, modelId: first.modelId } : undefined;
 	}
 
-	async createPiSession(cwd: string, model: Model<Api>): Promise<AgentSession> {
+	async createPiSession(id: string, cwd: string, model: Model<Api>): Promise<AgentSession> {
+		const { manager, restored } = this.store.piSessionManager(id, cwd);
+		this.log.info(`session ${id}: Pi transcript ${restored ? `restored (${manager.getEntries().length} entries)` : "created"} at ${manager.getSessionFile() ?? "<memory>"}`);
 		const { session } = await createAgentSession({
 			cwd,
 			model,
@@ -237,7 +256,7 @@ export class PiBackend implements AgentBackend {
 			modelRuntime: this.runtime,
 			resourceLoader: minimalResources(),
 			noTools: "all",
-			sessionManager: SessionManager.inMemory(cwd),
+			sessionManager: manager,
 			settingsManager: SettingsManager.inMemory({ compaction: { enabled: false } }),
 		});
 		return session;
@@ -258,13 +277,20 @@ class PiSession implements BackendSession {
 	readonly id: string;
 	readonly cwd: string;
 	private readonly backend: PiBackend;
+	private readonly meta: SessionMeta;
 	private model?: ModelRef;
 	private pi?: AgentSession;
 
-	constructor(id: string, cwd: string, backend: PiBackend) {
-		this.id = id;
-		this.cwd = cwd;
+	constructor(meta: SessionMeta, backend: PiBackend) {
+		this.meta = meta;
+		this.id = meta.id;
+		this.cwd = meta.cwd;
+		this.model = meta.model;
 		this.backend = backend;
+	}
+
+	private persist(): void {
+		this.backend.store.save({ ...this.meta, cwd: this.cwd, model: this.model });
 	}
 
 	/** The selected model if it is still reachable (its provider may have been switched off), else the default. */
@@ -277,6 +303,7 @@ class PiSession implements BackendSession {
 		if (!model) throw new Error(`model ${ref.slotId}/${ref.modelId} is not available`);
 		this.backend.log.info(`session ${this.id}: model ${fmt(this.model)} -> ${fmt(ref)}`);
 		this.model = ref;
+		this.persist();
 		await this.pi?.setModel(model);
 	}
 
@@ -289,8 +316,11 @@ class PiSession implements BackendSession {
 			log.error(`session ${this.id}: prompt rejected, no provider bound`);
 			return { stop: "error", error: "No model available: the IDE has not configured any provider for Pi." };
 		}
-		this.model = ref;
-		if (!this.pi) this.pi = await this.backend.createPiSession(this.cwd, model);
+		if (this.model !== ref) {
+			this.model = ref;
+			this.persist();
+		}
+		if (!this.pi) this.pi = await this.backend.createPiSession(this.id, this.cwd, model);
 		else if (this.pi.model?.id !== model.id || this.pi.model?.provider !== model.provider) await this.pi.setModel(model);
 		const pi = this.pi;
 		const started = Date.now();

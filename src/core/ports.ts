@@ -27,6 +27,8 @@ export interface AgentBackend {
 	/** Called whenever availableModels() may have changed. */
 	onModelsChanged(listener: () => void): () => void;
 	openSession(request: { cwd: string }): Promise<BackendSession>;
+	/** Reopens a session persisted by an earlier agent process. Returns undefined when it is unknown. */
+	resumeSession(request: { sessionId: string; cwd: string }): Promise<BackendSession | undefined>;
 	/** Names + versions of installed agent-side plugins, for the compatibility layer. */
 	installedPlugins(): { name: string; version?: string }[];
 }

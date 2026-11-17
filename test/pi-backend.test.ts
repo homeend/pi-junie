@@ -7,6 +7,7 @@ import { PiBackend } from "../src/pi/backend.ts";
 import { LISTINGS, startFakeProxy } from "./fake-proxy.ts";
 
 const proxy = await startFakeProxy({
+	reply: (req) => `answer #${req.body.messages.filter((m: { role: string }) => m.role === "user").length}`,
 	listing: (path) => {
 		if (path.endsWith(".anthropic/v1/models")) return [200, LISTINGS.anthropicVendor];
 		if (path.endsWith(".openai/models/user")) return [200, LISTINGS.openaiAccount];
@@ -17,10 +18,10 @@ const proxy = await startFakeProxy({
 });
 afterAll(() => proxy.close());
 
-async function newBackend() {
+async function newBackend(stateDir = mkdtempSync(join(tmpdir(), "pi-junie-test-"))) {
 	const lines: string[] = [];
 	const backend = await PiBackend.create({
-		stateDir: mkdtempSync(join(tmpdir(), "pi-junie-test-")),
+		stateDir,
 		logger: createLogger((level, scope, m) => lines.push(`${level} ${m}`)),
 		discoveryTimeoutMs: 2000,
 	});
@@ -95,6 +96,36 @@ describe("PiBackend model discovery", () => {
 		const r = await s.prompt("hi", () => {}, new AbortController().signal);
 		expect(r).toMatchObject({ stop: "error" });
 		expect(r.error).toContain("No model available");
+	});
+});
+
+describe("PiBackend session persistence", () => {
+	it("resumes a session after an agent restart with its history and model", async () => {
+		const stateDir = mkdtempSync(join(tmpdir(), "pi-junie-test-"));
+		const first = (await newBackend(stateDir)).backend;
+		await bind(first, "anthropic", "anthropic");
+		const s1 = await first.openSession({ cwd: "/tmp" });
+		await s1.selectModel({ slotId: "anthropic", modelId: "claude-opus-5-5-20261001" });
+		const r1 = await s1.prompt("remember 42", () => {}, new AbortController().signal);
+		expect(r1.stop).toBe("end_turn");
+
+		// "restart": a fresh backend on the same state dir, as after AIR re-launches the agent
+		const second = (await newBackend(stateDir)).backend;
+		await bind(second, "anthropic", "anthropic");
+		const s2 = await second.resumeSession({ sessionId: s1.id, cwd: "/tmp" });
+		expect(s2?.currentModel()).toEqual({ slotId: "anthropic", modelId: "claude-opus-5-5-20261001" });
+		let text = "";
+		await s2!.prompt("what did I say?", (e) => e.kind === "text" && (text += e.delta), new AbortController().signal);
+		expect(text).toBe("answer #2");
+		const last = proxy.requests.filter((r) => r.method === "POST").at(-1)!;
+		const turns = last.body.messages.filter((m: { role: string }) => m.role !== "system").map((m: { role: string; content: any }) => `${m.role}:${m.content?.[0]?.text}`);
+		expect(turns).toEqual(["user:remember 42", "assistant:answer #1", "user:what did I say?"]);
+	});
+
+	it("returns undefined for an unknown session id", async () => {
+		const { backend } = await newBackend();
+		expect(await backend.resumeSession({ sessionId: "pi-nope-1", cwd: "/tmp" })).toBeUndefined();
+		expect(await backend.resumeSession({ sessionId: "../etc/passwd", cwd: "/tmp" })).toBeUndefined();
 	});
 });
 
