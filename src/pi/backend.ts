@@ -19,7 +19,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { type Logger, silentLogger } from "../core/log.ts";
 import type { AgentBackend, BackendSession, PermissionAsk, SessionContext, TurnSink } from "../core/ports.ts";
-import type { CommandInfo, HistoryItem, McpServerSpec, ModelChoice, ModelGroup, ModelRef, PromptInput, ProviderBinding, ProviderSlotState, SessionSummary, TurnResult } from "../core/types.ts";
+import type { CommandInfo, HistoryItem, McpServerSpec, ModelChoice, ModelGroup, ModelRef, PromptInput, ProviderBinding, ProviderSlotState, SessionSummary, SteerResult, TurnResult } from "../core/types.ts";
 import { bridgeProviderId, DEFAULT_MODEL, joinBaseUrl, SLOTS, type SlotDefinition } from "./catalog.ts";
 import { openPiTranscript, type SessionMeta, SessionStore } from "./session-store.ts";
 import { BRIDGE_TOOLS, READ_ONLY_TOOLS, ToolTracker, toolKind, toolLocations, toolResultText, toolTitle } from "./tools.ts";
@@ -392,6 +392,16 @@ class PiSession implements BackendSession {
 	private readonly alwaysAllowed = new Set<string>();
 	/** Cost of this chat since it was opened in this agent process. */
 	private costUsd = 0;
+	/**
+	 * Where the current turn is, for steering: "dispatching" (preparing, Pi not called yet), "running"
+	 * (inside Pi's prompt, messages can be queued), "command" (a command like /compact, no messages).
+	 */
+	private phase: "idle" | "dispatching" | "running" | "command" = "idle";
+	/** Settles when the turn leaves "dispatching". */
+	private dispatched: Promise<void> = Promise.resolve();
+	private endDispatch = () => {};
+	/** Steered messages still being handed to Pi (Pi's steer() awaits before it queues). */
+	private readonly steersInFlight = new Set<Promise<unknown>>();
 
 	private readonly context: SessionContext;
 
@@ -598,11 +608,64 @@ class PiSession implements BackendSession {
 		});
 	};
 
+	/** Runs a turn, tracking its phase so messages typed meanwhile (steer) know where to go. */
 	async prompt(input: PromptInput, sink: TurnSink, signal: AbortSignal, ask: PermissionAsk): Promise<TurnResult> {
+		this.phase = "dispatching";
+		this.dispatched = new Promise<void>((resolve) => (this.endDispatch = resolve));
+		try {
+			return await this.runPrompt(input, sink, signal, ask);
+		} finally {
+			this.enterPhase("idle");
+		}
+	}
+
+	private enterPhase(phase: PiSession["phase"]): void {
+		this.phase = phase;
+		if (phase !== "dispatching") this.endDispatch();
+	}
+
+	/**
+	 * A message typed while the turn runs: queued with Pi's steer(), so Pi reads it after the tools
+	 * running now and before its next model call. Skills expand into the running task; other commands
+	 * (/compact) would start their own turn, so they are "busy".
+	 */
+	async steer(input: PromptInput): Promise<SteerResult> {
+		const log = this.backend.log;
+		const command = input.command;
+		const skill = !!command && (await this.commands()).some((c) => c.kind === "skill" && c.name === command.name);
+		if (this.phase === "dispatching") await this.dispatched;
+		// No awaits from here until the message is registered in steersInFlight: the turn's end checks it.
+		if (this.phase === "command") return "busy";
+		const pi = this.pi;
+		if (this.phase !== "running" || !pi) return "not_running";
+		if (command && !skill) {
+			log.info(`session ${this.id}: steering with /${command.name} refused, the turn is busy`);
+			return "busy";
+		}
+		let text = skill ? `/skill:${command!.name}${command!.args ? ` ${command!.args}` : ""}` : input.text;
+		let images = input.images.map((i) => ({ type: "image" as const, data: i.data, mimeType: i.mimeType }));
+		if (images.length && pi.model && !pi.model.input.includes("image")) {
+			log.warn(`session ${this.id}: ${pi.model.id} does not accept images; ${images.length} steered image(s) dropped`);
+			text = `${text}\n\n[${images.length} image(s) omitted: ${pi.model.name} does not accept images]`.trim();
+			images = [];
+		}
+		const queued = pi.steer(text, images);
+		this.steersInFlight.add(queued);
+		const settled = () => void this.steersInFlight.delete(queued);
+		queued.then(settled, settled);
+		await queued;
+		log.info(`session ${this.id}: steered message queued (${text.length} chars, ${images.length} image(s))`);
+		return "injected";
+	}
+
+	private async runPrompt(input: PromptInput, sink: TurnSink, signal: AbortSignal, ask: PermissionAsk): Promise<TurnResult> {
 		let { text } = input;
 		if (signal.aborted) return { stop: "cancelled" };
 		const command = input.command;
-		if (command?.name === "compact") return this.compact(command.args, sink);
+		if (command?.name === "compact") {
+			this.enterPhase("command");
+			return this.compact(command.args, sink);
+		}
 		// A skill command runs through Pi's own skill invocation (loads SKILL.md, appends the task).
 		const skillCommand = command && (await this.commands()).some((c) => c.kind === "skill" && c.name === command.name);
 		if (skillCommand) text = `/skill:${command.name}${command.args ? ` ${command.args}` : ""}`;
@@ -679,12 +742,15 @@ class PiSession implements BackendSession {
 		});
 		const onAbort = () => void pi.abort();
 		signal.addEventListener("abort", onAbort, { once: true });
+		this.enterPhase("running");
 		try {
 			await pi.prompt(text, { images, expandPromptTemplates: !!skillCommand });
+			await this.drainSteering(pi, signal);
 		} catch (err) {
 			log.error(`session ${this.id}: prompt threw after ${Date.now() - started}ms: ${(err as Error).stack ?? String(err)}`);
 			return { stop: signal.aborted ? "cancelled" : "error", error: (err as Error).message };
 		} finally {
+			this.enterPhase("idle");
 			unsubscribe();
 			this.ask = undefined;
 			this.onApproved = undefined;
@@ -700,6 +766,29 @@ class PiSession implements BackendSession {
 		if (last?.stopReason === "error") return { stop: "error", error: last.errorMessage ?? "model error", usage };
 		if (last?.stopReason === "length") return { stop: "max_tokens", usage };
 		return { stop: "end_turn", usage };
+	}
+
+	/**
+	 * Pi reads queued messages between model calls; one that arrives after its last check stays queued.
+	 * Run those in the same turn so a steered message is never lost. Returns with no await after the
+	 * final check, so the caller can leave the "running" phase before another steer can slip in.
+	 */
+	private async drainSteering(pi: AgentSession, signal: AbortSignal): Promise<void> {
+		for (;;) {
+			if (this.steersInFlight.size) {
+				await Promise.allSettled([...this.steersInFlight]);
+				continue;
+			}
+			if (pi.pendingMessageCount === 0) return;
+			const { steering, followUp } = pi.clearQueue();
+			const late = [...steering, ...followUp];
+			if (signal.aborted) {
+				this.backend.log.info(`session ${this.id}: turn cancelled, ${late.length} steered message(s) dropped`);
+				return;
+			}
+			this.backend.log.info(`session ${this.id}: ${late.length} steered message(s) arrived as Pi finished, continuing the turn`);
+			await pi.prompt(late.join("\n\n"), { expandPromptTemplates: false });
+		}
 	}
 
 	async close(): Promise<void> {

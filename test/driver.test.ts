@@ -248,6 +248,81 @@ describe("ACP driver", () => {
 		]);
 	});
 
+	describe("steering (typing while the agent works)", () => {
+		const tick = () => new Promise((r) => setTimeout(r, 5));
+		const text = (t: string) => [{ type: "text", text: t }];
+
+		it("advertises v1 steering like Junie", async () => {
+			const { call } = await connected();
+			expect((await call("initialize", { protocolVersion: 1 })).result._meta.steering).toEqual({ supported: true });
+		});
+
+		it("injects a message into the running turn; the turn's own response still ends it", async () => {
+			const { backend, call } = await connected();
+			const s = await call("session/new", { cwd: "/tmp" });
+			const sessionId = s.result.sessionId;
+			const pending = call("session/prompt", { sessionId, prompt: text("slow task") });
+			await tick();
+			const steer = await call("_session/steering", { sessionId, prompt: text("also check the tests") });
+			expect(steer.result).toEqual({ outcome: "injected" });
+			const skill = await call("_session/steering", { sessionId, prompt: text("$release-notes for 1.2") });
+			expect(skill.result).toEqual({ outcome: "injected" });
+			backend.release();
+			expect((await pending).result.stopReason).toBe("end_turn");
+			expect(backend.calls.filter((c) => /^(prompt|steer)/.test(c))).toEqual([
+				`prompt ${sessionId}: slow task`,
+				`steer ${sessionId}: also check the tests`,
+				`steer ${sessionId}: $release-notes for 1.2 [command release-notes: for 1.2]`,
+			]);
+		});
+
+		it("starts a new turn when nothing runs, and ends it with Junie's lastRequestComplete carrier", async () => {
+			const { wire, backend, call } = await connected();
+			const s = await call("session/new", { cwd: "/tmp" });
+			const sessionId = s.result.sessionId;
+			const steer = await call("_session/steering", { sessionId, prompt: text("slow late follow-up") });
+			expect(steer.result).toEqual({ outcome: "startedNewTurn" });
+			// the new turn holds the session: ordinary prompts wait, steering joins it
+			const busy = await call("session/prompt", { sessionId, prompt: text("another") });
+			expect(busy.error.code).toBe(-32000);
+			expect((await call("_session/steering", { sessionId, prompt: text("and this") })).result).toEqual({ outcome: "injected" });
+			expect(wire.notifications("session/update").some((n) => (n.params as Obj)._meta)).toBe(false);
+			backend.release();
+			for (let i = 0; i < 50 && !wire.notifications("session/update").some((n) => (n.params as Obj)._meta); i++) await tick();
+			const last = wire.notifications("session/update").at(-1)!.params as Obj;
+			expect(last).toEqual({
+				sessionId,
+				update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "" } },
+				_meta: { lastRequestComplete: true },
+			});
+			expect(wire.updates("agent_message_chunk").map((u: Obj) => u.update.content.text).join("")).toContain("echo: slow late follow-up");
+		});
+
+		it("refuses commands that need their own turn, and anything while a command runs", async () => {
+			const { backend, call } = await connected();
+			const s = await call("session/new", { cwd: "/tmp" });
+			const sessionId = s.result.sessionId;
+			const pending = call("session/prompt", { sessionId, prompt: text("slow task") });
+			await tick();
+			const compact = await call("_session/steering", { sessionId, prompt: text("/compact") });
+			expect(compact.error).toMatchObject({ code: -32602, data: { reason: "steering_turn_busy" } });
+			backend.release();
+			await pending;
+
+			const compacting = call("session/prompt", { sessionId, prompt: text("/compact slowly") });
+			await tick();
+			const during = await call("_session/steering", { sessionId, prompt: text("hello") });
+			expect(during.error).toMatchObject({ code: -32602, data: { reason: "steering_turn_busy" } });
+			backend.release();
+			expect((await compacting).result.stopReason).toBe("end_turn");
+		});
+
+		it("an unknown session is session_not_loaded (-32002)", async () => {
+			const { call } = await connected();
+			expect((await call("_session/steering", { sessionId: "nope", prompt: text("hi") })).error.code).toBe(-32002);
+		});
+	});
+
 	it("advertises loadSession", async () => {
 		const { call } = await connected();
 		expect((await call("initialize", { protocolVersion: 1 })).result.agentCapabilities.loadSession).toBe(true);

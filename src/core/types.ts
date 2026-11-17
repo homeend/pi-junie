@@ -129,6 +129,13 @@ export interface TurnResult {
 	usage?: { inputTokens: number; outputTokens: number; cachedReadTokens?: number; cachedWriteTokens?: number };
 }
 
+/**
+ * What happened to a message sent while a turn runs (steering):
+ * "injected" the running turn takes it; "not_running" no turn is running (the caller starts one);
+ * "busy" the running turn cannot take messages now (a command runs, or the message is a command that starts its own turn).
+ */
+export type SteerResult = "injected" | "not_running" | "busy";
+
 /** A saved session as shown in the client's history. */
 export interface SessionSummary {
 	id: string;

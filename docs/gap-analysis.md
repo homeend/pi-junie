@@ -44,7 +44,8 @@ needs a `pi` subprocess and the user's Pi configuration.
 | `session/load` + replay (`user_message_chunk`, ...) | base (`loadSession`) | ✓ | ✓ | ✗ | P1: reopen from history after an IDE restart |
 | `session/list` with real sessions | unstable | ✓ (+ AIR meta) | ✓ | returns `[]` | P1: history panel |
 | `session/close`, `session/delete` | unstable | ✓ | — | close ✓ | P2 |
-| `available_commands_update` (slash commands) | base | ✓ | ✓ | ✗ | P2 |
+| `available_commands_update` (slash commands) | base | ✓ | ✓ | ✓ (new, compact, $skills) | — |
+| `_session/steering` (typing while the agent works) | AIR/Junie v1 | ✓ | — | ✓ (Pi `steer()`) | — |
 | `tool_call` / `tool_call_update` | base | ✓ | ✓ | ✗ (no tools) | **P0 for a coding chat**, not for Q&A |
 | `session/request_permission` | base (client) | ✓ | for extension UI | ✗ | with tools |
 | `plan` | base | ✓ | — | ✗ | P2 |

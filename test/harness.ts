@@ -87,6 +87,11 @@ export class FakeBackend implements AgentBackend {
 	};
 	private readonly listeners = new Set<() => void>();
 	private sessionCounter = 0;
+	/** A prompt starting with "slow " runs until the test calls release(). */
+	private slowGate?: () => void;
+	release() {
+		this.slowGate?.();
+	}
 
 	identity() {
 		return { name: "pi-junie", title: "Pi (fake)", version: "0.0.0-test" };
@@ -141,6 +146,8 @@ export class FakeBackend implements AgentBackend {
 			? [{ kind: "user", text: "earlier question", imageCount: 0 }, { kind: "thought", text: "hmm" }, { kind: "assistant", text: "earlier answer" }]
 			: [];
 		const calls = this.calls;
+		const backend = this;
+		let running: "no" | "turn" | "command" = "no";
 		return {
 			id,
 			cwd,
@@ -162,8 +169,35 @@ export class FakeBackend implements AgentBackend {
 				calls.push(`select ${ref.slotId}/${ref.modelId}`);
 				model = ref;
 			},
-			prompt: async ({ text, images, command }: PromptInput, sink: TurnSink, signal: AbortSignal, ask: PermissionAsk): Promise<TurnResult> => {
+			steer: async ({ text, command }: PromptInput) => {
+				if (running === "no") return "not_running";
+				if (running === "command" || (command && command.name !== "release-notes")) {
+					calls.push(`steer ${id} busy: ${text}`);
+					return "busy";
+				}
+				calls.push(`steer ${id}: ${text}${command ? ` [command ${command.name}: ${command.args}]` : ""}`);
+				return "injected";
+			},
+			prompt: async (input: PromptInput, sink: TurnSink, signal: AbortSignal, ask: PermissionAsk): Promise<TurnResult> => {
+				running = input.command?.name === "compact" ? "command" : "turn";
+				try {
+					return await prompt(input, sink, signal, ask);
+				} finally {
+					running = "no";
+				}
+			},
+			close: async () => {
+				calls.push(`close ${id}`);
+			},
+		};
+		async function prompt({ text, images, command }: PromptInput, sink: TurnSink, signal: AbortSignal, ask: PermissionAsk): Promise<TurnResult> {
 				calls.push(`prompt ${id}: ${text}${images.length ? ` +${images.length} image(s)` : ""}${command ? ` [command ${command.name}: ${command.args}]` : ""}`);
+				if (text.startsWith("slow ") || command?.args.startsWith("slow")) {
+					await new Promise<void>((r) => {
+						backend.slowGate = r;
+						signal.addEventListener("abort", () => r(), { once: true });
+					});
+				}
 				if (text.startsWith("run ")) {
 					// a tool call that needs permission, like Pi's bash
 					const tool = { id: "tool-1", name: "bash" };
@@ -182,11 +216,7 @@ export class FakeBackend implements AgentBackend {
 				sink({ kind: "text", delta: text });
 				sink({ kind: "usage", inputTokens: 10, outputTokens: 5, contextUsed: 15, contextSize: 1000 });
 				return { stop: "end_turn", usage: { inputTokens: 10, outputTokens: 5 } };
-			},
-			close: async () => {
-				calls.push(`close ${id}`);
-			},
-		};
+		}
 	}
 	async resumeSession({ sessionId, cwd }: { sessionId: string; cwd: string }) {
 		this.calls.push(`resume ${sessionId}`);

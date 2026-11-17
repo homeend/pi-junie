@@ -186,6 +186,41 @@ describe("Pi bridge tools", () => {
 		expect(text).toMatch(/^(Compacted the conversation \(\d+ tokens before|Nothing to compact yet)/);
 	});
 
+	it("a message typed while a tool runs reaches the model before its next call (steer)", async () => {
+		const { session } = await chat();
+		expect(await session.steer({ text: "too early", images: [] })).toBe("not_running");
+		script = [{ tool: "bash", input: { command: "sleep 0.3; echo slept" } }, "noted your message", "unused"];
+		const steered: Promise<string>[] = [];
+		const r = await session.prompt(
+			{ text: "run a slow command", images: [] },
+			(e) => {
+				if (e.kind === "tool" && e.update.status === "in_progress" && !steered.length) steered.push(session.steer({ text: "STEERED: also say hi", images: [] }));
+			},
+			new AbortController().signal,
+			async () => "allow_once",
+		);
+		expect(r.stop).toBe("end_turn");
+		expect(await steered[0]).toBe("injected");
+		const posts = proxy.requests.filter((req) => req.method === "POST");
+		expect(posts).toHaveLength(2); // one turn: the steered message joined the second model call
+		const second = JSON.stringify(posts[1].body.messages);
+		expect(second).toContain("STEERED: also say hi");
+		expect(second.indexOf("slept")).toBeLessThan(second.indexOf("STEERED"));
+		expect(session.history().filter((h) => h.kind === "user").map((h) => (h as { text: string }).text)).toEqual(["run a slow command", "STEERED: also say hi"]);
+		expect(await session.steer({ text: "too late", images: [] })).toBe("not_running");
+	});
+
+	it("a /compact typed during a turn is refused: it needs its own turn", async () => {
+		const { session } = await chat();
+		script = ["first"];
+		let during: Promise<string> | undefined;
+		const slow = session.prompt({ text: "x", images: [] }, () => {
+			during ??= session.steer({ text: "/compact", images: [], command: { name: "compact", args: "" } });
+		}, new AbortController().signal, async () => "allow_once");
+		await slow;
+		expect(await during).toBe("busy");
+	});
+
 	it("sums usage over all model calls of a tool turn", async () => {
 		const { run } = await chat();
 		script = [{ tool: "ls", input: {} }, "listed"];

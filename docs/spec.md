@@ -148,6 +148,19 @@ group ids (`proxy:<slot>`), `_meta` shapes and stop reasons.
   starting with `/name` or `$skill` (also `/skill:name`) is decoded into `PromptInput.command`; the bridge runs
   `/compact` as Pi compaction ("nothing to compact yet" for short chats) and skills through Pi's own
   `/skill:name args` invocation.
+- **Steering (typing while Pi works)**, Junie's v1 contract: `initialize` advertises
+  `_meta.steering.supported: true`, so AIR sends a message typed during a turn as `_session/steering
+  {sessionId, prompt}` instead of queueing it. The driver asks the backend (`BackendSession.steer`):
+  - running turn: the bridge queues it with Pi's `steer()` (read after the tools running now, before the next
+    model call) and answers `{outcome: "injected"}`; the running `session/prompt` response still ends the turn.
+    A message that reaches Pi after its last queue check is run in the same turn (never dropped). `$skill`
+    expands into the running task.
+  - no turn (the turn ended meanwhile): the driver starts a new turn with it, answers `startedNewTurn`, and
+    ends that turn with Junie's carrier, an empty `agent_message_chunk` with top-level
+    `_meta.lastRequestComplete: true`. A `session/prompt` during that turn gets -32000, steering joins it.
+  - `/compact` (needs its own turn) or any message while `/compact` runs: -32602 with
+    `data.reason: "steering_turn_busy"`; AIR keeps the message and sends it when the turn is idle.
+  - Unknown session: -32002.
 - **Tool events** (`src/pi/tools.ts`, ported from pi-acp, MIT) become neutral `ToolUpdate`s (title, kind,
   status, input, locations with the edit line, output text, edit/write diffs from a pre-execution snapshot).
   The driver turns the first update of an id into `tool_call` and later ones into `tool_call_update`.
@@ -215,4 +228,4 @@ that unlock each one:
 ## 7. Out of scope for now
 
 File/terminal client capabilities, auth methods,
- plans and goal mode, steering, subagents, `_providers/models`.
+ plans and goal mode, subagents, `_providers/models`, ACP v2 steering (`session/prompt` during a turn).

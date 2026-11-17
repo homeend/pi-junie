@@ -1,7 +1,7 @@
 // Ports: what the protocol side needs from an agent implementation.
 // The ACP driver depends on these interfaces; the Pi bridge implements them.
 
-import type { AgentIdentity, CommandInfo, ModelGroup, ModelRef, HistoryItem, McpServerSpec, PermissionDecision, PermissionRequest, PromptInput, ProviderBinding, ProviderSlotState, SessionSummary, TurnEvent, TurnResult } from "./types.ts";
+import type { AgentIdentity, CommandInfo, ModelGroup, ModelRef, HistoryItem, McpServerSpec, PermissionDecision, PermissionRequest, PromptInput, ProviderBinding, ProviderSlotState, SessionSummary, SteerResult, TurnEvent, TurnResult } from "./types.ts";
 
 export type TurnSink = (event: TurnEvent) => void;
 
@@ -27,6 +27,8 @@ export interface BackendSession {
 	selectEffort(level: string): Promise<void>;
 	/** Runs one user turn. Streams events to `sink`; resolves when the turn has finished. */
 	prompt(input: PromptInput, sink: TurnSink, signal: AbortSignal, ask: PermissionAsk): Promise<TurnResult>;
+	/** Adds a message to the running turn (the user typed while the agent works). Never starts a turn itself. */
+	steer(input: PromptInput): Promise<SteerResult>;
 	/** Commands for the client's command popup (built-ins and skills). */
 	commands(): Promise<CommandInfo[]>;
 	/** The conversation so far (active branch), oldest first. */
