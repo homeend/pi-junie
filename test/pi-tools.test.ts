@@ -58,6 +58,8 @@ describe("Pi bridge tools", () => {
 		expect(end.status).toBe("completed");
 		expect(end.diff).toEqual({ path: join(cwd, "hello.txt"), oldText: null, newText: "hi\n" });
 		expect(tools[0]).toMatchObject({ status: "pending", title: "Write hello.txt", locations: [{ path: join(cwd, "hello.txt") }] });
+		// stays pending while the user is asked, runs only after approval
+		expect(tools.map((t) => t.status)).toEqual(["pending", "pending", "in_progress", "completed"]);
 	});
 
 	it("a rejected tool does not run and the model is told", async () => {
@@ -76,7 +78,7 @@ describe("Pi bridge tools", () => {
 		await run("fix notes", () => "allow_once");
 		expect(asked.map((a) => a.toolName)).toEqual(["edit"]);
 		expect(readFileSync(join(cwd, "notes.md"), "utf8")).toBe("line one\nline 2\n");
-		const editStart = tools.find((t) => t.name === "edit" && t.status === "in_progress")!;
+		const editStart = tools.find((t) => t.name === "edit" && t.locations?.[0]?.line !== undefined)!;
 		expect(editStart.locations).toEqual([{ path: join(cwd, "notes.md"), line: 2 }]);
 		const readEnd = tools.find((t) => t.name === "read" && t.status === "completed")!;
 		expect(readEnd.output).toContain("line two");

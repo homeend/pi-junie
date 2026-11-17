@@ -329,6 +329,8 @@ class PiSession implements BackendSession {
 	private pi?: AgentSession;
 	/** Permission callback of the running turn (the Pi gate extension lives as long as the Pi session). */
 	private ask?: PermissionAsk;
+	/** Reports an allowed tool as running (set for the duration of a turn). */
+	private onApproved?: (toolCallId: string, toolName: string) => void;
 	private readonly alwaysAllowed = new Set<string>();
 	/** Cost of this chat since it was opened in this agent process. */
 	private costUsd = 0;
@@ -442,6 +444,7 @@ class PiSession implements BackendSession {
 			log.info(`session ${this.id}: permission ${event.toolName} ${event.toolCallId} -> ${decision}`);
 			if (decision === "allow_always") this.alwaysAllowed.add(event.toolName);
 			if (decision === "reject") return { block: true, reason: "The user rejected this tool call." };
+			this.onApproved?.(event.toolCallId, event.toolName);
 			return undefined;
 		});
 	};
@@ -481,6 +484,7 @@ class PiSession implements BackendSession {
 		const tools = new ToolTracker(this.cwd);
 		const tool = (update: ReturnType<ToolTracker["finished"]> | undefined) => update && sink({ kind: "tool", update });
 		this.ask = ask;
+		this.onApproved = (id, name) => tool(tools.approved(id, name));
 		const unsubscribe = pi.subscribe((event) => {
 			if (event.type === "message_update") {
 				const e = event.assistantMessageEvent;
@@ -489,7 +493,8 @@ class PiSession implements BackendSession {
 				else if (e.type === "toolcall_end") tool(tools.requested(e.toolCall.id, e.toolCall.name, e.toolCall.arguments));
 			} else if (event.type === "tool_execution_start") {
 				log.info(`session ${this.id}: tool ${event.toolName} ${event.toolCallId} start ${JSON.stringify(event.args).slice(0, 200)}`);
-				tool(tools.started(event.toolCallId, event.toolName, event.args));
+				const needsApproval = !READ_ONLY_TOOLS.has(event.toolName) && !this.alwaysAllowed.has(event.toolName);
+			tool(tools.started(event.toolCallId, event.toolName, event.args, needsApproval));
 			} else if (event.type === "tool_execution_update") {
 				tool(tools.progressed(event.toolCallId, event.toolName, event.partialResult));
 			} else if (event.type === "tool_execution_end") {
@@ -524,6 +529,7 @@ class PiSession implements BackendSession {
 		} finally {
 			unsubscribe();
 			this.ask = undefined;
+			this.onApproved = undefined;
 			signal.removeEventListener("abort", onAbort);
 		}
 		const took = Date.now() - started;

@@ -134,7 +134,11 @@ export class ToolTracker {
 		return { id, name, title: toolTitle(name, args), toolKind: toolKind(name), status: "pending", input: args, locations: toolLocations(args, this.cwd) };
 	}
 
-	started(id: string, name: string, args: unknown): ToolUpdate {
+	/**
+	 * Pi emits tool_execution_start before its tool_call hook runs, so a tool that still needs permission is
+	 * reported as pending here; `approved()` moves it to in_progress once the user allows it.
+	 */
+	started(id: string, name: string, args: unknown, needsApproval = false): ToolUpdate {
 		this.announced.add(id);
 		let line: number | undefined;
 		if (name === "edit" || name === "write") {
@@ -156,7 +160,19 @@ export class ToolTracker {
 				}
 			}
 		}
-		return { id, name, title: toolTitle(name, args), toolKind: toolKind(name), status: "in_progress", input: args, locations: toolLocations(args, this.cwd, line) };
+		return {
+			id,
+			name,
+			title: toolTitle(name, args),
+			toolKind: toolKind(name),
+			status: needsApproval ? "pending" : "in_progress",
+			input: args,
+			locations: toolLocations(args, this.cwd, line),
+		};
+	}
+
+	approved(id: string, name: string): ToolUpdate {
+		return { id, name, status: "in_progress" };
 	}
 
 	progressed(id: string, name: string, partial: unknown): ToolUpdate | undefined {
