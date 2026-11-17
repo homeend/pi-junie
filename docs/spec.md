@@ -198,7 +198,7 @@ A registry of AIR features (`_meta.jetbrains.air.capabilities` strings) with the
 that unlock each one:
 
 ```ts
-{ feature: "nativeSubagentSessions", requires: [{ extension: "pi-subagents", version: ">=1.0.0" }], status: "planned" }
+{ feature: "nativeSubagentSessions", requires: [{ plugin: "@tintinweb/pi-subagents", minVersion: "0.26.0" }], status: "planned" }
 { feature: "customInstructions",     requires: [], status: "planned" }
 ```
 
@@ -208,6 +208,16 @@ that unlock each one:
   met are reported as missing requirements.
 - For now every entry is `planned`, so nothing is advertised. The module exists so features can be turned
   on one entry at a time.
+- Installed plugins come from `src/pi/plugins.ts`: the user installs a known Pi package with Pi itself
+  (`pi install npm:@tintinweb/pi-subagents`); the bridge finds it where `pi install` puts it
+  (`<pi agent dir>/npm/node_modules/<name>`, `~/.pi/agent` or `$PI_CODING_AGENT_DIR`), reports name + version,
+  and loads it into every session by path (`additionalExtensionPaths`; other on-disk extensions stay off).
+  `PI_AIR_PLUGINS=0` skips plugins.
+- Subagents (`@tintinweb/pi-subagents`, chosen because its children are in-process Pi sessions on the
+  bridge's model runtime, reachable as live `AgentSession`s): sessions get its `Agent`, `get_subagent_result`
+  and `steer_subagent` tools. Planned: children as AIR native subagent sessions (`subagent_spawned`, child
+  stream on the child session id, `subagent_state_update`), the bridge's permission gate in children,
+  foreground runs only (`run_in_background: false`) at first.
 
 ## 4. Testing: replay simulator
 

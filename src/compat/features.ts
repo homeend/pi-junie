@@ -30,7 +30,7 @@ export interface FeatureResolution {
 
 /** Known AIR features. Everything is "planned" for now — nothing is advertised yet. */
 export const AIR_FEATURE_RULES: FeatureRule[] = [
-	{ feature: "nativeSubagentSessions", description: "Child sessions for subagents", requires: [{ plugin: "pi-subagents", minVersion: "1.0.0" }], status: "planned" },
+	{ feature: "nativeSubagentSessions", description: "Child sessions for subagents", requires: [{ plugin: "@tintinweb/pi-subagents", minVersion: "0.26.0" }], status: "planned" },
 	{ feature: "customInstructions", description: "Session instructions from AIR on session/new", requires: [], status: "planned" },
 	{ feature: "providerModels", description: "_providers/models catalog probe", requires: [], status: "planned" },
 	{ feature: "sessionIndex", description: "Session list with AIR metadata", requires: [], status: "planned" },
