@@ -10,6 +10,10 @@ export interface BackendSession {
 	readonly cwd: string;
 	currentModel(): ModelRef | undefined;
 	selectModel(ref: ModelRef): Promise<void>;
+	/** Reasoning effort levels the current model supports, weakest first (empty: no reasoning control). */
+	effortLevels(): string[];
+	currentEffort(): string | undefined;
+	selectEffort(level: string): Promise<void>;
 	/** Runs one user turn. Streams events to `sink`; resolves when the turn has finished. */
 	prompt(text: string, sink: TurnSink, signal: AbortSignal): Promise<TurnResult>;
 	close(): Promise<void>;

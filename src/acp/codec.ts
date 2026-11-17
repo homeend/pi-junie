@@ -13,6 +13,17 @@ import type {
 } from "./wire.ts";
 
 export const MODEL_CONFIG_ID = "model";
+export const EFFORT_CONFIG_ID = "effort";
+const RECOMMENDED_EFFORT = "medium";
+const EFFORT_LABELS: Record<string, string> = {
+	off: "○ No reasoning",
+	minimal: "◌ Minimal effort",
+	low: "◎ Low effort",
+	medium: "◐ Medium effort",
+	high: "◕ High effort",
+	xhigh: "● Extra high effort",
+	max: "● Max effort",
+};
 const MODEL_VALUE_PREFIX = "pi:";
 
 // --- initialize -----------------------------------------------------------------------------
@@ -78,8 +89,31 @@ export function decodeModelValue(value: string): ModelRef {
 	return { slotId: rest.slice(0, slash), modelId: rest.slice(slash + 1) };
 }
 
+export interface EffortState {
+	levels: string[];
+	current: string | undefined;
+}
+
+/** The `effort` select (Junie's shape: category `thought_level`, AIR `recommendedValue`); none when the model can't reason. */
+export function encodeEffortOption(effort: EffortState | undefined): SelectConfigOption[] {
+	if (!effort || effort.levels.length === 0) return [];
+	const recommended = effort.levels.includes(RECOMMENDED_EFFORT) ? RECOMMENDED_EFFORT : effort.levels[0];
+	return [
+		{
+			type: "select",
+			id: EFFORT_CONFIG_ID,
+			name: "Effort",
+			description: "Select how much reasoning effort Pi spends for the selected model",
+			category: "thought_level",
+			currentValue: effort.current && effort.levels.includes(effort.current) ? effort.current : recommended,
+			options: effort.levels.map((l) => ({ value: l, name: EFFORT_LABELS[l] ?? l })),
+			_meta: { jetbrains: { air: { version: 1, recommendedValue: recommended } } },
+		} as SelectConfigOption,
+	];
+}
+
 /** Builds the `configOptions` array. Returns no model option when no model is reachable. */
-export function encodeConfigOptions(groups: ModelGroup[], current: ModelRef | undefined): SelectConfigOption[] {
+export function encodeConfigOptions(groups: ModelGroup[], current: ModelRef | undefined, effort?: EffortState): SelectConfigOption[] {
 	const nonEmpty = groups.filter((g) => g.models.length > 0);
 	if (nonEmpty.length === 0) return [];
 	const options: SelectGroup[] = nonEmpty.map((g) => ({
@@ -88,7 +122,7 @@ export function encodeConfigOptions(groups: ModelGroup[], current: ModelRef | un
 		options: g.models.map((m) => ({ value: encodeModelValue(m), name: m.name, description: m.description ?? "" })),
 	}));
 	const fallback = nonEmpty[0].models[0];
-	return [
+	const modelOption: SelectConfigOption[] = [
 		{
 			type: "select",
 			id: MODEL_CONFIG_ID,
@@ -99,6 +133,7 @@ export function encodeConfigOptions(groups: ModelGroup[], current: ModelRef | un
 			options,
 		},
 	];
+	return [...modelOption, ...encodeEffortOption(effort)];
 }
 
 // --- prompt ---------------------------------------------------------------------------------

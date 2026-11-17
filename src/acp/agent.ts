@@ -6,6 +6,7 @@ import { type Logger, silentLogger } from "../core/log.ts";
 import type { AgentBackend, BackendSession } from "../core/ports.ts";
 import type { ClientProfile } from "../core/types.ts";
 import {
+	EFFORT_CONFIG_ID,
 	MODEL_CONFIG_ID,
 	decodeClientProfile,
 	decodeModelValue,
@@ -162,8 +163,12 @@ export class AcpAgent {
 
 	private async setConfigOption(params: JsonObject): Promise<unknown> {
 		const entry = this.requireSession(params.sessionId);
-		if (params.configId !== MODEL_CONFIG_ID) throw RpcError.invalidParams(`Unknown config option: ${String(params.configId)}`);
-		await entry.backend.selectModel(decodeModelValue(String(params.value)));
+		if (params.configId === MODEL_CONFIG_ID) await entry.backend.selectModel(decodeModelValue(String(params.value)));
+		else if (params.configId === EFFORT_CONFIG_ID) {
+			const level = String(params.value);
+			if (!entry.backend.effortLevels().includes(level)) throw RpcError.invalidParams(`Effort ${level} is not supported by the current model`);
+			await entry.backend.selectEffort(level);
+		} else throw RpcError.invalidParams(`Unknown config option: ${String(params.configId)}`);
 		return { configOptions: this.configOptionsFor(entry.backend) };
 	}
 
@@ -202,7 +207,10 @@ export class AcpAgent {
 	}
 
 	private configOptionsFor(session: BackendSession) {
-		return encodeConfigOptions(this.backend.availableModels(), session.currentModel());
+		return encodeConfigOptions(this.backend.availableModels(), session.currentModel(), {
+			levels: session.effortLevels(),
+			current: session.currentEffort(),
+		});
 	}
 
 	private broadcastConfigOptions(): void {

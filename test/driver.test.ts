@@ -34,6 +34,20 @@ describe("ACP driver", () => {
 		expect(backend.calls).toContain("select anthropic/claude-sonnet-5-5");
 	});
 
+	it("exposes an effort option for reasoning models and applies changes", async () => {
+		const { backend, call } = await connected();
+		await call("providers/set", { providerId: "anthropic", apiType: "anthropic", baseUrl: "http://proxy/a" });
+		const s = await call("session/new", { cwd: "/tmp" });
+		const sid = s.result.sessionId;
+		await call("session/set_config_option", { sessionId: sid, configId: "model", value: "pi:anthropic/claude-opus-5-5" });
+		const res = await call("session/set_config_option", { sessionId: sid, configId: "effort", value: "high" });
+		const effort = res.result.configOptions.find((o: Obj) => o.id === "effort");
+		expect(effort).toMatchObject({ category: "thought_level", currentValue: "high", _meta: { jetbrains: { air: { recommendedValue: "medium" } } } });
+		expect(effort.options.map((o: Obj) => o.value)).toEqual(["low", "medium", "high"]);
+		expect(backend.calls).toContain("effort high");
+		expect((await call("session/set_config_option", { sessionId: sid, configId: "effort", value: "max" })).error.code).toBe(-32602);
+	});
+
 	it("rejects an apiType the slot does not support", async () => {
 		const { call } = await connected();
 		const res = await call("providers/set", { providerId: "anthropic", apiType: "openai", baseUrl: "http://x" });

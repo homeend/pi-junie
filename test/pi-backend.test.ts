@@ -171,6 +171,26 @@ describe("session title", () => {
 	});
 });
 
+describe("reasoning effort", () => {
+	it("offers the model's thinking levels, defaults to medium, sends and persists the choice", async () => {
+		const stateDir = mkdtempSync(join(tmpdir(), "pi-junie-test-"));
+		const { backend } = await newBackend(stateDir);
+		await bind(backend, "anthropic", "anthropic");
+		const s = await backend.openSession({ cwd: "/tmp" });
+		expect(s.effortLevels()).toEqual(expect.arrayContaining(["low", "medium", "high"]));
+		expect(s.effortLevels()).not.toContain("off");
+		expect(s.currentEffort()).toBe("medium");
+		await s.selectEffort("high");
+		await s.prompt("think hard", () => {}, new AbortController().signal);
+		const body = JSON.stringify(proxy.requests.filter((r) => r.method === "POST").at(-1)!.body);
+		expect(body).toContain('"effort":"high"');
+
+		const again = (await newBackend(stateDir)).backend;
+		await bind(again, "anthropic", "anthropic");
+		expect((await again.resumeSession({ sessionId: s.id, cwd: "/tmp" }))!.session.currentEffort()).toBe("high");
+	});
+});
+
 describe("log redaction", () => {
 	it("masks header values and token env entries", () => {
 		const line = JSON.stringify({ headers: { "x-air-proxy-key": "abc", "X-IntelliJ-Proxy-Agent-ID": "id1" }, env: [{ name: "IJ_MCP_AUTH_TOKEN", value: "t0k" }] });

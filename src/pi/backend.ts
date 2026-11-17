@@ -4,6 +4,8 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Api, AssistantMessage, Model } from "@earendil-works/pi-ai";
+import { getSupportedThinkingLevels } from "@earendil-works/pi-ai/models";
+import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import {
 	type AgentSession,
 	createAgentSession,
@@ -262,13 +264,13 @@ export class PiBackend implements AgentBackend {
 		return first ? { slotId: first.slotId, modelId: first.modelId } : undefined;
 	}
 
-	async createPiSession(id: string, cwd: string, model: Model<Api>): Promise<AgentSession> {
+	async createPiSession(id: string, cwd: string, model: Model<Api>, thinkingLevel: ThinkingLevel): Promise<AgentSession> {
 		const { manager, restored } = this.store.piSessionManager(id, cwd);
 		this.log.info(`session ${id}: Pi transcript ${restored ? `restored (${manager.getEntries().length} entries)` : "created"} at ${manager.getSessionFile() ?? "<memory>"}`);
 		const { session } = await createAgentSession({
 			cwd,
 			model,
-			thinkingLevel: "off",
+			thinkingLevel,
 			modelRuntime: this.runtime,
 			resourceLoader: minimalResources(),
 			noTools: "all",
@@ -309,6 +311,33 @@ class PiSession implements BackendSession {
 		this.backend.store.save({ ...this.meta, cwd: this.cwd, model: this.model });
 	}
 
+	effortLevels(): string[] {
+		const model = this.backend.resolveModel(this.currentModel());
+		if (!model) return [];
+		return getSupportedThinkingLevels(model).filter((l) => l !== "off");
+	}
+
+	/** Selected level clamped to the current model; Junie's default (medium) when nothing was chosen. */
+	currentEffort(): string | undefined {
+		const levels = this.effortLevels();
+		if (levels.length === 0) return undefined;
+		const wanted = this.meta.effort ?? DEFAULT_EFFORT;
+		if (levels.includes(wanted)) return wanted;
+		const order = ["minimal", "low", "medium", "high", "xhigh", "max"];
+		return levels.find((l) => order.indexOf(l) >= order.indexOf(wanted)) ?? levels[levels.length - 1];
+	}
+
+	async selectEffort(level: string): Promise<void> {
+		this.backend.log.info(`session ${this.id}: effort ${this.meta.effort ?? "default"} -> ${level}`);
+		this.meta.effort = level;
+		this.persist();
+		this.pi?.setThinkingLevel(this.thinkingLevel());
+	}
+
+	private thinkingLevel(): ThinkingLevel {
+		return (this.currentEffort() ?? "off") as ThinkingLevel;
+	}
+
 	/** The first prompt names the chat (like pi-acp's fallback title); sent once, then kept with the session. */
 	private nameIfUntitled(text: string, sink: TurnSink): void {
 		if (this.meta.title) return;
@@ -347,12 +376,13 @@ class PiSession implements BackendSession {
 			this.model = ref;
 			this.persist();
 		}
-		if (!this.pi) this.pi = await this.backend.createPiSession(this.id, this.cwd, model);
+		if (!this.pi) this.pi = await this.backend.createPiSession(this.id, this.cwd, model, this.thinkingLevel());
 		else if (this.pi.model?.id !== model.id || this.pi.model?.provider !== model.provider) await this.pi.setModel(model);
+		if (this.pi.thinkingLevel !== this.thinkingLevel()) this.pi.setThinkingLevel(this.thinkingLevel());
 		const pi = this.pi;
 		this.nameIfUntitled(text, sink);
 		const started = Date.now();
-		log.info(`session ${this.id}: prompt start model=${fmt(ref)} api=${model.api} baseUrl=${model.baseUrl} chars=${text.length}`);
+		log.info(`session ${this.id}: prompt start model=${fmt(ref)} effort=${pi.thinkingLevel} api=${model.api} baseUrl=${model.baseUrl} chars=${text.length}`);
 
 		let last: AssistantMessage | undefined;
 		const unsubscribe = pi.subscribe((event) => {
@@ -422,6 +452,7 @@ function fmt(ref: ModelRef | undefined): string {
 	return ref ? `${ref.slotId}/${ref.modelId}` : "none";
 }
 
+const DEFAULT_EFFORT = "medium";
 const TITLE_MAX = 60;
 
 export function titleFromPrompt(text: string): string | undefined {

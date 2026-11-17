@@ -116,11 +116,18 @@ export class FakeBackend implements AgentBackend {
 		const id = `fake-session-${++this.sessionCounter}`;
 		this.calls.push(`open ${id}`);
 		let model: ModelRef | undefined;
+		let effort = "medium";
 		const calls = this.calls;
 		return {
 			id,
 			cwd,
 			currentModel: () => model,
+			effortLevels: () => (model ? ["low", "medium", "high"] : []),
+			currentEffort: () => (model ? effort : undefined),
+			selectEffort: async (level: string) => {
+				calls.push(`effort ${level}`);
+				effort = level;
+			},
 			selectModel: async (ref) => {
 				calls.push(`select ${ref.slotId}/${ref.modelId}`);
 				model = ref;

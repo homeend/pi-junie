@@ -49,7 +49,7 @@ export interface SelectGroup extends WithMeta {
 	name: string;
 	options: SelectOption[];
 }
-export interface SelectConfigOption {
+export interface SelectConfigOption extends WithMeta {
 	type: "select";
 	id: string;
 	name: string;
