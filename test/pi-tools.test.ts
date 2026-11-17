@@ -91,6 +91,23 @@ describe("Pi bridge tools", () => {
 		expect(asked).toHaveLength(1);
 	});
 
+	it("puts the project's AGENTS.md and skills into the system prompt", async () => {
+		const { cwd, run } = await chat();
+		const { mkdirSync } = await import("node:fs");
+		writeFileSync(join(cwd, "AGENTS.md"), "Always run `make check` before committing.\n");
+		mkdirSync(join(cwd, ".agents", "skills", "release-notes"), { recursive: true });
+		writeFileSync(
+			join(cwd, ".agents", "skills", "release-notes", "SKILL.md"),
+			"---\nname: release-notes\ndescription: Write release notes from the git log.\n---\n\nSteps...\n",
+		);
+		script = ["ok"];
+		await run("hello", () => "allow_once");
+		const system = JSON.stringify(proxy.requests.filter((r) => r.method === "POST").at(-1)!.body.system);
+		expect(system).toContain("Always run `make check` before committing.");
+		expect(system).toContain("release-notes");
+		expect(system).toContain("JetBrains IDE");
+	});
+
 	it("sums usage over all model calls of a tool turn", async () => {
 		const { run } = await chat();
 		script = [{ tool: "ls", input: {} }, "listed"];

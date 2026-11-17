@@ -34,6 +34,8 @@ export interface PiBackendOptions {
 	/** HTTP client for model discovery (defaults to global fetch). */
 	fetch?: typeof fetch;
 	discoveryTimeoutMs?: number;
+	/** Trust the session's project for Pi project resources (skills). Default true. */
+	trustProject?: boolean;
 }
 
 export class PiBackend implements AgentBackend {
@@ -45,6 +47,7 @@ export class PiBackend implements AgentBackend {
 	private generation = 0;
 	readonly store: SessionStore;
 	private readonly agentDir: string;
+	private readonly trustProject: boolean;
 	private readonly listeners = new Set<() => void>();
 	readonly log: Logger;
 	private readonly version: string;
@@ -58,6 +61,7 @@ export class PiBackend implements AgentBackend {
 		this.version = options.version ?? "0.0.0";
 		this.fetchImpl = options.fetch;
 		this.discoveryTimeoutMs = options.discoveryTimeoutMs;
+		this.trustProject = options.trustProject ?? true;
 	}
 
 	static async create(options: PiBackendOptions = {}): Promise<PiBackend> {
@@ -277,24 +281,31 @@ export class PiBackend implements AgentBackend {
 	}
 
 	/**
-	 * A Pi coding session: Pi's default system prompt and built-in tools, no user extensions/skills/settings
+	 * A Pi coding session: Pi's default system prompt and built-in tools, the project's context files
+	 * (AGENTS.md/CLAUDE.md up the tree) and skills. No extensions, prompt templates or user Pi settings
 	 * (isolated agentDir). `gate` is an inline Pi extension that decides on every tool call.
 	 */
 	async createPiSession(id: string, cwd: string, model: Model<Api>, thinkingLevel: ThinkingLevel, gate: (pi: ExtensionAPI) => void): Promise<AgentSession> {
 		const { manager, restored } = this.store.piSessionManager(id, cwd);
 		this.log.info(`session ${id}: Pi transcript ${restored ? `restored (${manager.getEntries().length} entries)` : "created"} at ${manager.getSessionFile() ?? "<memory>"}`);
+		// The project the IDE opened is trusted for skills (project extensions stay off; edits/commands still ask).
+		const settingsManager = SettingsManager.inMemory({}, { projectTrusted: this.trustProject });
 		const resourceLoader = new DefaultResourceLoader({
 			cwd,
 			agentDir: this.agentDir,
+			settingsManager,
 			noExtensions: true,
-			noSkills: true,
 			noPromptTemplates: true,
 			noThemes: true,
-			noContextFiles: true,
 			appendSystemPrompt: [IDE_NOTE],
 			extensionFactories: [gate],
 		});
 		await resourceLoader.reload();
+		const contextFiles = resourceLoader.getAgentsFiles().agentsFiles.map((f) => f.path);
+		const skills = resourceLoader.getSkills().skills.map((s) => s.name);
+		this.log.info(
+			`session ${id}: context files [${contextFiles.join(", ")}] skills [${skills.join(", ")}] projectTrusted=${this.trustProject}`,
+		);
 		const { session } = await createAgentSession({
 			cwd,
 			agentDir: this.agentDir,
@@ -304,7 +315,7 @@ export class PiBackend implements AgentBackend {
 			resourceLoader,
 			tools: BRIDGE_TOOLS,
 			sessionManager: manager,
-			settingsManager: SettingsManager.inMemory({ compaction: { enabled: false } }),
+			settingsManager,
 		});
 		return session;
 	}

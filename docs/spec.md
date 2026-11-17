@@ -119,8 +119,11 @@ group ids (`proxy:<slot>`), `_meta` shapes and stop reasons.
   a placeholder API key, and the curated models copied from Pi's built-in catalog. It never overrides the
   user's real `anthropic`/`openai` providers, so the user's own credentials are never sent to the AIR proxy.
 - Each ACP session gets one Pi `AgentSession` with Pi's coding system prompt plus an IDE note, the built-in
-  tools `read grep find ls edit write bash`, and no user extensions, skills, settings or context files
-  (isolated `agentDir`).
+  tools `read grep find ls edit write bash`, the project's context files (`AGENTS.md`/`CLAUDE.md` in the
+  working directory and its parents) and skills (`.agents/skills`, `.pi/skills`, `~/.agents/skills`; the
+  project counts as trusted unless `PI_AIR_TRUST_PROJECT=0`), and Pi's default auto-compaction. No
+  extensions, prompt templates, or the user's own `~/.pi/agent` settings, instructions and skills (isolated
+  `agentDir`). Each session logs the context files and skills it loaded.
 - **Permissions:** an inline Pi extension handles `tool_call`. Read-only tools (`read grep find ls`) run;
   `edit write bash` ask the user through the core `PermissionAsk` port, which the driver maps to
   `session/request_permission` (Allow once / Allow for this chat / Reject). A rejection or cancellation
@@ -191,5 +194,5 @@ that unlock each one:
 
 ## 7. Out of scope for now
 
-Project context files (AGENTS.md) and skills, file/terminal client capabilities, MCP servers from `session/new`, auth methods,
+File/terminal client capabilities, MCP servers from `session/new`, auth methods,
  plans and goal mode, steering, subagents, `_providers/models`.

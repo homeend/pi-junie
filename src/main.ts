@@ -107,7 +107,11 @@ function stdioTransport(): Transport {
 }
 
 log.info(`starting pid=${process.pid} node=${process.version} cwd=${process.cwd()} log=${LOG_FILE ?? "stderr"}`);
-const backend = await PiBackend.create({ logger: log.child("pi"), version: "0.1.0" });
+const backend = await PiBackend.create({
+	logger: log.child("pi"),
+	version: "0.1.0",
+	trustProject: process.env.PI_AIR_TRUST_PROJECT !== "0", // PI_AIR_TRUST_PROJECT=0: no project skills
+});
 new AcpAgent(stdioTransport(), backend, { logger: log.child("acp") });
 log.info("ready");
 process.stdin.on("end", () => {
