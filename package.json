@@ -1,0 +1,25 @@
+{
+  "name": "pi-junie",
+  "private": true,
+  "version": "0.0.1",
+  "description": "Pi extension (in development)",
+  "type": "module",
+  "keywords": [
+    "pi-package"
+  ],
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "scripts": {
+    "dev": "./scripts/dev.sh",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "1.5.2",
+    "@types/node": "22.19.19",
+    "typebox": "1.4.7",
+    "typescript": "5.9.3"
+  }
+}
