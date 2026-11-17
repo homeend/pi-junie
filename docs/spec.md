@@ -234,6 +234,9 @@ that unlock each one:
   child id (`<parent>:subagent-<n>`), child permission requests on the child id, `subagent_state_update` on the
   parent; the parent's `Agent` tool rows are hidden. Without the capability, only the `Agent` rows show.
   Not yet: background subagents, replay of children on session/load.
+- Subagent models: with the plugin present, every prompt's system prompt lists the session's available models
+  (`provider/id`, display name, which one the session uses) for the `Agent` tool's `model` parameter, so the
+  agent can offer them (e.g. through `ask_user`). A child run on a chosen model is named `<type> · <model id>`.
 
 ## 4. Testing: replay simulator
 

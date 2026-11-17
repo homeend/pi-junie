@@ -29,7 +29,7 @@ import { PLACEHOLDER_API_KEY } from "./proxy-auth.ts";
 import { ASK_USER_TOOL, askUserTool } from "./ask-user.ts";
 import { type PhaseSplitterOptions, signaturePhase } from "./phases.ts";
 import { TranscriptStream } from "./transcript.ts";
-import { AGENT_TOOL, installChildSessionHook, markBridgeSession, SubagentRelay, withChildHost } from "./subagents.ts";
+import { AGENT_TOOL, installChildSessionHook, markBridgeSession, SubagentRelay, subagentModelsNote, withChildHost } from "./subagents.ts";
 import { type DetectedPlugin, detectPlugins, pluginWelcomeLines, SUBAGENT_TOOLS, SUBAGENTS_PLUGIN } from "./plugins.ts";
 import { discoverModels, type ListedModel, listingIdMatches } from "./discovery.ts";
 
@@ -390,6 +390,7 @@ export class PiBackend implements AgentBackend {
 			createMcpExtension(),
 			...(routerAlias ? [junieExecuteToolAlias] : []),
 			...(askUser ? [askUser] : []),
+			...(this.plugins.some((p) => p.name === SUBAGENTS_PLUGIN) ? [subagentModelsNote] : []),
 		]);
 		const contextFiles = resourceLoader.getAgentsFiles().agentsFiles.map((f) => f.path);
 		const skills = resourceLoader.getSkills().skills.map((s) => s.name);

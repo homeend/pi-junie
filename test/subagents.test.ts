@@ -118,6 +118,13 @@ describe("subagents", () => {
 		expect(child(byok).filter((u) => u.sessionUpdate === "agent_message_chunk").map((u) => u.content.text).join("")).toBe("BYOK proxies forward the user's key.");
 		expect(child(byok).at(-2)).toMatchObject({ sessionUpdate: "tool_call_update", status: "completed" });
 
+		// the model is told which models a subagent can run on
+		const parentRequest = proxy.requests.find((r) => r.method === "POST" && transcript(r).includes("investigate in parallel"))!;
+		const system = JSON.stringify(parentRequest.body.system);
+		expect(system).toContain("## Subagent models");
+		expect(system).toMatch(/claude-sonnet-5-5.*this session's model/);
+		expect(system).toContain("claude-opus-5-5");
+
 		// the child's bash asked for permission on the child session; ls (read-only) did not ask
 		expect(asked.map((a) => [a.sessionId, a.toolCall.title])).toEqual([[redis, "Run echo redis"]]);
 	});

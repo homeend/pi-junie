@@ -10,7 +10,7 @@
 //   it is announced (`subagent_spawned`) with the name and task of the `Agent` call that started it.
 
 import { AsyncLocalStorage } from "node:async_hooks";
-import { AgentSession, type AgentSessionEvent } from "@earendil-works/pi-coding-agent";
+import { AgentSession, type AgentSessionEvent, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { Logger } from "../core/log.ts";
 import type { TurnSink } from "../core/ports.ts";
 import type { SubagentState } from "../core/types.ts";
@@ -166,7 +166,9 @@ export class SubagentRelay implements ChildHost {
 		const input = call?.input ?? {};
 		const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : undefined);
 		const type = str(input.subagent_type);
-		const name = str(input.name) ?? type ?? "Subagent";
+		// A model chosen for this subagent is part of its name, so the user sees which child runs on what.
+		const model = str(input.model) ? child.session.model?.id : undefined;
+		const name = `${str(input.name) ?? type ?? "Subagent"}${model ? ` · ${model}` : ""}`;
 		const prompt = str(input.prompt) ?? (firstMessage.trim() || undefined);
 		const task = str(input.description) ?? prompt?.split("\n")[0]?.slice(0, 120) ?? name;
 		child.announced = true;
@@ -191,4 +193,24 @@ function messageText(content: unknown): string {
 	return content
 		.map((part) => (part && typeof part === "object" && (part as { type?: string }).type === "text" ? String((part as { text?: unknown }).text ?? "") : ""))
 		.join("\n");
+}
+
+/**
+ * Pi extension: before each prompt, tells the model which models a subagent can run on (the `Agent` tool's `model`
+ * parameter), so "let me choose the models" can offer real choices. The list is the session's available models at
+ * that moment (AIR's providers may change during a chat).
+ */
+export function subagentModelsNote(pi: ExtensionAPI): void {
+	pi.on("before_agent_start", (event, ctx) => {
+		const models = ctx.modelRegistry.getAvailable();
+		if (!models.length) return undefined;
+		const current = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
+		const lines = models.map((m) => `- \`${m.provider}/${m.id}\` (${m.name ?? m.id})${`${m.provider}/${m.id}` === current ? " — this session's model" : ""}`);
+		const note = [
+			"## Subagent models",
+			`The ${AGENT_TOOL} tool's \`model\` parameter picks the model a subagent runs on. Pass one of these exact values; without it, the subagent uses its agent type's default model (normally this session's model).`,
+			...lines,
+		].join("\n");
+		return { systemPrompt: `${event.systemPrompt}\n\n${note}` };
+	});
 }
