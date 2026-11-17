@@ -67,6 +67,7 @@ export interface SessionPromptParams {
 }
 
 export type SessionUpdate =
+	| { sessionUpdate: "user_message_chunk"; content: { type: "text"; text: string } }
 	| { sessionUpdate: "agent_message_chunk"; content: { type: "text"; text: string } }
 	| { sessionUpdate: "agent_thought_chunk"; content: { type: "text"; text: string } }
 	| { sessionUpdate: "config_option_update"; configOptions: SelectConfigOption[] }

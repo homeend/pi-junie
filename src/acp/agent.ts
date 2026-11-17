@@ -12,7 +12,10 @@ import {
 	decodeModelValue,
 	decodePrompt,
 	decodeProviderBinding,
+	decodeListLimit,
 	encodeConfigOptions,
+	encodeHistory,
+	encodeSessionSummary,
 	encodePromptResult,
 	encodeProviderList,
 	encodeTurnEvent,
@@ -89,8 +92,9 @@ export class AcpAgent {
 			case "session/prompt":
 				return this.prompt(params as unknown as SessionPromptParams);
 			case "session/list":
-				// Sessions are in-memory and cannot be loaded back yet, so nothing is listed.
-				return { sessions: [] };
+				return this.listSessions(params);
+			case "session/load":
+				return this.loadSession(params);
 			case "session/close":
 				return this.closeSession(String(params.sessionId));
 			default:
@@ -117,7 +121,7 @@ export class AcpAgent {
 		return {
 			protocolVersion: PROTOCOL_VERSION,
 			agentCapabilities: {
-				loadSession: false,
+				loadSession: true,
 				promptCapabilities: { audio: false, image: true, embeddedContext: true },
 				mcpCapabilities: { http: false, sse: false },
 				sessionCapabilities: { list: {}, close: {}, resume: {} },
@@ -136,6 +140,30 @@ export class AcpAgent {
 		const backend = await this.backend.openSession({ cwd });
 		this.sessions.set(backend.id, { backend });
 		return { sessionId: backend.id, configOptions: this.configOptionsFor(backend) };
+	}
+
+	private listSessions(params: JsonObject): unknown {
+		const cwd = typeof params.cwd === "string" ? params.cwd : undefined;
+		const sessions = this.backend.listSessions({ cwd, limit: decodeListLimit(params) });
+		return { sessions: sessions.map(encodeSessionSummary) };
+	}
+
+	/** Opens a saved session and replays its conversation as session/update notifications before answering. */
+	private async loadSession(params: JsonObject): Promise<unknown> {
+		const sessionId = String(params.sessionId);
+		const cwd = typeof params.cwd === "string" ? params.cwd : process.cwd();
+		await this.backend.modelsSettled(MODEL_DISCOVERY_WAIT_MS);
+		const existing = this.sessions.get(sessionId)?.backend;
+		const resumed = existing ? { session: existing, restored: true } : await this.backend.resumeSession({ sessionId, cwd });
+		if (!resumed || !resumed.restored) throw new RpcError(-32002, `Session not found: ${sessionId}`);
+		const backend = resumed.session;
+		this.sessions.set(backend.id, { backend });
+		const history = backend.history();
+		for (const update of encodeHistory(history)) this.sendUpdate(sessionId, update);
+		const title = backend.title();
+		if (title) this.sendUpdate(sessionId, { sessionUpdate: "session_info_update", title });
+		this.log.info(`session/load ${sessionId}: replayed ${history.length} item(s)`);
+		return { configOptions: this.configOptionsFor(backend) };
 	}
 
 	/** AIR resumes its chat after restarting the agent (e.g. when the LLM proxy identity changed). */

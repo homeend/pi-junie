@@ -83,3 +83,16 @@ export interface TurnResult {
 	error?: string;
 	usage?: { inputTokens: number; outputTokens: number; cachedReadTokens?: number; cachedWriteTokens?: number };
 }
+
+/** A saved session as shown in the client's history. */
+export interface SessionSummary {
+	id: string;
+	cwd: string;
+	title?: string;
+	createdAt: string;
+	updatedAt: string;
+	lastPromptAt?: string;
+}
+
+/** One past item of a conversation, replayed when a client reopens a session. */
+export type HistoryItem = { kind: "user"; text: string; imageCount: number } | { kind: "assistant"; text: string } | { kind: "thought"; text: string };

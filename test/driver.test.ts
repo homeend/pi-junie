@@ -113,6 +113,37 @@ describe("ACP driver", () => {
 		expect(backend.calls).toContain(`prompt ${s.result.sessionId}: what is this? +1 image(s)`);
 	});
 
+	it("session/list returns saved sessions with AIR metadata, honouring AIR's limit", async () => {
+		const { backend, call } = await connected();
+		const res = await call("session/list", { cwd: "/tmp", _meta: { jetbrains: { air: { version: 1, list: { limit: 500 } } } } });
+		expect(res.result.sessions).toEqual([
+			{ sessionId: "fake-session-old", cwd: "/tmp", title: "Old chat", updatedAt: "2026-11-01T10:05:00Z", _meta: { jetbrains: { air: { version: 1, archived: false, state: "idle", lastPromptAt: "2026-11-01T10:04:00Z" } } } },
+		]);
+		expect(backend.calls).toContain("list /tmp 200");
+	});
+
+	it("session/load replays the conversation before answering, and fails for unknown sessions", async () => {
+		const { wire, call } = await connected();
+		const before = wire.sent.length;
+		const res = await call("session/load", { sessionId: "fake-session-old", cwd: "/tmp", mcpServers: [] });
+		const sent = wire.sent.slice(before);
+		const responseIndex = sent.findIndex((m) => m.id !== undefined);
+		const replay = sent.slice(0, responseIndex).map((m: Obj) => [m.params.update.sessionUpdate, m.params.update.content?.text ?? m.params.update.title]);
+		expect(replay).toEqual([
+			["user_message_chunk", "earlier question"],
+			["agent_thought_chunk", "hmm"],
+			["agent_message_chunk", "earlier answer"],
+			["session_info_update", "Old chat"],
+		]);
+		expect(res.result.configOptions).toBeDefined();
+		expect((await call("session/load", { sessionId: "pi-unknown", cwd: "/tmp" })).error.code).toBe(-32002);
+	});
+
+	it("advertises loadSession", async () => {
+		const { call } = await connected();
+		expect((await call("initialize", { protocolVersion: 1 })).result.agentCapabilities.loadSession).toBe(true);
+	});
+
 	it("unknown methods get -32601", async () => {
 		const { call } = await connected();
 		expect((await call("_session/goal")).error.code).toBe(-32601);

@@ -122,7 +122,9 @@ group ids (`proxy:<slot>`), `_meta` shapes and stop reasons.
   context files. That covers milestone 4, plain Q&A.
 - Pi output is mapped to core `TurnEvent`s (`text`, `thought`, `usage`) and nothing ACP-shaped.
 - Sessions are persisted under `~/.pi/pi-junie/sessions` (metadata JSON + Pi transcript with the same id).
-  `session/resume` reopens them. AIR restarts the agent whenever the LLM proxy identity changes (auth source
+  `session/resume` reopens them; `session/list` returns prompted sessions (newest first, AIR's `list.limit`,
+  `_meta.jetbrains.air` with `archived:false`, `lastPromptAt`); `session/load` replays the transcript's active
+  branch as `user_message_chunk` / `agent_thought_chunk` / `agent_message_chunk` + the title, then answers. AIR restarts the agent whenever the LLM proxy identity changes (auth source
   switch, BYOK) and resumes the open chat; without resume it reports "This agent cannot resume the saved session".
 - stdout belongs to ACP. The host redirects `console.log` to stderr.
 
@@ -182,4 +184,4 @@ that unlock each one:
 ## 7. Out of scope for now
 
 Tools and permissions, file/terminal client capabilities, MCP servers from `session/new`, auth methods,
-`session/load` (history replay) and `session/list` content, plans and goal mode, steering, subagents, `_providers/models`.
+ plans and goal mode, steering, subagents, `_providers/models`.

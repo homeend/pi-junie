@@ -3,7 +3,7 @@
 //   <id>.json        our metadata (cwd, selected model, timestamps)
 //   pi/<...>.jsonl   Pi's own transcript (SessionManager, created with the same id)
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { ModelRef } from "../core/types.ts";
@@ -14,6 +14,7 @@ export interface SessionMeta {
 	model?: ModelRef;
 	title?: string;
 	effort?: string;
+	lastPromptAt?: string;
 	createdAt: string;
 	updatedAt: string;
 }
@@ -45,6 +46,20 @@ export class SessionStore {
 		return JSON.parse(readFileSync(path, "utf8")) as SessionMeta;
 	}
 
+	/** All saved sessions (unreadable files are skipped), newest first. */
+	list(): SessionMeta[] {
+		const metas: SessionMeta[] = [];
+		for (const name of readdirSync(this.dir)) {
+			if (!name.endsWith(".json")) continue;
+			try {
+				metas.push(JSON.parse(readFileSync(join(this.dir, name), "utf8")) as SessionMeta);
+			} catch {
+				// a half-written or foreign file: ignore
+			}
+		}
+		return metas.sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""));
+	}
+
 	/** Pi's transcript for this session: reopened if it exists, otherwise a new file-backed session with the same id. */
 	piSessionManager(id: string, cwd: string): { manager: SessionManager; restored: boolean } {
 		const existing = SessionManager.findById(cwd, id, this.piDir);
@@ -56,4 +71,10 @@ export class SessionStore {
 		if (!SessionStore.isValidId(id)) throw new Error(`invalid session id ${id}`);
 		return join(this.dir, `${id}.json`);
 	}
+}
+
+/** Opens an existing Pi transcript read-only, or undefined when the session never prompted. */
+export function openPiTranscript(store: SessionStore, id: string, cwd: string): SessionManager | undefined {
+	const existing = SessionManager.findById(cwd, id, store.piDir);
+	return existing ? SessionManager.open(existing, store.piDir, cwd) : undefined;
 }

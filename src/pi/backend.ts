@@ -18,9 +18,9 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { type Logger, silentLogger } from "../core/log.ts";
 import type { AgentBackend, BackendSession, TurnSink } from "../core/ports.ts";
-import type { ModelChoice, ModelGroup, ModelRef, PromptInput, ProviderBinding, ProviderSlotState, TurnResult } from "../core/types.ts";
+import type { HistoryItem, ModelChoice, ModelGroup, ModelRef, PromptInput, ProviderBinding, ProviderSlotState, SessionSummary, TurnResult } from "../core/types.ts";
 import { bridgeProviderId, DEFAULT_MODEL, joinBaseUrl, SLOTS, type SlotDefinition } from "./catalog.ts";
-import { type SessionMeta, SessionStore } from "./session-store.ts";
+import { openPiTranscript, type SessionMeta, SessionStore } from "./session-store.ts";
 import { discoverModels, type ListedModel, listingIdMatches } from "./discovery.ts";
 
 const SYSTEM_PROMPT = "You are Pi, a helpful assistant running inside a JetBrains IDE. Answer concisely. Use Markdown.";
@@ -252,6 +252,15 @@ export class PiBackend implements AgentBackend {
 		return { session: new PiSession({ ...meta, cwd }, this), restored: true };
 	}
 
+	listSessions({ cwd, limit }: { cwd?: string; limit: number }): SessionSummary[] {
+		return this.store
+			.list()
+			.filter((m) => !cwd || m.cwd === cwd)
+			.filter((m) => m.lastPromptAt) // never-prompted chats are not history
+			.slice(0, limit)
+			.map((m) => ({ id: m.id, cwd: m.cwd, title: m.title, createdAt: m.createdAt, updatedAt: m.updatedAt, lastPromptAt: m.lastPromptAt }));
+	}
+
 	/** Resolves a ModelRef to the Pi model registered for its binding. */
 	resolveModel(ref: ModelRef | undefined): Model<Api> | undefined {
 		if (!ref) return undefined;
@@ -338,6 +347,31 @@ class PiSession implements BackendSession {
 		return (this.currentEffort() ?? "off") as ThinkingLevel;
 	}
 
+	title(): string | undefined {
+		return this.meta.title;
+	}
+
+	history(): HistoryItem[] {
+		const manager = this.pi?.sessionManager ?? openPiTranscript(this.backend.store, this.id, this.cwd);
+		if (!manager) return [];
+		const items: HistoryItem[] = [];
+		for (const entry of manager.getBranch()) {
+			if (entry.type !== "message") continue;
+			const message = entry.message as { role: string; content: unknown };
+			if (message.role === "user") {
+				const parts = typeof message.content === "string" ? [{ type: "text", text: message.content }] : (message.content as { type: string; text?: string }[]);
+				const text = parts.filter((p) => p.type === "text").map((p) => p.text ?? "").join("\n");
+				items.push({ kind: "user", text, imageCount: parts.filter((p) => p.type === "image").length });
+			} else if (message.role === "assistant") {
+				for (const part of message.content as { type: string; text?: string; thinking?: string }[]) {
+					if (part.type === "thinking" && part.thinking) items.push({ kind: "thought", text: part.thinking });
+					else if (part.type === "text" && part.text) items.push({ kind: "assistant", text: part.text });
+				}
+			}
+		}
+		return items;
+	}
+
 	/** The first prompt names the chat (like pi-acp's fallback title); sent once, then kept with the session. */
 	private nameIfUntitled(text: string, sink: TurnSink): void {
 		if (this.meta.title) return;
@@ -382,6 +416,8 @@ class PiSession implements BackendSession {
 		if (this.pi.thinkingLevel !== this.thinkingLevel()) this.pi.setThinkingLevel(this.thinkingLevel());
 		const pi = this.pi;
 		this.nameIfUntitled(text || (input.images.length ? "Image" : ""), sink);
+		this.meta.lastPromptAt = new Date().toISOString();
+		this.persist();
 		let images = input.images.map((i) => ({ type: "image" as const, data: i.data, mimeType: i.mimeType }));
 		if (images.length && !model.input.includes("image")) {
 			log.warn(`session ${this.id}: ${fmt(ref)} does not accept images; ${images.length} image(s) dropped`);

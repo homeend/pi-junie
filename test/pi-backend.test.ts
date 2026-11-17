@@ -206,6 +206,31 @@ describe("image prompts", () => {
 	});
 });
 
+describe("session history", () => {
+	it("lists prompted sessions newest first and reads their history back after a restart", async () => {
+		const stateDir = mkdtempSync(join(tmpdir(), "pi-junie-test-"));
+		const { backend } = await newBackend(stateDir);
+		await bind(backend, "anthropic", "anthropic");
+		const a = await backend.openSession({ cwd: "/proj" });
+		await a.prompt({ text: "first chat", images: [] }, () => {}, new AbortController().signal);
+		await backend.openSession({ cwd: "/proj" }); // never prompted: not history
+		const b = await backend.openSession({ cwd: "/other" });
+		await b.prompt({ text: "other project", images: [] }, () => {}, new AbortController().signal);
+
+		const again = (await newBackend(stateDir)).backend;
+		expect(again.listSessions({ cwd: "/proj", limit: 50 }).map((s) => [s.id, s.title])).toEqual([[a.id, "first chat"]]);
+		expect(again.listSessions({ limit: 50 }).map((s) => s.id)).toEqual([b.id, a.id]);
+
+		await bind(again, "anthropic", "anthropic");
+		const reopened = (await again.resumeSession({ sessionId: a.id, cwd: "/proj" }))!.session;
+		expect(reopened.history()).toEqual([
+			{ kind: "user", text: "first chat", imageCount: 0 },
+			{ kind: "assistant", text: "answer #1" },
+		]);
+		expect(reopened.title()).toBe("first chat");
+	});
+});
+
 describe("log redaction", () => {
 	it("masks header values and token env entries", () => {
 		const line = JSON.stringify({ headers: { "x-air-proxy-key": "abc", "X-IntelliJ-Proxy-Agent-ID": "id1" }, env: [{ name: "IJ_MCP_AUTH_TOKEN", value: "t0k" }] });

@@ -6,7 +6,7 @@ import { AcpAgent } from "../src/acp/agent.ts";
 import type { JsonObject, Transport } from "../src/acp/jsonrpc.ts";
 import type { Logger } from "../src/core/log.ts";
 import type { AgentBackend, BackendSession, TurnSink } from "../src/core/ports.ts";
-import type { ModelGroup, ModelRef, PromptInput, ProviderBinding, ProviderSlotState, TurnResult } from "../src/core/types.ts";
+import type { HistoryItem, ModelGroup, ModelRef, PromptInput, ProviderBinding, ProviderSlotState, SessionSummary, TurnResult } from "../src/core/types.ts";
 
 export interface Fixture {
 	name: string;
@@ -112,16 +112,31 @@ export class FakeBackend implements AgentBackend {
 	installedPlugins() {
 		return [];
 	}
+	readonly saved: SessionSummary[] = [
+		{ id: "fake-session-old", cwd: "/tmp", title: "Old chat", createdAt: "2026-11-01T10:00:00Z", updatedAt: "2026-11-01T10:05:00Z", lastPromptAt: "2026-11-01T10:04:00Z" },
+	];
+	listSessions({ cwd, limit }: { cwd?: string; limit: number }) {
+		this.calls.push(`list ${cwd ?? "*"} ${limit}`);
+		return this.saved.filter((s) => !cwd || s.cwd === cwd).slice(0, limit);
+	}
 	async openSession({ cwd }: { cwd: string }): Promise<BackendSession> {
 		const id = `fake-session-${++this.sessionCounter}`;
 		this.calls.push(`open ${id}`);
+		return this.makeSession(id, cwd);
+	}
+	private makeSession(id: string, cwd: string): BackendSession {
 		let model: ModelRef | undefined;
 		let effort = "medium";
+		const history: HistoryItem[] = id.startsWith("fake-session-old")
+			? [{ kind: "user", text: "earlier question", imageCount: 0 }, { kind: "thought", text: "hmm" }, { kind: "assistant", text: "earlier answer" }]
+			: [];
 		const calls = this.calls;
 		return {
 			id,
 			cwd,
 			currentModel: () => model,
+			history: () => history,
+			title: () => (history.length ? "Old chat" : undefined),
 			effortLevels: () => (model ? ["low", "medium", "high"] : []),
 			currentEffort: () => (model ? effort : undefined),
 			selectEffort: async (level: string) => {
@@ -152,8 +167,7 @@ export class FakeBackend implements AgentBackend {
 		return { session: await this.openSessionWithId(sessionId, cwd), restored: sessionId.startsWith("fake-session-") };
 	}
 	private async openSessionWithId(id: string, cwd: string): Promise<BackendSession> {
-		const s = await this.openSession({ cwd });
-		return { ...s, id };
+		return this.makeSession(id, cwd);
 	}
 	private emit() {
 		for (const l of this.listeners) l();

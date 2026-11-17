@@ -1,6 +1,6 @@
 // Translation between ACP v1 wire shapes and core types. Pure functions.
 
-import type { ClientProfile, ModelGroup, ModelRef, PromptImage, PromptInput, ProviderBinding, ProviderSlotState, TurnEvent, TurnResult } from "../core/types.ts";
+import type { ClientProfile, HistoryItem, ModelGroup, ModelRef, PromptImage, PromptInput, ProviderBinding, ProviderSlotState, SessionSummary, TurnEvent, TurnResult } from "../core/types.ts";
 import { RpcError } from "./jsonrpc.ts";
 import type {
 	ContentBlock,
@@ -200,4 +200,41 @@ export function encodePromptResult(result: TurnResult): Record<string, unknown> 
 				}
 			: {}),
 	};
+}
+
+// --- session list / load ------------------------------------------------------------------
+
+const LIST_DEFAULT = 50;
+const LIST_MAX = 200;
+
+/** AIR's v1 list filter `_meta.jetbrains.air.list.limit` (default 50, max 200, like Junie). */
+export function decodeListLimit(params: Record<string, unknown>): number {
+	const limit = (params._meta as any)?.jetbrains?.air?.list?.limit;
+	return typeof limit === "number" && limit > 0 ? Math.min(limit, LIST_MAX) : LIST_DEFAULT;
+}
+
+export function encodeSessionSummary(s: SessionSummary): Record<string, unknown> {
+	return {
+		sessionId: s.id,
+		cwd: s.cwd,
+		...(s.title ? { title: s.title } : {}),
+		updatedAt: s.updatedAt,
+		_meta: { jetbrains: { air: { version: 1, archived: false, state: "idle", ...(s.lastPromptAt ? { lastPromptAt: s.lastPromptAt } : {}) } } },
+	};
+}
+
+/** History replay for session/load (ACP: the agent streams the whole conversation before answering). */
+export function encodeHistory(items: HistoryItem[]): SessionUpdate[] {
+	return items.map((item): SessionUpdate => {
+		switch (item.kind) {
+			case "user": {
+				const text = item.imageCount ? `${item.text}${item.text ? "\n\n" : ""}[${item.imageCount} image(s)]` : item.text;
+				return { sessionUpdate: "user_message_chunk", content: { type: "text", text } };
+			}
+			case "assistant":
+				return { sessionUpdate: "agent_message_chunk", content: { type: "text", text: item.text } };
+			case "thought":
+				return { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: item.text } };
+		}
+	});
 }
