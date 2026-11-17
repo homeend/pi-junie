@@ -140,6 +140,8 @@ describe("Pi bridge tools", () => {
 		expect(okEnd.terminal?.exitCode).toBe(0);
 		const streamed = tools.filter((t) => t.id === okEnd.id).map((t) => t.terminal?.delta ?? "").join("");
 		expect(streamed).toContain("one\ntwo");
+		expect(streamed.startsWith("one")).toBe(true); // no JSON of Pi's empty first progress event
+		expect(tools.some((t) => t.terminal?.delta?.includes('"content"'))).toBe(false);
 		const failed = tools.find((t) => t.name === "bash" && t.status === "failed")!;
 		expect(failed.terminal?.exitCode).toBe(3);
 	});

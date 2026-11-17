@@ -110,6 +110,8 @@ export function toolResultText(result: unknown): string {
 	if (stderr?.trim()) parts.push(`stderr:\n${stderr}`);
 	if (parts.length && exit !== undefined) parts.push(`exit code: ${exit}`);
 	if (parts.length) return parts.join("\n\n").trimEnd();
+	// A tool result with an (empty) content array simply has no output yet; never show its JSON.
+	if (Array.isArray(r.content)) return "";
 	try {
 		return JSON.stringify(result, null, 2);
 	} catch {
