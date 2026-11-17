@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 // Translation between ACP v1 wire shapes and core types. Pure functions.
 
-import type { ApprovalMode, ClientProfile, CommandInfo, HistoryItem, McpServerSpec, ModelGroup, ModelRef, PromptImage, PromptInput, ProviderBinding, PermissionDecision, PermissionRequest, ProviderSlotState, SessionSummary, ToolUpdate, TurnEvent, TurnResult, MessagePhase, QuestionAnswers, QuestionForm, TurnFailure } from "../core/types.ts";
+import type { ApprovalMode, ClientProfile, CommandInfo, HistoryItem, McpServerSpec, ModelGroup, ModelRef, PromptImage, PromptInput, ProviderBinding, PermissionDecision, PermissionRequest, PlanUpdate, ProviderSlotState, SessionSummary, ToolUpdate, TurnEvent, TurnResult, MessagePhase, QuestionAnswers, QuestionForm, TurnFailure } from "../core/types.ts";
 import { RpcError } from "./jsonrpc.ts";
 import type {
 	ContentBlock,
@@ -79,6 +79,8 @@ export function decodeClientProfile(params: InitializeParams): ClientProfile {
 		features,
 		liveTerminal: params.clientCapabilities?._meta?.terminal_output_delta === true || params.clientCapabilities?._meta?.terminal_output === true,
 		questionForms: isObject((params.clientCapabilities?.elicitation as Record<string, unknown> | undefined)?.form),
+		// AIR (like Junie's SDK) opts into id'd plan updates with a standard `plan` client capability.
+		planUpdates: isObject(params.clientCapabilities?.plan),
 	};
 }
 
@@ -320,6 +322,8 @@ export function encodeTurnEvent(event: TurnEvent): SessionUpdate | undefined {
 	switch (event.kind) {
 		case "tool":
 			return undefined; // stateful, see encodeToolUpdate
+		case "plan":
+			return undefined; // depends on the client, see encodePlan
 		case "text":
 			return { sessionUpdate: "agent_message_chunk", content: { type: "text", text: event.delta }, ...phaseMeta(event.phase) };
 		case "thought":
@@ -335,6 +339,16 @@ export function encodeTurnEvent(event: TurnEvent): SessionUpdate | undefined {
 				...(event.costUsd !== undefined ? { cost: { amount: event.costUsd, currency: "USD" } } : {}),
 			};
 	}
+}
+
+/**
+ * A plan snapshot. Clients that opted into plan updates (`clientCapabilities.plan`) get Junie's v1 `plan_update`
+ * (items, by id) and `plan_removed`; others get the standard single `plan` (an empty one clears it).
+ */
+export function encodePlan(plan: PlanUpdate, planUpdates: boolean): SessionUpdate {
+	if (!planUpdates) return { sessionUpdate: "plan", entries: plan.kind === "items" ? plan.entries : [] };
+	if (plan.kind === "removed" || plan.entries.length === 0) return { sessionUpdate: "plan_removed", id: plan.id };
+	return { sessionUpdate: "plan_update", plan: { type: "items", id: plan.id, entries: plan.entries } };
 }
 
 /** AIR's typed failure row: `session_info_update` with `_meta.jetbrains.air.sessionFailure` (Junie v1 shape). */
@@ -401,12 +415,14 @@ export function encodeSessionSummary(s: SessionSummary): Record<string, unknown>
 }
 
 /** History replay for session/load (ACP: the agent streams the whole conversation before answering). */
-export function encodeHistory(items: HistoryItem[]): SessionUpdate[] {
+export function encodeHistory(items: HistoryItem[], options: { planUpdates?: boolean } = {}): SessionUpdate[] {
 	const known = new Set<string>();
-	return items.map((item): SessionUpdate => {
+	return items.flatMap((item): SessionUpdate | [] => {
 		switch (item.kind) {
 			case "tool":
-				return encodeToolUpdate(item.update, known);
+				return item.update.presentsPlan ? [] : encodeToolUpdate(item.update, known);
+			case "plan":
+				return encodePlan(item.plan, options.planUpdates === true);
 			case "user": {
 				const text = item.imageCount ? `${item.text}${item.text ? "\n\n" : ""}[${item.imageCount} image(s)]` : item.text;
 				return { sessionUpdate: "user_message_chunk", content: { type: "text", text } };

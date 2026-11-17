@@ -61,6 +61,7 @@ export interface RelayOptions {
 	gate: ChildGate;
 	needsApproval: (toolName: string, input: unknown) => boolean;
 	phaseHold?: PhaseSplitterOptions;
+	todoPlans?: boolean;
 	log: Logger;
 }
 
@@ -116,6 +117,7 @@ export class SubagentRelay implements ChildHost {
 			cwd: session.sessionManager.getCwd(),
 			phaseHold: this.options.phaseHold,
 			needsApproval: this.options.needsApproval,
+			todoPlans: this.options.todoPlans,
 			log: (line) => log.info(`session ${parentId} subagent ${id}: ${line}`),
 		});
 		const child: Child = { id, session, transcript, announced: false, finished: false, unsubscribe: () => {} };

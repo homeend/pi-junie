@@ -243,6 +243,13 @@ that unlock each one:
 - Subagent models: with the plugin present, every prompt's system prompt lists the session's available models
   (`provider/id`, display name, which one the session uses) for the `Agent` tool's `model` parameter, so the
   agent can offer them (e.g. through `ask_user`). A child run on a chosen model is named `<type> · <model id>`.
+- Todo list as the plan (`@juicesharp/rpiv-todo`, `src/pi/todo.ts`): with the plugin installed, sessions get its
+  `todo` tool (runs without asking). Each successful call returns the whole list (`details.tasks`); the bridge
+  sends it as the plan (non-deleted tasks: subject + pending / in_progress / completed, priority `medium`) instead
+  of the tool's rows. Clients with the standard `plan` client capability (AIR) get Junie's v1
+  `plan_update {plan: {type: "items", id: "main", entries}}` and `plan_removed {id: "main"}` for an empty list;
+  others get the standard `plan {entries}`. session/load replays the list as it was last. A subagent's list goes
+  to its child session. The welcome message says whether the todo list is available.
 
 ## 4. Testing: replay simulator
 

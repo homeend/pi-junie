@@ -19,7 +19,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { type Logger, silentLogger } from "../core/log.ts";
 import type { AgentBackend, BackendSession, PermissionAsk, QuestionAsk, SessionContext, TurnSink } from "../core/ports.ts";
-import type { ApprovalMode, CommandInfo, HistoryItem, McpServerSpec, ModelChoice, ModelGroup, ModelRef, PromptInput, ProviderBinding, ProviderSlotState, SessionSummary, SteerResult, TurnResult } from "../core/types.ts";
+import type { ApprovalMode, CommandInfo, HistoryItem, PlanUpdate, McpServerSpec, ModelChoice, ModelGroup, ModelRef, PromptInput, ProviderBinding, ProviderSlotState, SessionSummary, SteerResult, TurnResult } from "../core/types.ts";
 import { bridgeProviderId, DEFAULT_MODEL, joinBaseUrl, SLOTS, type SlotDefinition, vertexBaseUrl } from "./catalog.ts";
 import { openPiTranscript, type SessionMeta, SessionStore } from "./session-store.ts";
 import { BRIDGE_TOOLS, READ_ONLY_TOOLS, toolKind, toolLocations, toolResultText, toolTitle } from "./tools.ts";
@@ -29,9 +29,10 @@ import { PLACEHOLDER_API_KEY } from "./proxy-auth.ts";
 import { ASK_USER_TOOL, askUserTool } from "./ask-user.ts";
 import { type PhaseSplitterOptions, signaturePhase } from "./phases.ts";
 import { TranscriptStream } from "./transcript.ts";
+import { TODO_TOOL, todoPlan } from "./todo.ts";
 import { isReadOnlyCommand } from "./safe-commands.ts";
 import { AGENT_TOOL, installChildSessionHook, markBridgeSession, SubagentRelay, subagentModelsNote, withChildHost } from "./subagents.ts";
-import { type DetectedPlugin, detectPlugins, pluginWelcomeLines, SUBAGENT_TOOLS, SUBAGENTS_PLUGIN } from "./plugins.ts";
+import { type DetectedPlugin, detectPlugins, has, pluginTools, pluginWelcomeLines, SUBAGENT_TOOLS, SUBAGENTS_PLUGIN, TODO_PLUGIN, TODO_TOOLS } from "./plugins.ts";
 import { discoverModels, type ListedModel, listingIdMatches } from "./discovery.ts";
 
 function ideRouterNote(name: string): string {
@@ -425,7 +426,7 @@ export class PiBackend implements AgentBackend {
 			thinkingLevel,
 			modelRuntime: this.runtime,
 			resourceLoader,
-			tools: [...BRIDGE_TOOLS, "mcp__*", ...(routerAlias ? [IDE_ROUTER_TOOL] : []), ...(askUser ? [ASK_USER_TOOL] : []), ...this.pluginTools()],
+			tools: [...BRIDGE_TOOLS, "mcp__*", ...(routerAlias ? [IDE_ROUTER_TOOL] : []), ...(askUser ? [ASK_USER_TOOL] : []), ...pluginTools(this.plugins)],
 			sessionManager: manager,
 			settingsManager,
 		});
@@ -438,9 +439,9 @@ export class PiBackend implements AgentBackend {
 		return session;
 	}
 
-	/** Tools of the loaded plugins that bridge sessions enable. */
-	private pluginTools(): string[] {
-		return this.plugins.some((p) => p.name === SUBAGENTS_PLUGIN) ? SUBAGENT_TOOLS : [];
+	/** The todo plugin is loaded: `todo` calls are shown as the session's plan. */
+	todoPlans(): boolean {
+		return has(this.plugins, TODO_PLUGIN);
 	}
 
 	private slot(id: string): SlotDefinition {
@@ -581,9 +582,11 @@ class PiSession implements BackendSession {
 		if (!manager) return [];
 		const items: HistoryItem[] = [];
 		const toolItems = new Map<string, Extract<HistoryItem, { kind: "tool" }>>();
+		const todoPlans = this.backend.todoPlans();
+		let plan: PlanUpdate | undefined; // the todo list as it was last
 		for (const entry of manager.getBranch()) {
 			if (entry.type !== "message") continue;
-			const message = entry.message as { role: string; content: unknown; toolCallId?: string; isError?: boolean };
+			const message = entry.message as { role: string; content: unknown; toolCallId?: string; isError?: boolean; details?: unknown };
 			if (message.role === "user") {
 				const parts = typeof message.content === "string" ? [{ type: "text", text: message.content }] : (message.content as { type: string; text?: string }[]);
 				const text = parts.filter((p) => p.type === "text").map((p) => p.text ?? "").join("\n");
@@ -608,6 +611,7 @@ class PiSession implements BackendSession {
 								status: "pending", // completed by its toolResult below; stays pending if the turn was cut off
 								input: part.arguments,
 								locations: toolLocations(part.arguments, this.cwd),
+								...(todoPlans && part.name === TODO_TOOL ? { presentsPlan: true } : {}),
 							},
 						};
 						toolItems.set(part.id, item);
@@ -619,8 +623,10 @@ class PiSession implements BackendSession {
 				if (!item) continue;
 				item.update.status = message.isError ? "failed" : "completed";
 				item.update.output = truncate(toolResultText({ content: message.content }), HISTORY_OUTPUT_MAX);
+				if (item.update.presentsPlan && !message.isError) plan = todoPlan(message.details) ?? plan;
 			}
 		}
+		if (plan?.kind === "items") items.push({ kind: "plan", plan });
 		return items;
 	}
 
@@ -683,8 +689,8 @@ class PiSession implements BackendSession {
 	/** Runs without asking in every mode: built-in read-only tools, MCP tools the server marks read-only, tools allowed for this chat. */
 	private runsWithoutAsking(toolName: string): boolean {
 		// ask_user is itself a question to the user: no separate permission.
-		// The subagent tools only start or steer children, whose own tools pass this gate.
-		return READ_ONLY_TOOLS.has(toolName) || toolName === ASK_USER_TOOL || SUBAGENT_TOOLS.includes(toolName) || this.alwaysAllowed.has(toolName) || this.toolInfo?.(toolName)?.annotations?.readOnlyHint === true;
+		// The subagent tools only start or steer children, whose own tools pass this gate; the todo tool only edits its list.
+		return READ_ONLY_TOOLS.has(toolName) || toolName === ASK_USER_TOOL || SUBAGENT_TOOLS.includes(toolName) || TODO_TOOLS.includes(toolName) || this.alwaysAllowed.has(toolName) || this.toolInfo?.(toolName)?.annotations?.readOnlyHint === true;
 	}
 
 	private readonly gate = (pi: ExtensionAPI) => {
@@ -830,6 +836,7 @@ class PiSession implements BackendSession {
 			phaseHold: this.backend.phaseHold,
 			needsApproval: (name, input) => !this.approvedUpfront(name, input),
 			launchesSubagent: (name) => name === AGENT_TOOL,
+			todoPlans: this.backend.todoPlans(),
 			log: (line) => log.info(`session ${this.id}: ${line}`),
 		});
 		this.ask = ask;
@@ -842,6 +849,7 @@ class PiSession implements BackendSession {
 			gate: (subagentId, call) => this.permit(call, subagentId),
 			needsApproval: (name, input) => !this.approvedUpfront(name, input),
 			phaseHold: this.backend.phaseHold,
+			todoPlans: this.backend.todoPlans(),
 			log,
 		});
 		const unsubscribe = pi.subscribe((event) => {

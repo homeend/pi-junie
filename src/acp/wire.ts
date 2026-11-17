@@ -75,6 +75,10 @@ export type SessionUpdate =
 	| { sessionUpdate: "available_commands_update"; availableCommands: Record<string, unknown>[] }
 	| { sessionUpdate: "tool_call"; toolCallId: string; [key: string]: unknown }
 	| { sessionUpdate: "tool_call_update"; toolCallId: string; [key: string]: unknown }
+	// Standard ACP plan (one per session, full snapshot) and Junie's v1 id'd plans for clients with `plan` capability.
+	| { sessionUpdate: "plan"; entries: { content: string; priority: string; status: string }[] }
+	| { sessionUpdate: "plan_update"; plan: { type: "items"; id: string; entries: { content: string; priority: string; status: string }[] } }
+	| { sessionUpdate: "plan_removed"; id: string }
 	| { sessionUpdate: "usage_update"; used: number; size: number; cost?: { amount: number; currency: string } }
 	// AIR native subagent sessions (ACP draft "Subagent Sessions", sent on the parent session; the child's own
 	// updates are ordinary updates addressed to subagentSessionId).

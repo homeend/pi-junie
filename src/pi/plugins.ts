@@ -11,16 +11,31 @@ export const SUBAGENTS_PLUGIN = "@tintinweb/pi-subagents";
 /** Tools the subagents plugin registers that bridge sessions enable (workflows stay off for now). */
 export const SUBAGENT_TOOLS = ["Agent", "get_subagent_result", "steer_subagent"];
 
-const KNOWN_PLUGINS = [SUBAGENTS_PLUGIN];
+/** Todo list (`todo` tool), shown as the session's plan: https://github.com/juicesharp/rpiv-mono/tree/main/packages/rpiv-todo */
+export const TODO_PLUGIN = "@juicesharp/rpiv-todo";
+/** Tools the todo plugin registers. */
+export const TODO_TOOLS = ["todo"];
+
+const KNOWN_PLUGINS = [SUBAGENTS_PLUGIN, TODO_PLUGIN];
+
+/** Tools of the detected plugins that bridge sessions enable. */
+export function pluginTools(detected: DetectedPlugin[]): string[] {
+	return [...(has(detected, SUBAGENTS_PLUGIN) ? SUBAGENT_TOOLS : []), ...(has(detected, TODO_PLUGIN) ? TODO_TOOLS : [])];
+}
+
+export function has(detected: DetectedPlugin[], name: string): boolean {
+	return detected.some((p) => p.name === name);
+}
 
 /** Welcome lines about the plugins (Markdown list items). */
 export function pluginWelcomeLines(detected: DetectedPlugin[]): string[] {
-	const subagents = detected.find((p) => p.name === SUBAGENTS_PLUGIN);
-	return [
-		subagents
-			? `- **Subagents: available** (\`${SUBAGENTS_PLUGIN}\` ${subagents.version ?? "unknown version"})`
-			: `- **Subagents: not available** (install with \`pi install npm:${SUBAGENTS_PLUGIN}\`, then restart the agent)`,
-	];
+	const line = (label: string, name: string) => {
+		const plugin = detected.find((p) => p.name === name);
+		return plugin
+			? `- **${label}: available** (\`${name}\` ${plugin.version ?? "unknown version"})`
+			: `- **${label}: not available** (install with \`pi install npm:${name}\`, then restart the agent)`;
+	};
+	return [line("Subagents", SUBAGENTS_PLUGIN), line("Todo list", TODO_PLUGIN)];
 }
 
 export interface DetectedPlugin {

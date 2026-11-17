@@ -18,6 +18,8 @@ export interface ClientProfile {
 	liveTerminal: boolean;
 	/** The client shows question forms (ACP elicitation, form mode). */
 	questionForms?: boolean;
+	/** The client takes plan updates with ids (several plans, removal) instead of the single legacy plan. */
+	planUpdates?: boolean;
 }
 
 /** A fixed provider slot the agent can route through an external endpoint. */
@@ -97,6 +99,8 @@ export interface ToolUpdate {
 	name: string;
 	/** The tool starts a subagent (whose child session clients may show instead of this row). */
 	launchesSubagent?: boolean;
+	/** The tool only updates the plan (shown as the plan, not as a tool row). */
+	presentsPlan?: boolean;
 	title?: string;
 	toolKind?: ToolKind;
 	status?: ToolStatus;
@@ -134,7 +138,20 @@ export type TurnEvent =
 	| { kind: "usage"; inputTokens: number; outputTokens: number; contextUsed?: number; contextSize?: number; costUsd?: number }
 	| { kind: "title"; title: string }
 	| { kind: "tool"; update: ToolUpdate }
+	| { kind: "plan"; plan: PlanUpdate }
 	| SubagentEvent;
+
+export type PlanEntryStatus = "pending" | "in_progress" | "completed";
+
+/** One step of a plan (a todo item). */
+export interface PlanEntry {
+	content: string;
+	status: PlanEntryStatus;
+	priority: "high" | "medium" | "low";
+}
+
+/** The agent's plan, always a full snapshot: the current entries of plan `id`, or its removal. */
+export type PlanUpdate = { kind: "items"; id: string; entries: PlanEntry[] } | { kind: "removed"; id: string };
 
 /**
  * A subagent: a child agent session the turn started, with its own transcript. `subagentId` is unique per process;
@@ -210,7 +227,8 @@ export type HistoryItem =
 	| { kind: "user"; text: string; imageCount: number }
 	| { kind: "assistant"; text: string; phase?: MessagePhase }
 	| { kind: "thought"; text: string }
-	| { kind: "tool"; update: ToolUpdate };
+	| { kind: "tool"; update: ToolUpdate }
+	| { kind: "plan"; plan: PlanUpdate };
 
 /** A tool server (MCP) the client wants the agent to use in a session, e.g. the IDE's own server. */
 export type McpServerSpec =

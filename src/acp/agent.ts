@@ -19,6 +19,7 @@ import {
 	encodeCommands,
 	encodeConfigOptions,
 	encodeHistory,
+	encodePlan,
 	encodeSessionSummary,
 	encodePromptResult,
 	encodeProviderList,
@@ -249,7 +250,7 @@ export class AcpAgent {
 		this.sessions.set(backend.id, { backend });
 		this.publishCommands(backend);
 		const history = backend.history();
-		for (const update of encodeHistory(history)) this.sendUpdate(sessionId, update);
+		for (const update of encodeHistory(history, { planUpdates: this.client?.planUpdates })) this.sendUpdate(sessionId, update);
 		const title = backend.title();
 		if (title) this.sendUpdate(sessionId, { sessionUpdate: "session_info_update", title });
 		// AIR writes the loaded history once it sees this marker (else when the load answers).
@@ -358,6 +359,8 @@ export class AcpAgent {
 					(event) => {
 						// Native subagent sessions replace the launching tool's row (like Junie).
 						if (event.kind === "tool" && event.update.launchesSubagent && this.nativeSubagents()) return;
+						// The todo tool's calls show as the plan itself.
+						if (event.kind === "tool" && event.update.presentsPlan) return;
 						if (event.kind === "subagent_spawned" || event.kind === "subagent_update" || event.kind === "subagent_finished") {
 							this.relaySubagent(sessionId, event, children);
 							return;
@@ -396,7 +399,12 @@ export class AcpAgent {
 	/** One streamed event of a transcript (the session's own or a subagent's) as an update; none for unknown kinds. */
 	private encodeStreamed(event: TurnEvent, state: TranscriptState): SessionUpdate | undefined {
 		if (event.kind === "tool") state.messages.break();
-		const update = event.kind === "tool" ? encodeToolUpdate(event.update, state.knownTools, { liveTerminal: this.client?.liveTerminal }) : encodeTurnEvent(event);
+		const update =
+			event.kind === "tool"
+				? encodeToolUpdate(event.update, state.knownTools, { liveTerminal: this.client?.liveTerminal })
+				: event.kind === "plan"
+					? encodePlan(event.plan, this.client?.planUpdates === true)
+					: encodeTurnEvent(event);
 		if (update && (update.sessionUpdate === "agent_message_chunk" || update.sessionUpdate === "agent_thought_chunk")) {
 			update.messageId = state.messages.next(event.kind === "thought" ? "thought" : "text", event.kind === "text" ? event.phase : undefined);
 		}
@@ -430,6 +438,7 @@ export class AcpAgent {
 				const child = children.get(event.subagentId);
 				// The child's usage and title are its own business; the parent reports the turn's usage.
 				if (!child || event.event.kind === "usage" || event.event.kind === "title") return;
+				if (event.event.kind === "tool" && event.event.update.presentsPlan) return;
 				const update = this.encodeStreamed(event.event, child);
 				if (update) this.sendUpdate(event.subagentId, update);
 				return;
