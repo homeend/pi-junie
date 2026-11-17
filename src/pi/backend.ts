@@ -14,9 +14,10 @@ import {
 	SettingsManager,
 	VERSION as PI_VERSION,
 } from "@earendil-works/pi-coding-agent";
+import { type Logger, silentLogger } from "../core/log.ts";
 import type { AgentBackend, BackendSession, TurnSink } from "../core/ports.ts";
 import type { ModelChoice, ModelGroup, ModelRef, ProviderBinding, ProviderSlotState, TurnResult } from "../core/types.ts";
-import { bridgeProviderId, DEFAULT_MODEL, SLOTS, type SlotDefinition } from "./catalog.ts";
+import { bridgeProviderId, DEFAULT_MODEL, joinBaseUrl, SLOTS, type SlotDefinition } from "./catalog.ts";
 
 const SYSTEM_PROMPT = "You are Pi, a helpful assistant running inside a JetBrains IDE. Answer concisely. Use Markdown.";
 
@@ -24,20 +25,20 @@ export interface PiBackendOptions {
 	/** Directory for Pi state of this bridge (isolated from the user's ~/.pi/agent). */
 	stateDir?: string;
 	version?: string;
-	log?: (line: string) => void;
+	logger?: Logger;
 }
 
 export class PiBackend implements AgentBackend {
 	private readonly runtime: ModelRuntime;
 	private readonly bindings = new Map<string, ProviderBinding>();
 	private readonly listeners = new Set<() => void>();
-	private readonly log: (line: string) => void;
+	readonly log: Logger;
 	private readonly version: string;
 	private counter = 0;
 
 	private constructor(runtime: ModelRuntime, options: PiBackendOptions) {
 		this.runtime = runtime;
-		this.log = options.log ?? (() => {});
+		this.log = options.logger ?? silentLogger;
 		this.version = options.version ?? "0.0.0";
 	}
 
@@ -81,22 +82,31 @@ export class PiBackend implements AgentBackend {
 				...(m.thinkingLevelMap ? { thinkingLevelMap: m.thinkingLevelMap } : {}),
 				...(m.compat ? { compat: m.compat } : {}),
 			}));
+		const missing = slot.models.filter((id) => !models.some((m) => m.id === id));
+		if (missing.length) this.log.warn(`slot ${slot.id}: models not in Pi's catalog, skipped: ${missing.join(", ")}`);
+		const baseUrl = joinBaseUrl(binding.baseUrl, target.basePath);
 		this.runtime.registerProvider(bridgeProviderId(slot.id), {
 			name: `AIR ${slot.displayName}`,
-			baseUrl: binding.baseUrl,
+			baseUrl,
 			headers: binding.headers,
 			apiKey: "air-proxy", // the proxy authenticates via headers; Pi just needs a non-empty key
 			api: target.piApi,
 			models,
 		});
 		this.bindings.set(slot.id, binding);
-		this.log(`bound ${slot.id} (${binding.apiType}) -> ${binding.baseUrl}: ${models.length} models`);
+		this.log.info(
+			`bind ${slot.id}: apiType=${binding.apiType} piApi=${target.piApi} baseUrl=${baseUrl} headers=[${Object.keys(binding.headers).join(", ")}] models=${models.length}`,
+		);
 		this.emit();
 	}
 
 	unbindProvider(slotId: string): void {
-		if (!this.bindings.delete(slotId)) return;
+		if (!this.bindings.delete(slotId)) {
+			this.log.info(`unbind ${slotId}: was not bound`);
+			return;
+		}
 		this.runtime.unregisterProvider(bridgeProviderId(slotId));
+		this.log.info(`unbind ${slotId}: bound slots now [${[...this.bindings.keys()].join(", ")}]`);
 		this.emit();
 	}
 
@@ -121,11 +131,14 @@ export class PiBackend implements AgentBackend {
 	}
 
 	async openSession({ cwd }: { cwd: string }): Promise<BackendSession> {
-		return new PiSession(`pi-${Date.now().toString(36)}-${++this.counter}`, cwd, this);
+		const id = `pi-${Date.now().toString(36)}-${++this.counter}`;
+		this.log.info(`session ${id} opened (cwd ${cwd}), default model ${fmt(this.defaultModel())}`);
+		return new PiSession(id, cwd, this);
 	}
 
 	/** Resolves a ModelRef to the Pi model registered for its binding. */
-	resolveModel(ref: ModelRef): Model<Api> | undefined {
+	resolveModel(ref: ModelRef | undefined): Model<Api> | undefined {
+		if (!ref) return undefined;
 		return this.runtime.getModel(bridgeProviderId(ref.slotId), ref.modelId);
 	}
 
@@ -173,25 +186,34 @@ class PiSession implements BackendSession {
 		this.backend = backend;
 	}
 
+	/** The selected model if it is still reachable (its provider may have been switched off), else the default. */
 	currentModel(): ModelRef | undefined {
-		return this.model ?? this.backend.defaultModel();
+		return this.backend.resolveModel(this.model) ? this.model : this.backend.defaultModel();
 	}
 
 	async selectModel(ref: ModelRef): Promise<void> {
 		const model = this.backend.resolveModel(ref);
 		if (!model) throw new Error(`model ${ref.slotId}/${ref.modelId} is not available`);
+		this.backend.log.info(`session ${this.id}: model ${fmt(this.model)} -> ${fmt(ref)}`);
 		this.model = ref;
 		await this.pi?.setModel(model);
 	}
 
 	async prompt(text: string, sink: TurnSink, signal: AbortSignal): Promise<TurnResult> {
-		const ref = this.model ?? this.backend.defaultModel();
-		const model = ref && this.backend.resolveModel(ref);
-		if (!ref || !model) return { stop: "error", error: "No model available: the IDE has not configured any provider for Pi." };
+		const log = this.backend.log;
+		const ref = this.currentModel();
+		const model = this.backend.resolveModel(ref);
+		if (this.model && ref !== this.model) log.warn(`session ${this.id}: selected model ${fmt(this.model)} is no longer available, using ${fmt(ref)}`);
+		if (!ref || !model) {
+			log.error(`session ${this.id}: prompt rejected, no provider bound`);
+			return { stop: "error", error: "No model available: the IDE has not configured any provider for Pi." };
+		}
 		this.model = ref;
 		if (!this.pi) this.pi = await this.backend.createPiSession(this.cwd, model);
 		else if (this.pi.model?.id !== model.id || this.pi.model?.provider !== model.provider) await this.pi.setModel(model);
 		const pi = this.pi;
+		const started = Date.now();
+		log.info(`session ${this.id}: prompt start model=${fmt(ref)} api=${model.api} baseUrl=${model.baseUrl} chars=${text.length}`);
 
 		let last: AssistantMessage | undefined;
 		const unsubscribe = pi.subscribe((event) => {
@@ -217,11 +239,16 @@ class PiSession implements BackendSession {
 		try {
 			await pi.prompt(text);
 		} catch (err) {
+			log.error(`session ${this.id}: prompt threw after ${Date.now() - started}ms: ${(err as Error).stack ?? String(err)}`);
 			return { stop: signal.aborted ? "cancelled" : "error", error: (err as Error).message };
 		} finally {
 			unsubscribe();
 			signal.removeEventListener("abort", onAbort);
 		}
+		const took = Date.now() - started;
+		const tokens = last ? `in=${last.usage.input} out=${last.usage.output} cost=$${last.usage.cost.total.toFixed(5)}` : "no assistant message";
+		if (last?.stopReason === "error") log.error(`session ${this.id}: prompt failed after ${took}ms (${tokens}): ${last.errorMessage}`);
+		else log.info(`session ${this.id}: prompt done after ${took}ms stop=${signal.aborted ? "cancelled" : last?.stopReason} ${tokens}`);
 		if (signal.aborted || last?.stopReason === "aborted") return { stop: "cancelled" };
 		const usage = last && { inputTokens: last.usage.input, outputTokens: last.usage.output, cachedReadTokens: last.usage.cacheRead, cachedWriteTokens: last.usage.cacheWrite };
 		if (last?.stopReason === "error") return { stop: "error", error: last.errorMessage ?? "model error", usage };
@@ -230,6 +257,7 @@ class PiSession implements BackendSession {
 	}
 
 	async close(): Promise<void> {
+		this.backend.log.info(`session ${this.id} closed`);
 		this.pi?.dispose();
 		this.pi = undefined;
 	}
@@ -249,4 +277,8 @@ function minimalResources(): ResourceLoader {
 		extendResources: () => {},
 		reload: async () => {},
 	};
+}
+
+function fmt(ref: ModelRef | undefined): string {
+	return ref ? `${ref.slotId}/${ref.modelId}` : "none";
 }

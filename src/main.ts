@@ -1,30 +1,74 @@
 // Composition root: ACP over stdio (driver) + Pi (bridge). Started by AIR via bin/pi-air.
-// stdout carries ACP only; every diagnostic goes to stderr or the PI_AIR_LOG file.
+// stdout carries ACP only; diagnostics go to PI_AIR_LOG (or stderr).
+//
+// Log line format: <ISO time> <LEVEL> <scope> <message>
+//   scopes: pi-junie (process), acp (requests), wire (raw JSON-RPC, redacted), pi (bridge), http (LLM calls)
+// PI_AIR_WIRE=0 disables the raw wire lines; PI_AIR_DEBUG=1 enables debug lines.
 
 import { appendFileSync } from "node:fs";
 import { AcpAgent } from "./acp/agent.ts";
 import type { JsonObject, Transport } from "./acp/jsonrpc.ts";
+import { createLogger, type LogLevel, redactSecrets } from "./core/log.ts";
 import { PiBackend } from "./pi/backend.ts";
 
 const LOG_FILE = process.env.PI_AIR_LOG;
+const WIRE = process.env.PI_AIR_WIRE !== "0";
+const DEBUG = process.env.PI_AIR_DEBUG === "1";
 const stdoutWrite = process.stdout.write.bind(process.stdout);
 
-function log(line: string): void {
-	const stamped = `${new Date().toISOString()} ${line}\n`;
-	if (LOG_FILE) appendFileSync(LOG_FILE, stamped);
-	else process.stderr.write(stamped);
+function sink(level: LogLevel, scope: string, message: string): void {
+	if (level === "debug" && !DEBUG) return;
+	const line = `${new Date().toISOString()} ${level.toUpperCase().padEnd(5)} ${scope} ${message}\n`;
+	if (LOG_FILE) appendFileSync(LOG_FILE, line);
+	else process.stderr.write(line);
 }
+const log = createLogger(sink);
+const httpLog = log.child("http");
 
 // Anything that tries to print to stdout (libraries, console.log) would corrupt the ACP stream.
-console.log = (...args: unknown[]) => log(`console.log: ${args.map(String).join(" ")}`);
+console.log = (...args: unknown[]) => log.warn(`console.log: ${args.map(String).join(" ")}`);
 console.info = console.log;
-console.debug = console.log;
+console.debug = (...args: unknown[]) => log.debug(`console.debug: ${args.map(String).join(" ")}`);
+console.warn = (...args: unknown[]) => log.warn(`console.warn: ${args.map(String).join(" ")}`);
+console.error = (...args: unknown[]) => log.error(`console.error: ${args.map(String).join(" ")}`);
 process.stdout.write = ((chunk: string | Uint8Array, ...rest: unknown[]) => {
-	log(`stray stdout write dropped: ${String(chunk).slice(0, 200)}`);
+	log.warn(`stray stdout write dropped: ${String(chunk).slice(0, 200)}`);
 	const cb = rest.find((r) => typeof r === "function") as (() => void) | undefined;
 	cb?.();
 	return true;
 }) as typeof process.stdout.write;
+
+process.on("uncaughtException", (err) => log.error(`uncaughtException: ${err.stack ?? err}`));
+process.on("unhandledRejection", (reason) => log.error(`unhandledRejection: ${(reason as Error)?.stack ?? String(reason)}`));
+for (const signal of ["SIGTERM", "SIGINT", "SIGHUP"] as const) {
+	process.on(signal, () => {
+		log.info(`received ${signal}, exiting`);
+		process.exit(0);
+	});
+}
+process.on("exit", (code) => log.info(`process exit code=${code}`));
+
+// Log every outgoing LLM request (method, URL, status, duration; body excerpt on failure).
+const realFetch = globalThis.fetch;
+globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+	const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+	const method = init?.method ?? (input instanceof Request ? input.method : "GET");
+	const started = Date.now();
+	httpLog.info(`-> ${method} ${url}`);
+	try {
+		const res = await realFetch(input, init);
+		const took = Date.now() - started;
+		if (res.ok) httpLog.info(`<- ${res.status} ${method} ${url} ${took}ms`);
+		else {
+			const body = await res.clone().text().catch(() => "<unreadable>");
+			httpLog.error(`<- ${res.status} ${res.statusText} ${method} ${url} ${took}ms body: ${redactSecrets(body.slice(0, 1000))}`);
+		}
+		return res;
+	} catch (err) {
+		httpLog.error(`<- network error ${method} ${url} after ${Date.now() - started}ms: ${(err as Error).message}`);
+		throw err;
+	}
+};
 
 function stdioTransport(): Transport {
 	let onMessage: (m: JsonObject) => void = () => {};
@@ -37,11 +81,11 @@ function stdioTransport(): Transport {
 			const line = buffer.slice(0, nl).trim();
 			buffer = buffer.slice(nl + 1);
 			if (line) {
-				if (LOG_FILE) log(`<< ${line}`);
+				if (WIRE) sink("info", "pi-junie:wire", `<< ${redactSecrets(line)}`);
 				try {
 					onMessage(JSON.parse(line) as JsonObject);
 				} catch (err) {
-					log(`bad json from client: ${(err as Error).message}`);
+					log.error(`bad json from client: ${(err as Error).message}`);
 				}
 			}
 			nl = buffer.indexOf("\n");
@@ -50,7 +94,7 @@ function stdioTransport(): Transport {
 	return {
 		send(message) {
 			const line = JSON.stringify(message);
-			if (LOG_FILE) log(`>> ${line}`);
+			if (WIRE) sink("info", "pi-junie:wire", `>> ${redactSecrets(line)}`);
 			stdoutWrite(`${line}\n`);
 		},
 		onMessage(listener) {
@@ -62,10 +106,11 @@ function stdioTransport(): Transport {
 	};
 }
 
-const backend = await PiBackend.create({ log, version: "0.1.0" });
-new AcpAgent(stdioTransport(), backend, { log });
-log(`pi-junie ACP agent started (pid ${process.pid}, cwd ${process.cwd()})`);
+log.info(`starting pid=${process.pid} node=${process.version} cwd=${process.cwd()} log=${LOG_FILE ?? "stderr"}`);
+const backend = await PiBackend.create({ logger: log.child("pi"), version: "0.1.0" });
+new AcpAgent(stdioTransport(), backend, { logger: log.child("acp") });
+log.info("ready");
 process.stdin.on("end", () => {
-	log("stdin closed, exiting");
+	log.info("stdin closed by client, exiting");
 	process.exit(0);
 });

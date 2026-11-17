@@ -81,7 +81,6 @@ export class JsonRpcPeer {
 				(result) => this.transport.send({ jsonrpc: "2.0", id, result: result ?? {} }),
 				(err: unknown) => {
 					const e = err instanceof RpcError ? err : RpcError.internal((err as Error)?.message ?? String(err));
-					this.log(`request ${method}#${String(id)} failed: ${e.message}`);
 					this.transport.send({ jsonrpc: "2.0", id, error: { code: e.code, message: e.message, ...(e.data !== undefined ? { data: e.data } : {}) } });
 				},
 			);

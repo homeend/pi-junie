@@ -2,6 +2,7 @@
 // All ACP knowledge lives in src/acp; the backend only sees core types.
 
 import { resolveFeatures } from "../compat/features.ts";
+import { type Logger, silentLogger } from "../core/log.ts";
 import type { AgentBackend, BackendSession } from "../core/ports.ts";
 import type { ClientProfile } from "../core/types.ts";
 import {
@@ -24,30 +25,44 @@ interface SessionEntry {
 }
 
 export interface AcpAgentOptions {
-	log?: (line: string) => void;
+	logger?: Logger;
 }
 
 export class AcpAgent {
 	private readonly peer: JsonRpcPeer;
 	private readonly backend: AgentBackend;
-	private readonly log: (line: string) => void;
+	private readonly log: Logger;
 	private readonly sessions = new Map<string, SessionEntry>();
 	private client?: ClientProfile;
 
 	constructor(transport: Transport, backend: AgentBackend, options: AcpAgentOptions = {}) {
 		this.backend = backend;
-		this.log = options.log ?? (() => {});
+		this.log = options.logger ?? silentLogger;
 		this.peer = new JsonRpcPeer(
 			transport,
-			(method, params) => this.handleRequest(method, params),
+			(method, params) => this.traced(method, params),
 			(method, params) => this.handleNotification(method, params),
-			this.log,
+			(line) => this.log.warn(line),
 		);
 		backend.onModelsChanged(() => this.broadcastConfigOptions());
 	}
 
 	get clientProfile(): ClientProfile | undefined {
 		return this.client;
+	}
+
+	/** Logs one line per request: method, key params, outcome and duration. */
+	private async traced(method: string, params: JsonObject): Promise<unknown> {
+		const started = Date.now();
+		const what = describeRequest(method, params);
+		try {
+			const result = await this.handleRequest(method, params);
+			this.log.info(`${what} -> ok ${Date.now() - started}ms${describeResult(method, result)}`);
+			return result;
+		} catch (err) {
+			this.log.error(`${what} -> FAILED ${Date.now() - started}ms: ${(err as Error).message}`);
+			throw err;
+		}
 	}
 
 	private async handleRequest(method: string, params: JsonObject): Promise<unknown> {
@@ -80,16 +95,19 @@ export class AcpAgent {
 
 	private handleNotification(method: string, params: JsonObject): void {
 		if (method === "session/cancel") {
-			this.sessions.get(String(params.sessionId))?.turn?.abort();
+			const entry = this.sessions.get(String(params.sessionId));
+			this.log.info(`session/cancel ${String(params.sessionId)}${entry?.turn ? "" : " (no running turn)"}`);
+			entry?.turn?.abort();
 			return;
 		}
-		this.log(`ignored notification ${method}`);
+		this.log.warn(`ignored notification ${method}`);
 	}
 
 	private initialize(params: InitializeParams): InitializeResult {
 		this.client = decodeClientProfile(params);
 		const features = resolveFeatures(this.backend.installedPlugins(), this.client.features);
-		for (const u of features.unavailable) this.log(`feature ${u.feature} unavailable: ${u.reason}`);
+		this.log.info(`client ${this.client.name} ${this.client.version ?? ""} protocol=${params.protocolVersion} air features=[${this.client.features.join(", ")}]`);
+		for (const u of features.unavailable) this.log.debug(`feature ${u.feature} unavailable: ${u.reason}`);
 		const id = this.backend.identity();
 		return {
 			protocolVersion: PROTOCOL_VERSION,
@@ -159,6 +177,7 @@ export class AcpAgent {
 	}
 
 	private broadcastConfigOptions(): void {
+		if (this.sessions.size) this.log.info(`models changed, config_option_update -> ${this.sessions.size} session(s)`);
 		for (const [id, entry] of this.sessions) {
 			this.sendUpdate(id, { sessionUpdate: "config_option_update", configOptions: this.configOptionsFor(entry.backend) });
 		}
@@ -173,4 +192,26 @@ export class AcpAgent {
 		if (!entry) throw new RpcError(-32002, `Session not found: ${String(sessionId)}`);
 		return entry;
 	}
+}
+
+function describeRequest(method: string, params: JsonObject): string {
+	const parts = [method];
+	if (params.sessionId) parts.push(`session=${String(params.sessionId)}`);
+	if (params.providerId) parts.push(`provider=${String(params.providerId)}`);
+	if (params.apiType) parts.push(`apiType=${String(params.apiType)}`);
+	if (params.configId) parts.push(`${String(params.configId)}=${String(params.value)}`);
+	if (method === "session/new" || method === "session/list") parts.push(`cwd=${String(params.cwd)}`);
+	return parts.join(" ");
+}
+
+function describeResult(method: string, result: unknown): string {
+	const r = result as Record<string, any> | undefined;
+	if (method === "session/new") {
+		const model = r?.configOptions?.find((o: { id: string }) => o.id === MODEL_CONFIG_ID);
+		const count = model?.options?.reduce((n: number, g: { options: unknown[] }) => n + g.options.length, 0) ?? 0;
+		return ` id=${r?.sessionId} models=${count} current=${model?.currentValue ?? "none"}`;
+	}
+	if (method === "session/prompt") return ` stop=${r?.stopReason}`;
+	if (method === "providers/list") return ` slots=${r?.providers?.map((p: { providerId: string; current: unknown }) => `${p.providerId}${p.current ? "*" : ""}`).join(",")}`;
+	return "";
 }

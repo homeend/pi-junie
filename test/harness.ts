@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { AcpAgent } from "../src/acp/agent.ts";
 import type { JsonObject, Transport } from "../src/acp/jsonrpc.ts";
+import type { Logger } from "../src/core/log.ts";
 import type { AgentBackend, BackendSession, TurnSink } from "../src/core/ports.ts";
 import type { ModelGroup, ModelRef, ProviderBinding, ProviderSlotState, TurnResult } from "../src/core/types.ts";
 
@@ -150,16 +151,16 @@ export interface ReplayResult {
 
 /** Replays the fixture's client messages in order, remapping recorded session ids to ours. */
 export interface ReplayOptions {
-	agentLog?: (line: string) => void;
+	logger?: Logger;
 	/** Rewrites each client message before sending (e.g. point provider baseUrls at a local fake). */
 	transform?: (message: JsonObject) => JsonObject;
 	timeoutMs?: number;
 }
 
 export async function replay(fixture: Fixture, backend: AgentBackend, options: ReplayOptions = {}): Promise<ReplayResult> {
-	const agentLog = options.agentLog;
+
 	const wire = new MemoryWire();
-	new AcpAgent(wire.agentTransport, backend, { log: agentLog });
+	new AcpAgent(wire.agentTransport, backend, { logger: options.logger });
 	const responses = new Map<unknown, JsonObject>();
 	const requests = new Map<unknown, JsonObject>();
 	const sessionIdMap = new Map<string, string>();
