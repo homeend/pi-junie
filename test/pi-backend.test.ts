@@ -41,7 +41,7 @@ describe("PiBackend model discovery", () => {
 		await bind(backend, "google", "google");
 		expect(ids(backend, "anthropic")).toEqual(["claude-opus-5-5-20261001", "claude-sonnet-5-5"]);
 		expect(ids(backend, "openai")).toEqual(["gpt-6.1-sol", "gpt-6-luna"]);
-		expect(ids(backend, "google")).toEqual(["gemini-3.7-flash", "gemini-4-argon"]); // vendor listing: Pi catalog order
+		expect(ids(backend, "google")).toEqual(["gemini-4-argon", "gemini-3.7-flash"]); // Junie picker order; gemini-2.5-pro and embeddings are outside the policy
 	});
 
 	it("uses the account catalog's metadata and AIR's base path conventions", async () => {
@@ -55,6 +55,15 @@ describe("PiBackend model discovery", () => {
 		expect(sol?.baseUrl).toBe(`${proxy.url}/jcp.x.openai`); // AIR's openai base already is the /v1 base
 		expect(backend.resolveModel({ slotId: "anthropic", modelId: "claude-sonnet-5-5" })?.baseUrl).toBe(`${proxy.url}/jcp.x.anthropic`);
 		expect(backend.resolveModel({ slotId: "google", modelId: "gemini-4-argon" })?.baseUrl).toBe(`${proxy.url}/jcp.x.google/v1beta`);
+	});
+
+	it("limits vendor listings to Junie's picker models, with Junie's names", async () => {
+		const { backend, lines } = await newBackend();
+		await bind(backend, "google", "google");
+		const names = backend.availableModels().find((g) => g.slotId === "google")?.models.map((m) => m.name);
+		expect(names).toEqual(["Gemini 4 Argon", "Gemini 3.7 Flash"]);
+		// in the picker and served by the proxy, but unknown to Pi -> backlog
+		expect(lines.filter((l) => l.includes("[models-todo]"))).toEqual([expect.stringContaining("google/gemini-4-carbon")]);
 	});
 
 	it("narrows an account catalog to AIR's selectedModels, in that order", async () => {
@@ -85,7 +94,7 @@ describe("PiBackend model discovery", () => {
 		const s = await backend.openSession({ cwd: "/tmp" });
 		await s.selectModel({ slotId: "anthropic", modelId: "claude-sonnet-5-5" });
 		backend.unbindProvider("anthropic");
-		expect(s.currentModel()).toEqual({ slotId: "google", modelId: "gemini-3.7-flash" });
+		expect(s.currentModel()).toEqual({ slotId: "google", modelId: "gemini-4-argon" });
 	});
 
 	it("reports a clear error when every provider is switched off", async () => {

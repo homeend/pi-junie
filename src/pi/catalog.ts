@@ -3,9 +3,20 @@
 
 import type { Api } from "@earendil-works/pi-ai";
 
+export interface PickerModel {
+	id: string;
+	name: string;
+}
+
 export interface SlotDefinition {
 	id: string;
 	displayName: string;
+	/**
+	 * Models the picker may show for this slot, in picker order: Junie's non-deprecated `ModelOption.Specific`
+	 * entries (junie-agent core/.../llm/ModelParameters.kt). This is what the AIR infrastructure backs; a
+	 * vendor listing is intersected with it. An account catalog (`/models/user`) is authoritative instead.
+	 */
+	picker: PickerModel[];
 	/**
 	 * client apiType -> how Pi talks to it: Pi API, Pi catalog provider for model metadata, and the path
 	 * Pi's client needs appended to AIR's baseUrl. AIR's convention (AirLlmGatewayRoutes): anthropic = API root
@@ -19,11 +30,30 @@ export const SLOTS: SlotDefinition[] = [
 		id: "anthropic",
 		displayName: "Anthropic",
 		apiTypes: { anthropic: { piApi: "anthropic-messages", catalogProvider: "anthropic", basePath: "" } },
+		picker: [
+			{ id: "claude-fable-5-2", name: "Claude Fable 5.2" },
+			{ id: "claude-fable-5-1", name: "Claude Fable 5.1" },
+			{ id: "claude-opus-5-5", name: "Claude Opus 5.5" },
+			{ id: "claude-opus-5", name: "Claude Opus 5" },
+			{ id: "claude-sonnet-5-5", name: "Claude Sonnet 5.5" },
+			{ id: "claude-sonnet-5", name: "Claude Sonnet 5" },
+			{ id: "claude-haiku-5-5", name: "Claude Haiku 5.5" },
+		],
 	},
 	{
 		id: "openai",
 		displayName: "OpenAI",
 		apiTypes: { openai: { piApi: "openai-responses", catalogProvider: "openai", basePath: "" } },
+		picker: [
+			{ id: "gpt-6.1-sol", name: "GPT-6.1 Sol" },
+			{ id: "gpt-6-sol", name: "GPT-6 Sol" },
+			{ id: "gpt-6-astra", name: "GPT-6 Astra" },
+			{ id: "gpt-6.1-terra", name: "GPT-6.1 Terra" },
+			{ id: "gpt-6-luna", name: "GPT-6 Luna" },
+			{ id: "gpt-5.6-sol", name: "GPT-5.6 Sol" },
+			{ id: "gpt-5.6-terra", name: "GPT-5.6 Terra" },
+			{ id: "gpt-5.6-luna", name: "GPT-5.6 Luna" },
+		],
 	},
 	{
 		id: "google",
@@ -32,6 +62,13 @@ export const SLOTS: SlotDefinition[] = [
 			google: { piApi: "google-generative-ai", catalogProvider: "google", basePath: "/v1beta" },
 			vertex: { piApi: "google-vertex", catalogProvider: "google-vertex", basePath: "" }, // experimental
 		},
+		picker: [
+			{ id: "gemini-4-hydrogen", name: "Gemini 4 Hydrogen" },
+			{ id: "gemini-4-carbon", name: "Gemini 4 Carbon" },
+			{ id: "gemini-4-argon", name: "Gemini 4 Argon" },
+			{ id: "gemini-3.8-flash", name: "Gemini 3.8 Flash" },
+			{ id: "gemini-3.7-flash", name: "Gemini 3.7 Flash" },
+		],
 	},
 ];
 

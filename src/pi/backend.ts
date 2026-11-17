@@ -117,6 +117,16 @@ export class PiBackend implements AgentBackend {
 			const byId = new Map(listed.map((m) => [m.id, m]));
 			listed = binding.selectedModels.map((id) => byId.get(id)).filter((m): m is ListedModel => !!m);
 		}
+		// Policy: outside an account catalog, only the models Junie's picker offers (what AIR's infrastructure backs).
+		let notInPicker: string[] = [];
+		if (result.source !== "account") {
+			const inPicker = (l: ListedModel) => slot.picker.findIndex((p) => listingIdMatches(l.id, p.id));
+			notInPicker = listed.filter((l) => inPicker(l) < 0).map((l) => l.id);
+			listed = listed
+				.filter((l) => inPicker(l) >= 0)
+				.sort((a, b) => inPicker(a) - inPicker(b))
+				.map((l) => ({ ...l, displayName: slot.picker[inPicker(l)].name }));
+		}
 		const unknown: ListedModel[] = [];
 		const matched: { listed: ListedModel; known: Model<Api> }[] = [];
 		for (const l of listed) {
@@ -124,8 +134,6 @@ export class PiBackend implements AgentBackend {
 			if (known) matched.push({ listed: l, known });
 			else unknown.push(l);
 		}
-		// Account catalogs carry the account's order; vendor listings are unordered, so use Pi's catalog order.
-		if (result.source === "vendor") matched.sort((a, b) => catalog.indexOf(a.known) - catalog.indexOf(b.known));
 
 		const models = matched.map(({ listed: l, known: m }) => ({
 			id: l.id, // the proxy's id is what goes on the wire
@@ -158,10 +166,11 @@ export class PiBackend implements AgentBackend {
 		state.status = "ready";
 		this.log.info(
 			`discovery ${slot.id}: ${result.source} listing at ${result.url} after ${took}ms: listed=${result.models.length}` +
-				`${result.source === "account" && binding.selectedModels ? ` selected=${listed.length}` : ""} offered=${models.length} [${models.map((m) => m.id).join(", ")}]` +
+				`${result.source === "account" && binding.selectedModels ? ` selected=${listed.length}` : ""}${notInPicker.length ? ` notInPicker=${notInPicker.length}` : ""} offered=${models.length} [${models.map((m) => m.id).join(", ")}]` +
 				` piApi=${target.piApi} requestBase=${baseUrl}`,
 		);
-		// Grep-able backlog of models the proxy allows but Pi cannot describe yet (dropped, like Junie does).
+		if (notInPicker.length) this.log.debug(`discovery ${slot.id}: listed but not in the picker policy: [${notInPicker.join(", ")}]`);
+		// Grep-able backlog: models the policy allows and the proxy serves, but Pi cannot describe yet (dropped).
 		for (const u of unknown) {
 			this.log.warn(
 				`[models-todo] ${slot.id}/${u.id} listed by the ${result.source} catalog but not in Pi's ${target.catalogProvider} catalog; not offered` +

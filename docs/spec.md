@@ -109,7 +109,8 @@ group ids (`proxy:<slot>`), `_meta` shapes and stop reasons.
 - Default model: `anthropic/claude-sonnet-5-5` when available, otherwise the first available.
 - **Models come from proxy discovery** (`src/pi/discovery.ts`, same algorithm as Junie, see
   `docs/junie-proxy-triage.md` §4.1): the account catalog (`/models/user`), else the vendor listing, narrowed by
-  `_meta.jetbrains.air.selectedModels`, and matched to Pi's catalog. Unknown ids are dropped and logged as
+  `_meta.jetbrains.air.selectedModels`, limited to **Junie's picker policy** (its non-deprecated `ModelOption`
+  entries, `picker` in `src/pi/catalog.ts`) for vendor listings, and matched to Pi's catalog. Unknown ids are dropped and logged as
   `[models-todo]`. A failed discovery offers no models (no fallback). `session/new` waits up to 10 s for discovery;
   later results arrive as `config_option_update`.
 - Fixed slots, like Junie's: `anthropic` (apiType `anthropic`), `openai` (`openai`) and `google`

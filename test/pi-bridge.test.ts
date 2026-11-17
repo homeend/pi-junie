@@ -35,7 +35,7 @@ describe("Pi bridge replay: junie-hello", async () => {
 		const [created] = byMethod("session/new");
 		const model = created.result.configOptions.find((o: Obj) => o.id === "model");
 		const groups = Object.fromEntries(model.options.map((g: Obj) => [g.group, g.options.map((o: Obj) => o.value)]));
-		// anthropic: account catalog 404 -> vendor listing, Pi catalog order, dated id kept as wire id, unknown dropped
+		// anthropic: account catalog 404 -> vendor listing, Junie picker order, dated id kept as wire id, unknown dropped
 		expect(groups["proxy:anthropic"]).toEqual(["pi:anthropic/claude-opus-5-5-20261001", "pi:anthropic/claude-sonnet-5-5"]);
 		// openai: account catalog order, image-only and unknown models dropped
 		expect(groups["proxy:openai"]).toEqual(["pi:openai/gpt-6.1-sol", "pi:openai/gpt-6-luna"]);

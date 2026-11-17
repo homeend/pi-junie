@@ -62,6 +62,6 @@ export const LISTINGS = {
 			{ id: "gpt-unknown-1", name: "Unknown" },
 		],
 	},
-	googleVendor: { models: [{ name: "models/gemini-3.7-flash", displayName: "Gemini 3.7 Flash" }, { name: "models/gemini-4-argon" }, { name: "models/embedding-001" }] },
+	googleVendor: { models: [{ name: "models/gemini-3.7-flash", displayName: "Gemini 3.7 Flash" }, { name: "models/gemini-4-argon" }, { name: "models/gemini-4-carbon" }, { name: "models/gemini-2.5-pro" }, { name: "models/embedding-001" }] },
 	vertexVendor: { publisherModels: [{ name: "publishers/google/models/gemini-3.8-flash@001" }] },
 };
