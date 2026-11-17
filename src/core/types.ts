@@ -133,3 +133,8 @@ export type HistoryItem =
 	| { kind: "assistant"; text: string }
 	| { kind: "thought"; text: string }
 	| { kind: "tool"; update: ToolUpdate };
+
+/** A tool server (MCP) the client wants the agent to use in a session, e.g. the IDE's own server. */
+export type McpServerSpec =
+	| { name: string; transport: "stdio"; command: string; args: string[]; env: Record<string, string> }
+	| { name: string; transport: "http"; url: string; headers: Record<string, string> };

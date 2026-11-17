@@ -180,6 +180,25 @@ describe("ACP driver", () => {
 		expect(decodeClientProfile({ protocolVersion: 1 }).liveTerminal).toBe(false);
 	});
 
+	it("passes the client's MCP servers (AIR's IDE server) to the backend and advertises HTTP MCP", async () => {
+		const { backend, call } = await connected();
+		const { loadFixture } = await import("./harness.ts");
+		const recorded = loadFixture("junie-hello").client.find((m) => m.method === "session/new") as Obj;
+		await call("session/new", {
+			...recorded.params,
+			mcpServers: [...recorded.params.mcpServers, { type: "http", name: "air private", url: "http://127.0.0.1:1/mcp", headers: [{ name: "Authorization", value: "Bearer x" }] }, { type: "sse", name: "old", url: "http://x" }],
+		});
+		expect(backend.mcp.map((m) => [m.name, m.transport])).toEqual([
+			["jetbrains_air_ide", "stdio"],
+			["air private", "http"],
+		]);
+		const ide = backend.mcp[0] as Extract<(typeof backend.mcp)[number], { transport: "stdio" }>;
+		expect(ide.args).toEqual(["stdioMcpServer"]);
+		expect(ide.env.IJ_MCP_LAUNCH_ORIGIN).toBe("air-chat");
+		expect(backend.mcp[1]).toMatchObject({ headers: { Authorization: "Bearer x" } });
+		expect((await call("initialize", { protocolVersion: 1 })).result.agentCapabilities.mcpCapabilities).toEqual({ http: true, sse: false });
+	});
+
 	it("advertises loadSession", async () => {
 		const { call } = await connected();
 		expect((await call("initialize", { protocolVersion: 1 })).result.agentCapabilities.loadSession).toBe(true);

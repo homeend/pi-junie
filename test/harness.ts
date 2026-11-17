@@ -6,7 +6,7 @@ import { AcpAgent } from "../src/acp/agent.ts";
 import type { JsonObject, Transport } from "../src/acp/jsonrpc.ts";
 import type { Logger } from "../src/core/log.ts";
 import type { AgentBackend, BackendSession, PermissionAsk, TurnSink } from "../src/core/ports.ts";
-import type { HistoryItem, ModelGroup, ModelRef, PromptInput, ProviderBinding, ProviderSlotState, SessionSummary, TurnResult } from "../src/core/types.ts";
+import type { HistoryItem, McpServerSpec, ModelGroup, ModelRef, PromptInput, ProviderBinding, ProviderSlotState, SessionSummary, TurnResult } from "../src/core/types.ts";
 
 export interface Fixture {
 	name: string;
@@ -74,6 +74,7 @@ export class MemoryWire {
 /** Deterministic backend standing in for Pi. Records every call. */
 export class FakeBackend implements AgentBackend {
 	readonly calls: string[] = [];
+	readonly mcp: McpServerSpec[] = [];
 	private readonly slots: ProviderSlotState[] = [
 		{ id: "anthropic", displayName: "Anthropic", supportedApiTypes: ["anthropic"], required: false },
 		{ id: "openai", displayName: "OpenAI", supportedApiTypes: ["openai"], required: false },
@@ -125,9 +126,10 @@ export class FakeBackend implements AgentBackend {
 		this.calls.push(`list ${cwd ?? "*"} ${limit}`);
 		return this.saved.filter((s) => !cwd || s.cwd === cwd).slice(0, limit);
 	}
-	async openSession({ cwd }: { cwd: string }): Promise<BackendSession> {
+	async openSession({ cwd, mcpServers = [] }: { cwd: string; mcpServers?: McpServerSpec[] }): Promise<BackendSession> {
 		const id = `fake-session-${++this.sessionCounter}`;
 		this.calls.push(`open ${id}`);
+		this.mcp.push(...mcpServers);
 		return this.makeSession(id, cwd);
 	}
 	private makeSession(id: string, cwd: string): BackendSession {

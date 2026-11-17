@@ -9,6 +9,7 @@ import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import {
 	type AgentSession,
 	createAgentSession,
+	createMcpExtension,
 	DefaultResourceLoader,
 	type ExtensionAPI,
 	ModelRuntime,
@@ -17,7 +18,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { type Logger, silentLogger } from "../core/log.ts";
 import type { AgentBackend, BackendSession, PermissionAsk, TurnSink } from "../core/ports.ts";
-import type { HistoryItem, ModelChoice, ModelGroup, ModelRef, PromptInput, ProviderBinding, ProviderSlotState, SessionSummary, TurnResult } from "../core/types.ts";
+import type { HistoryItem, McpServerSpec, ModelChoice, ModelGroup, ModelRef, PromptInput, ProviderBinding, ProviderSlotState, SessionSummary, TurnResult } from "../core/types.ts";
 import { bridgeProviderId, DEFAULT_MODEL, joinBaseUrl, SLOTS, type SlotDefinition } from "./catalog.ts";
 import { openPiTranscript, type SessionMeta, SessionStore } from "./session-store.ts";
 import { BRIDGE_TOOLS, READ_ONLY_TOOLS, ToolTracker, toolKind, toolLocations, toolResultText, toolTitle } from "./tools.ts";
@@ -232,16 +233,20 @@ export class PiBackend implements AgentBackend {
 		return []; // no Pi extensions are loaded into bridge sessions yet
 	}
 
-	async openSession({ cwd }: { cwd: string }): Promise<BackendSession> {
+	async openSession({ cwd, mcpServers = [] }: { cwd: string; mcpServers?: McpServerSpec[] }): Promise<BackendSession> {
 		const id = `pi-${Date.now().toString(36)}-${++this.counter}`;
 		const now = new Date().toISOString();
 		const meta: SessionMeta = { id, cwd, createdAt: now, updatedAt: now };
 		this.store.save(meta);
 		this.log.info(`session ${id} opened (cwd ${cwd}), default model ${fmt(this.defaultModel())}`);
-		return new PiSession(meta, this);
+		return new PiSession(meta, this, mcpServers);
 	}
 
-	async resumeSession({ sessionId, cwd }: { sessionId: string; cwd: string }): Promise<{ session: BackendSession; restored: boolean } | undefined> {
+	async resumeSession({
+		sessionId,
+		cwd,
+		mcpServers = [],
+	}: { sessionId: string; cwd: string; mcpServers?: McpServerSpec[] }): Promise<{ session: BackendSession; restored: boolean } | undefined> {
 		if (!SessionStore.isValidId(sessionId)) {
 			this.log.error(`session ${sessionId}: resume rejected, invalid id`);
 			return undefined;
@@ -252,11 +257,11 @@ export class PiBackend implements AgentBackend {
 			const fresh: SessionMeta = { id: sessionId, cwd, createdAt: now, updatedAt: now };
 			this.store.save(fresh);
 			this.log.warn(`session ${sessionId}: nothing saved under this id (created by an older build or deleted); continuing as an empty session`);
-			return { session: new PiSession(fresh, this), restored: false };
+			return { session: new PiSession(fresh, this, mcpServers), restored: false };
 		}
 		if (meta.cwd !== cwd) this.log.info(`session ${sessionId}: resumed with cwd ${cwd} (saved ${meta.cwd})`);
 		this.log.info(`session ${sessionId} resumed (saved model ${fmt(meta.model)}, created ${meta.createdAt})`);
-		return { session: new PiSession({ ...meta, cwd }, this), restored: true };
+		return { session: new PiSession({ ...meta, cwd }, this, mcpServers), restored: true };
 	}
 
 	listSessions({ cwd, limit }: { cwd?: string; limit: number }): SessionSummary[] {
@@ -285,7 +290,14 @@ export class PiBackend implements AgentBackend {
 	 * (AGENTS.md/CLAUDE.md up the tree) and skills. No extensions, prompt templates or user Pi settings
 	 * (isolated agentDir). `gate` is an inline Pi extension that decides on every tool call.
 	 */
-	async createPiSession(id: string, cwd: string, model: Model<Api>, thinkingLevel: ThinkingLevel, gate: (pi: ExtensionAPI) => void): Promise<AgentSession> {
+	async createPiSession(
+		id: string,
+		cwd: string,
+		model: Model<Api>,
+		thinkingLevel: ThinkingLevel,
+		gate: (pi: ExtensionAPI) => void,
+		mcpServers: McpServerSpec[],
+	): Promise<AgentSession> {
 		const { manager, restored } = this.store.piSessionManager(id, cwd);
 		this.log.info(`session ${id}: Pi transcript ${restored ? `restored (${manager.getEntries().length} entries)` : "created"} at ${manager.getSessionFile() ?? "<memory>"}`);
 		// The project the IDE opened is trusted for skills (project extensions stay off; edits/commands still ask).
@@ -298,7 +310,8 @@ export class PiBackend implements AgentBackend {
 			noPromptTemplates: true,
 			noThemes: true,
 			appendSystemPrompt: [IDE_NOTE],
-			extensionFactories: [gate],
+			// The client's MCP servers (e.g. the IDE's own) are registered for this session and connected by Pi's MCP extension.
+			extensionFactories: [gate, registerClientMcpServers(mcpServers), createMcpExtension()],
 		});
 		await resourceLoader.reload();
 		const contextFiles = resourceLoader.getAgentsFiles().agentsFiles.map((f) => f.path);
@@ -313,10 +326,13 @@ export class PiBackend implements AgentBackend {
 			thinkingLevel,
 			modelRuntime: this.runtime,
 			resourceLoader,
-			tools: BRIDGE_TOOLS,
+			tools: [...BRIDGE_TOOLS, "mcp__*"],
 			sessionManager: manager,
 			settingsManager,
 		});
+		// Emits session_start: Pi's MCP extension starts connecting the servers (prompts wait for direct tools).
+		await session.bindExtensions({});
+		if (mcpServers.length) this.log.info(`session ${id}: MCP servers registered [${mcpServers.map((s) => s.name).join(", ")}]`);
 		return session;
 	}
 
@@ -346,7 +362,10 @@ class PiSession implements BackendSession {
 	/** Cost of this chat since it was opened in this agent process. */
 	private costUsd = 0;
 
-	constructor(meta: SessionMeta, backend: PiBackend) {
+	private readonly mcpServers: McpServerSpec[];
+
+	constructor(meta: SessionMeta, backend: PiBackend, mcpServers: McpServerSpec[] = []) {
+		this.mcpServers = mcpServers;
 		this.meta = meta;
 		this.id = meta.id;
 		this.cwd = meta.cwd;
@@ -458,10 +477,19 @@ class PiSession implements BackendSession {
 	}
 
 	/** Pi extension: read-only tools run; everything else asks the user unless allowed for this chat. */
+	/** Tool metadata from the Pi session (set when the gate extension loads). */
+	private toolInfo?: (name: string) => { annotations?: { readOnlyHint?: boolean } } | undefined;
+
+	/** Runs without asking: built-in read-only tools, MCP tools the server marks read-only, tools allowed for this chat. */
+	private runsWithoutAsking(toolName: string): boolean {
+		return READ_ONLY_TOOLS.has(toolName) || this.alwaysAllowed.has(toolName) || this.toolInfo?.(toolName)?.annotations?.readOnlyHint === true;
+	}
+
 	private readonly gate = (pi: ExtensionAPI) => {
+		this.toolInfo = (name) => pi.getAllTools().find((t) => t.name === name);
 		pi.on("tool_call", async (event) => {
 			const log = this.backend.log;
-			if (READ_ONLY_TOOLS.has(event.toolName) || this.alwaysAllowed.has(event.toolName)) return undefined;
+			if (this.runsWithoutAsking(event.toolName)) return undefined;
 			if (!this.ask) return { block: true, reason: "No client to ask for permission." };
 			const decision = await this.ask({
 				toolCallId: event.toolCallId,
@@ -496,7 +524,7 @@ class PiSession implements BackendSession {
 			this.model = ref;
 			this.persist();
 		}
-		if (!this.pi) this.pi = await this.backend.createPiSession(this.id, this.cwd, model, this.thinkingLevel(), this.gate);
+		if (!this.pi) this.pi = await this.backend.createPiSession(this.id, this.cwd, model, this.thinkingLevel(), this.gate, this.mcpServers);
 		else if (this.pi.model?.id !== model.id || this.pi.model?.provider !== model.provider) await this.pi.setModel(model);
 		if (this.pi.thinkingLevel !== this.thinkingLevel()) this.pi.setThinkingLevel(this.thinkingLevel());
 		const pi = this.pi;
@@ -526,7 +554,7 @@ class PiSession implements BackendSession {
 				else if (e.type === "toolcall_end") tool(tools.requested(e.toolCall.id, e.toolCall.name, e.toolCall.arguments));
 			} else if (event.type === "tool_execution_start") {
 				log.info(`session ${this.id}: tool ${event.toolName} ${event.toolCallId} start ${JSON.stringify(event.args).slice(0, 200)}`);
-				const needsApproval = !READ_ONLY_TOOLS.has(event.toolName) && !this.alwaysAllowed.has(event.toolName);
+				const needsApproval = !this.runsWithoutAsking(event.toolName);
 			tool(tools.started(event.toolCallId, event.toolName, event.args, needsApproval));
 			} else if (event.type === "tool_execution_update") {
 				tool(tools.progressed(event.toolCallId, event.toolName, event.partialResult));
@@ -608,4 +636,15 @@ export function titleFromPrompt(text: string): string | undefined {
 	const cut = clean.slice(0, TITLE_MAX);
 	const space = cut.lastIndexOf(" ");
 	return `${(space > TITLE_MAX / 2 ? cut.slice(0, space) : cut).trimEnd()}…`;
+}
+
+/** Pi extension registering the client's MCP servers for one session, with tools exposed directly to the model. */
+function registerClientMcpServers(servers: McpServerSpec[]) {
+	return (pi: ExtensionAPI) => {
+		for (const s of servers) {
+			const name = s.name.replace(/[^A-Za-z0-9_-]/g, "_");
+			if (s.transport === "stdio") pi.registerMcpServer(name, { command: s.command, args: s.args, env: s.env, exposure: "direct" });
+			else pi.registerMcpServer(name, { type: "http", url: s.url, headers: s.headers, exposure: "direct" });
+		}
+	};
 }

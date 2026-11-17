@@ -55,8 +55,10 @@ export function toolTitle(name: string, args: unknown): string {
 			return typeof r.pattern === "string" ? `Find ${short(r.pattern, 60)}${path ? ` in ${path}` : ""}` : "Find files";
 		case "bash":
 			return typeof r.command === "string" ? `Run ${short(r.command.split("\n")[0])}` : "Run command";
-		default:
-			return name;
+		default: {
+			const mcp = /^mcp__(.+?)__(.+)$/.exec(name);
+			return mcp ? `${mcp[1]} · ${mcp[2]}` : name;
+		}
 	}
 }
 

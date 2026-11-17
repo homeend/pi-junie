@@ -1,6 +1,6 @@
 // Translation between ACP v1 wire shapes and core types. Pure functions.
 
-import type { ClientProfile, HistoryItem, ModelGroup, ModelRef, PromptImage, PromptInput, ProviderBinding, PermissionDecision, PermissionRequest, ProviderSlotState, SessionSummary, ToolUpdate, TurnEvent, TurnResult } from "../core/types.ts";
+import type { ClientProfile, HistoryItem, McpServerSpec, ModelGroup, ModelRef, PromptImage, PromptInput, ProviderBinding, PermissionDecision, PermissionRequest, ProviderSlotState, SessionSummary, ToolUpdate, TurnEvent, TurnResult } from "../core/types.ts";
 import { RpcError } from "./jsonrpc.ts";
 import type {
 	ContentBlock,
@@ -327,4 +327,32 @@ export function decodePermissionOutcome(response: { outcome?: { outcome?: string
 	const o = response?.outcome;
 	if (o?.outcome !== "selected") return "reject";
 	return o.optionId === "allow_once" || o.optionId === "allow_always" ? o.optionId : "reject";
+}
+
+// --- MCP servers --------------------------------------------------------------------------
+
+function nameValueList(list: unknown): Record<string, string> {
+	const out: Record<string, string> = {};
+	if (Array.isArray(list)) for (const e of list) if (typeof e?.name === "string" && typeof e?.value === "string") out[e.name] = e.value;
+	return out;
+}
+
+/**
+ * ACP `mcpServers` -> core specs. Stdio: `{name, command, args, env: [{name, value}]}` (type optional);
+ * HTTP: `{type: "http", name, url, headers: [{name, value}]}`. SSE servers are skipped (Pi has no SSE transport).
+ */
+export function decodeMcpServers(list: unknown): { servers: McpServerSpec[]; skipped: string[] } {
+	const servers: McpServerSpec[] = [];
+	const skipped: string[] = [];
+	if (!Array.isArray(list)) return { servers, skipped };
+	for (const s of list as Record<string, unknown>[]) {
+		const name = typeof s?.name === "string" ? s.name : undefined;
+		if (!name) continue;
+		if ((s.type === undefined || s.type === "stdio") && typeof s.command === "string") {
+			servers.push({ name, transport: "stdio", command: s.command, args: Array.isArray(s.args) ? s.args.map(String) : [], env: nameValueList(s.env) });
+		} else if (s.type === "http" && typeof s.url === "string") {
+			servers.push({ name, transport: "http", url: s.url, headers: nameValueList(s.headers) });
+		} else skipped.push(`${name} (${String(s.type ?? "unknown")})`);
+	}
+	return { servers, skipped };
 }

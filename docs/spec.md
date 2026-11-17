@@ -128,6 +128,12 @@ group ids (`proxy:<slot>`), `_meta` shapes and stop reasons.
   `edit write bash` ask the user through the core `PermissionAsk` port, which the driver maps to
   `session/request_permission` (Allow once / Allow for this chat / Reject). A rejection or cancellation
   blocks the call, and the model sees "The user rejected this tool call."
+- **Client MCP servers:** `mcpServers` from `session/new` / `session/resume` / `session/load` (AIR passes
+  its `jetbrains_air_ide` stdio server, and a private HTTP server because we advertise
+  `mcpCapabilities.http`) become core `McpServerSpec`s. The bridge registers them with
+  `pi.registerMcpServer` (exposure `direct`) and loads Pi's MCP extension, which connects them on
+  `session_start`. Their tools reach the model as `mcp__<server>__<tool>`. Tools the server marks
+  `readOnlyHint` run without asking; the others go through the permission gate. SSE servers are skipped.
 - **Tool events** (`src/pi/tools.ts`, ported from pi-acp, MIT) become neutral `ToolUpdate`s (title, kind,
   status, input, locations with the edit line, output text, edit/write diffs from a pre-execution snapshot).
   The driver turns the first update of an id into `tool_call` and later ones into `tool_call_update`.
@@ -194,5 +200,5 @@ that unlock each one:
 
 ## 7. Out of scope for now
 
-File/terminal client capabilities, MCP servers from `session/new`, auth methods,
+File/terminal client capabilities, auth methods,
  plans and goal mode, steering, subagents, `_providers/models`.
