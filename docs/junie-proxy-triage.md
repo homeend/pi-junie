@@ -73,8 +73,34 @@ otherwise Chat Completions. The gpt-5.x/6.x models use Responses.
 While discovery is running, `discoveryPending` is true and the picker waits. That's why Junie sends
 `config_option_update` after `session/new`.
 
-**Consequence for Pi:** a fixed curated list is fine for the JCP route. For **BYOK** the right list is the
-account/vendor listing filtered by `selectedModels`, otherwise Pi offers models the key cannot use.
+**Consequence for Pi:** the model list is a **policy** (an ACL) decided by the proxy and the account, not a
+static agent catalog. A curated list offers models the account or key may not use.
+
+### 4.1 Discovery algorithm (`AcpProxyModelDiscovery` → `DirectProxyModelDiscovery` → `ModelListingClient`)
+
+Runs per binding (apiType + baseUrl + headers), again whenever bindings change, with a 5 s timeout per listing.
+`session/new` waits up to 10 s for discovery to settle.
+
+1. **Account catalog** (only `openai` and `anthropic`): `GET base/models/user` with the binding headers.
+   - `404` means unsupported, so fall through to step 2. Any other failure makes the listing fail (no models).
+   - Body `{ data: [ { id, name?, description?, context_length?, architecture?: {input_modalities, output_modalities},
+     pricing?: {prompt, completion, input_cache_read, input_cache_write} (per token), top_provider?: {context_length, max_completion_tokens},
+     supported_parameters? } ] }`.
+   - Records whose `output_modalities` lack `"text"` are dropped. Records are kept only if they match a known model.
+   - Origin `Account`: **this list is authoritative**. With `_meta.jetbrains.air.selectedModels`, it is
+     narrowed to those ids, in that order.
+2. **Vendor listing** (fallback, or the only step for the others), `GET base + route`:
+   - openai/xai/qwen `/models` → `data[].id`
+   - anthropic `/v1/models?limit=1000` + header `anthropic-version: 2023-06-01`, paged by `has_more`/`last_id`
+     → `data[].id`, `display_name`
+   - google `/v1beta/models` → `models[].name` (strip `models/`), paged by `nextPageToken`
+   - vertex `/v1beta1/publishers/google/models` → `publisherModels[].name` (last segment, without `@version`)
+3. **Matching** listed ids against known models: exact name, the OpenRouter id, the JBAI id, or the same name
+   with a date suffix stripped (`-20250929`, `-2025-09-29`). Unknown ids are logged and ignored. The listed
+   id becomes the **wire name** sent as `model`.
+4. **Result**: a listing → allowed models = matched ∩ declared (`availableModels`). Failure/timeout → that
+   binding contributes no discovered list (Junie then falls back to its static gating).
+5. When several bindings exist, a model id is claimed by the first binding (OpenAI first).
 
 ## 5. Other things Pi is missing, compared with the Junie wire
 
