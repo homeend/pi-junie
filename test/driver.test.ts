@@ -199,6 +199,18 @@ describe("ACP driver", () => {
 		expect((await call("initialize", { protocolVersion: 1 })).result.agentCapabilities.mcpCapabilities).toEqual({ http: true, sse: false });
 	});
 
+	it("passes AIR's skill roots (standard field first, else _meta.additionalRoots) and advertises additionalDirectories", async () => {
+		const { backend, call } = await connected();
+		const { loadFixture } = await import("./harness.ts");
+		const recorded = loadFixture("junie-hello").client.find((m) => m.method === "session/new") as Obj;
+		await call("session/new", recorded.params);
+		expect(backend.skillRoots).toEqual(recorded.params._meta.additionalRoots);
+		await call("session/new", { cwd: "/p", additionalDirectories: ["/skills/a", "relative", "/p", "/skills/a"], _meta: { additionalRoots: ["/ignored"] } });
+		expect(backend.skillRoots.slice(-1)).toEqual(["/skills/a"]);
+		const init = (await call("initialize", { protocolVersion: 1 })).result;
+		expect(init.agentCapabilities.sessionCapabilities.additionalDirectories).toEqual({});
+	});
+
 	it("advertises loadSession", async () => {
 		const { call } = await connected();
 		expect((await call("initialize", { protocolVersion: 1 })).result.agentCapabilities.loadSession).toBe(true);

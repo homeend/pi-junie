@@ -1,6 +1,7 @@
 // Pi bridge: implements the core AgentBackend port with Pi's SDK.
 // Knows Pi (ModelRuntime, AgentSession); knows nothing about ACP.
 
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Api, AssistantMessage, Model } from "@earendil-works/pi-ai";
@@ -17,12 +18,15 @@ import {
 	VERSION as PI_VERSION,
 } from "@earendil-works/pi-coding-agent";
 import { type Logger, silentLogger } from "../core/log.ts";
-import type { AgentBackend, BackendSession, PermissionAsk, TurnSink } from "../core/ports.ts";
+import type { AgentBackend, BackendSession, PermissionAsk, SessionContext, TurnSink } from "../core/ports.ts";
 import type { HistoryItem, McpServerSpec, ModelChoice, ModelGroup, ModelRef, PromptInput, ProviderBinding, ProviderSlotState, SessionSummary, TurnResult } from "../core/types.ts";
 import { bridgeProviderId, DEFAULT_MODEL, joinBaseUrl, SLOTS, type SlotDefinition } from "./catalog.ts";
 import { openPiTranscript, type SessionMeta, SessionStore } from "./session-store.ts";
 import { BRIDGE_TOOLS, READ_ONLY_TOOLS, ToolTracker, toolKind, toolLocations, toolResultText, toolTitle } from "./tools.ts";
 import { discoverModels, type ListedModel, listingIdMatches } from "./discovery.ts";
+
+const IDE_ROUTER_NOTE =
+	"The IDE tool `mcp__jetbrains_air_ide__execute_tool` is a router that runs IDE tools by name (`command: \"<tool> --param value ...\"`). Use it only when the user or a skill you have read for the task tells you to, with the tool names and arguments that skill documents. Never guess tool names; if no skill covers what the user asks, say that the IDE does not offer it.";
 
 const IDE_NOTE =
 	"You are running inside a JetBrains IDE (AIR) through the Agent Client Protocol. The user sees your Markdown answers and your tool calls in the IDE; edits and commands need their approval.";
@@ -233,20 +237,18 @@ export class PiBackend implements AgentBackend {
 		return []; // no Pi extensions are loaded into bridge sessions yet
 	}
 
-	async openSession({ cwd, mcpServers = [] }: { cwd: string; mcpServers?: McpServerSpec[] }): Promise<BackendSession> {
+	async openSession(context: SessionContext): Promise<BackendSession> {
+		const { cwd } = context;
 		const id = `pi-${Date.now().toString(36)}-${++this.counter}`;
 		const now = new Date().toISOString();
 		const meta: SessionMeta = { id, cwd, createdAt: now, updatedAt: now };
 		this.store.save(meta);
 		this.log.info(`session ${id} opened (cwd ${cwd}), default model ${fmt(this.defaultModel())}`);
-		return new PiSession(meta, this, mcpServers);
+		return new PiSession(meta, this, context);
 	}
 
-	async resumeSession({
-		sessionId,
-		cwd,
-		mcpServers = [],
-	}: { sessionId: string; cwd: string; mcpServers?: McpServerSpec[] }): Promise<{ session: BackendSession; restored: boolean } | undefined> {
+	async resumeSession(context: SessionContext & { sessionId: string }): Promise<{ session: BackendSession; restored: boolean } | undefined> {
+		const { sessionId, cwd } = context;
 		if (!SessionStore.isValidId(sessionId)) {
 			this.log.error(`session ${sessionId}: resume rejected, invalid id`);
 			return undefined;
@@ -257,11 +259,11 @@ export class PiBackend implements AgentBackend {
 			const fresh: SessionMeta = { id: sessionId, cwd, createdAt: now, updatedAt: now };
 			this.store.save(fresh);
 			this.log.warn(`session ${sessionId}: nothing saved under this id (created by an older build or deleted); continuing as an empty session`);
-			return { session: new PiSession(fresh, this, mcpServers), restored: false };
+			return { session: new PiSession(fresh, this, context), restored: false };
 		}
 		if (meta.cwd !== cwd) this.log.info(`session ${sessionId}: resumed with cwd ${cwd} (saved ${meta.cwd})`);
 		this.log.info(`session ${sessionId} resumed (saved model ${fmt(meta.model)}, created ${meta.createdAt})`);
-		return { session: new PiSession({ ...meta, cwd }, this, mcpServers), restored: true };
+		return { session: new PiSession({ ...meta, cwd }, this, context), restored: true };
 	}
 
 	listSessions({ cwd, limit }: { cwd?: string; limit: number }): SessionSummary[] {
@@ -296,8 +298,11 @@ export class PiBackend implements AgentBackend {
 		model: Model<Api>,
 		thinkingLevel: ThinkingLevel,
 		gate: (pi: ExtensionAPI) => void,
-		mcpServers: McpServerSpec[],
+		context: SessionContext,
 	): Promise<AgentSession> {
+		const mcpServers = context.mcpServers ?? [];
+		// Client skill roots (AIR's IDE skills, e.g. ij-debugger) are read like Junie: <root>/.agents/skills and <root>/.junie/skills.
+		const clientSkillPaths = (context.skillRoots ?? []).flatMap((r) => [join(r, ".agents", "skills"), join(r, ".junie", "skills")]).filter((p) => existsSync(p));
 		const { manager, restored } = this.store.piSessionManager(id, cwd);
 		this.log.info(`session ${id}: Pi transcript ${restored ? `restored (${manager.getEntries().length} entries)` : "created"} at ${manager.getSessionFile() ?? "<memory>"}`);
 		// The project the IDE opened is trusted for skills (project extensions stay off; edits/commands still ask).
@@ -309,7 +314,8 @@ export class PiBackend implements AgentBackend {
 			noExtensions: true,
 			noPromptTemplates: true,
 			noThemes: true,
-			appendSystemPrompt: [IDE_NOTE],
+			additionalSkillPaths: clientSkillPaths,
+			appendSystemPrompt: [IDE_NOTE, ...(mcpServers.some((s) => s.name === "jetbrains_air_ide") ? [IDE_ROUTER_NOTE] : [])],
 			// The client's MCP servers (e.g. the IDE's own) are registered for this session and connected by Pi's MCP extension.
 			extensionFactories: [gate, registerClientMcpServers(mcpServers), createMcpExtension()],
 		});
@@ -362,10 +368,10 @@ class PiSession implements BackendSession {
 	/** Cost of this chat since it was opened in this agent process. */
 	private costUsd = 0;
 
-	private readonly mcpServers: McpServerSpec[];
+	private readonly context: SessionContext;
 
-	constructor(meta: SessionMeta, backend: PiBackend, mcpServers: McpServerSpec[] = []) {
-		this.mcpServers = mcpServers;
+	constructor(meta: SessionMeta, backend: PiBackend, context: SessionContext = { cwd: meta.cwd }) {
+		this.context = context;
 		this.meta = meta;
 		this.id = meta.id;
 		this.cwd = meta.cwd;
@@ -524,7 +530,7 @@ class PiSession implements BackendSession {
 			this.model = ref;
 			this.persist();
 		}
-		if (!this.pi) this.pi = await this.backend.createPiSession(this.id, this.cwd, model, this.thinkingLevel(), this.gate, this.mcpServers);
+		if (!this.pi) this.pi = await this.backend.createPiSession(this.id, this.cwd, model, this.thinkingLevel(), this.gate, this.context);
 		else if (this.pi.model?.id !== model.id || this.pi.model?.provider !== model.provider) await this.pi.setModel(model);
 		if (this.pi.thinkingLevel !== this.thinkingLevel()) this.pi.setThinkingLevel(this.thinkingLevel());
 		const pi = this.pi;

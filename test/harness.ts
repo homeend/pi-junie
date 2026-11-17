@@ -126,7 +126,9 @@ export class FakeBackend implements AgentBackend {
 		this.calls.push(`list ${cwd ?? "*"} ${limit}`);
 		return this.saved.filter((s) => !cwd || s.cwd === cwd).slice(0, limit);
 	}
-	async openSession({ cwd, mcpServers = [] }: { cwd: string; mcpServers?: McpServerSpec[] }): Promise<BackendSession> {
+	readonly skillRoots: string[] = [];
+	async openSession({ cwd, mcpServers = [], skillRoots = [] }: { cwd: string; mcpServers?: McpServerSpec[]; skillRoots?: string[] }): Promise<BackendSession> {
+		this.skillRoots.push(...skillRoots);
 		const id = `fake-session-${++this.sessionCounter}`;
 		this.calls.push(`open ${id}`);
 		this.mcp.push(...mcpServers);

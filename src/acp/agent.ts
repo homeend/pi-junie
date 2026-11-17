@@ -14,6 +14,7 @@ import {
 	decodeProviderBinding,
 	decodeListLimit,
 	decodeMcpServers,
+	decodeSkillRoots,
 	encodeConfigOptions,
 	encodeHistory,
 	encodeSessionSummary,
@@ -130,7 +131,7 @@ export class AcpAgent {
 				loadSession: true,
 				promptCapabilities: { audio: false, image: true, embeddedContext: true },
 				mcpCapabilities: { http: true, sse: false },
-				sessionCapabilities: { list: {}, close: {}, resume: {} },
+				sessionCapabilities: { list: {}, close: {}, resume: {}, additionalDirectories: {} },
 				providers: {},
 			},
 			authMethods: [],
@@ -143,17 +144,19 @@ export class AcpAgent {
 		const cwd = typeof params.cwd === "string" ? params.cwd : process.cwd();
 		// Like Junie: give model discovery a moment so the first picker is complete; late results arrive as config_option_update.
 		await this.backend.modelsSettled(MODEL_DISCOVERY_WAIT_MS);
-		const backend = await this.backend.openSession({ cwd, mcpServers: this.mcpServers(params) });
+		const backend = await this.backend.openSession(this.sessionContext(params, cwd));
 		this.sessions.set(backend.id, { backend });
 		return { sessionId: backend.id, configOptions: this.configOptionsFor(backend) };
 	}
 
-	private mcpServers(params: JsonObject) {
+	/** MCP servers and skill roots the client attaches to session/new, resume and load. */
+	private sessionContext(params: JsonObject, cwd: string) {
 		const { servers, skipped } = decodeMcpServers(params.mcpServers);
-		if (servers.length || skipped.length) {
-			this.log.info(`mcp servers from client: [${servers.map((s) => `${s.name} (${s.transport})`).join(", ")}]${skipped.length ? ` skipped: [${skipped.join(", ")}]` : ""}`);
-		}
-		return servers;
+		const skillRoots = decodeSkillRoots(params, cwd);
+		this.log.info(
+			`session context: mcp [${servers.map((s) => `${s.name} (${s.transport})`).join(", ")}]${skipped.length ? ` skipped [${skipped.join(", ")}]` : ""} skill roots [${skillRoots.join(", ")}]`,
+		);
+		return { cwd, mcpServers: servers, skillRoots };
 	}
 
 	private listSessions(params: JsonObject): unknown {
@@ -168,7 +171,7 @@ export class AcpAgent {
 		const cwd = typeof params.cwd === "string" ? params.cwd : process.cwd();
 		await this.backend.modelsSettled(MODEL_DISCOVERY_WAIT_MS);
 		const existing = this.sessions.get(sessionId)?.backend;
-		const resumed = existing ? { session: existing, restored: true } : await this.backend.resumeSession({ sessionId, cwd, mcpServers: this.mcpServers(params) });
+		const resumed = existing ? { session: existing, restored: true } : await this.backend.resumeSession({ sessionId, ...this.sessionContext(params, cwd) });
 		if (!resumed || !resumed.restored) throw new RpcError(-32002, `Session not found: ${sessionId}`);
 		const backend = resumed.session;
 		this.sessions.set(backend.id, { backend });
@@ -187,7 +190,7 @@ export class AcpAgent {
 		if (existing) return { configOptions: this.configOptionsFor(existing.backend) };
 		const cwd = typeof params.cwd === "string" ? params.cwd : process.cwd();
 		await this.backend.modelsSettled(MODEL_DISCOVERY_WAIT_MS);
-		const resumed = await this.backend.resumeSession({ sessionId, cwd, mcpServers: this.mcpServers(params) });
+		const resumed = await this.backend.resumeSession({ sessionId, ...this.sessionContext(params, cwd) });
 		if (!resumed) throw new RpcError(-32002, `Session not found: ${sessionId}`);
 		const backend = resumed.session;
 		this.sessions.set(backend.id, { backend });

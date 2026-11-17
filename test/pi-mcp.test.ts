@@ -53,4 +53,25 @@ describe("client MCP servers in Pi sessions", () => {
 		expect(tools.filter((t) => t.name === "mcp__test_ide__get_open_file").map((t) => t.status)).not.toContain("failed");
 		await session.close();
 	}, 20000);
+
+	it("loads the client's skills from its skill roots and explains the IDE router", async () => {
+		const { mkdirSync, writeFileSync } = await import("node:fs");
+		const root = mkdtempSync(join(tmpdir(), "pi-junie-air-view-"));
+		mkdirSync(join(root, ".agents", "skills", "ij-debugger"), { recursive: true });
+		writeFileSync(join(root, ".agents", "skills", "ij-debugger", "SKILL.md"), "---\nname: ij-debugger\ndescription: Debug JVM code with execute_tool.\n---\n\nUse execute_tool.\n");
+		const backend = await PiBackend.create({ stateDir: mkdtempSync(join(tmpdir(), "pi-junie-test-")) });
+		backend.bindProvider({ slotId: "anthropic", apiType: "anthropic", baseUrl: `${proxy.url}/a`, headers: {} });
+		await backend.modelsSettled(3000);
+		const session = await backend.openSession({
+			cwd: mkdtempSync(join(tmpdir(), "pi-junie-proj-")),
+			skillRoots: [root],
+			mcpServers: [{ name: "jetbrains_air_ide", transport: "stdio", command: process.execPath, args: [join(import.meta.dirname, "fixtures", "mcp-test-server.mjs")], env: {} }],
+		});
+		script = ["ok"];
+		await session.prompt({ text: "hi", images: [] }, () => {}, new AbortController().signal, async () => "allow_once");
+		const system = JSON.stringify(proxy.requests.filter((q) => q.method === "POST").at(-1)!.body.system);
+		expect(system).toContain("ij-debugger");
+		expect(system).toContain("Never guess tool names");
+		await session.close();
+	}, 20000);
 });

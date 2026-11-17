@@ -356,3 +356,16 @@ export function decodeMcpServers(list: unknown): { servers: McpServerSpec[]; ski
 	}
 	return { servers, skipped };
 }
+
+/**
+ * Client skill roots: the standard `additionalDirectories` when present (an explicit empty list means none),
+ * otherwise AIR's `_meta.additionalRoots`. Only absolute paths, without duplicates or the cwd itself.
+ */
+export function decodeSkillRoots(params: Record<string, unknown>, cwd: string): string[] {
+	const standard = params.additionalDirectories;
+	const meta = (params._meta as { additionalRoots?: unknown } | undefined)?.additionalRoots;
+	const list = Array.isArray(standard) ? standard : Array.isArray(meta) ? meta : [];
+	const out: string[] = [];
+	for (const r of list) if (typeof r === "string" && r.startsWith("/") && r !== cwd && !out.includes(r)) out.push(r);
+	return out;
+}

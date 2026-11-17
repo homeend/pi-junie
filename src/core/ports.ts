@@ -4,6 +4,15 @@
 import type { AgentIdentity, ModelGroup, ModelRef, HistoryItem, McpServerSpec, PermissionDecision, PermissionRequest, PromptInput, ProviderBinding, ProviderSlotState, SessionSummary, TurnEvent, TurnResult } from "./types.ts";
 
 export type TurnSink = (event: TurnEvent) => void;
+
+/** What the client provides when it opens or reopens a session. */
+export interface SessionContext {
+	cwd: string;
+	/** Tool servers to connect for this session (e.g. the IDE's own). */
+	mcpServers?: McpServerSpec[];
+	/** Extra directories whose `.agents/skills` and `.junie/skills` hold client-provided skills. */
+	skillRoots?: string[];
+}
 /** Asks the user (through the client) whether a tool call may run. */
 export type PermissionAsk = (request: PermissionRequest) => Promise<PermissionDecision>;
 
@@ -35,12 +44,12 @@ export interface AgentBackend {
 	modelsSettled(timeoutMs: number): Promise<void>;
 	/** Called whenever availableModels() may have changed. */
 	onModelsChanged(listener: () => void): () => void;
-	openSession(request: { cwd: string; mcpServers?: McpServerSpec[] }): Promise<BackendSession>;
+	openSession(request: SessionContext): Promise<BackendSession>;
 	/**
 	 * Reopens a session persisted by an earlier agent process. When nothing was saved under that id, continues it
 	 * as an empty session with the same id (`restored: false`). Returns undefined only for an invalid id.
 	 */
-	resumeSession(request: { sessionId: string; cwd: string; mcpServers?: McpServerSpec[] }): Promise<{ session: BackendSession; restored: boolean } | undefined>;
+	resumeSession(request: SessionContext & { sessionId: string }): Promise<{ session: BackendSession; restored: boolean } | undefined>;
 	/** Saved sessions, newest first, optionally only those of one working directory. */
 	listSessions(request: { cwd?: string; limit: number }): SessionSummary[];
 	/** Names + versions of installed agent-side plugins, for the compatibility layer. */
