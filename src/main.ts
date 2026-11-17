@@ -118,6 +118,8 @@ const backend = await PiBackend.create({
 	junieCompat: { executeToolAlias: process.env.PI_AIR_JUNIE_EXECUTE_TOOL !== "0" },
 	// Plugins installed with `pi install` (e.g. subagents) are found in the user's Pi agent dir; PI_AIR_PLUGINS=0 skips them.
 	piAgentDir: process.env.PI_AIR_PLUGINS === "0" ? undefined : getAgentDir(),
+	// New chats open with a welcome message (Pi version, subagents available or not); PI_AIR_WELCOME=0 turns it off.
+	welcome: process.env.PI_AIR_WELCOME !== "0",
 });
 new AcpAgent(stdioTransport(), backend, { logger: log.child("acp") });
 log.info("ready");

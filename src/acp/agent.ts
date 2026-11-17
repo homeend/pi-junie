@@ -170,6 +170,7 @@ export class AcpAgent {
 		const backend = await this.backend.openSession(this.sessionContext(params, cwd));
 		this.sessions.set(backend.id, { backend });
 		this.publishCommands(backend);
+		this.sendWelcome(backend.id);
 		return { sessionId: backend.id, configOptions: this.configOptionsFor(backend) };
 	}
 
@@ -191,6 +192,13 @@ export class AcpAgent {
 	private pushAuthStatus(sessionId: string): void {
 		if (!this.backend.providerSlots().some((s) => s.binding)) return;
 		this.peer.notify(AUTH_STATUS_METHOD, { sessionId, authStatus: IDE_PROXY_AUTH_STATUS });
+	}
+
+	/** A new session opens with the backend's welcome message (agent, version, available plugins), after the response. */
+	private sendWelcome(sessionId: string): void {
+		const text = this.backend.welcome();
+		if (!text) return;
+		setTimeout(() => this.sendUpdate(sessionId, { sessionUpdate: "agent_message_chunk", content: { type: "text", text } }));
 	}
 
 	/** Sends the session's commands (built-ins, skills) and the auth label after the lifecycle response. */

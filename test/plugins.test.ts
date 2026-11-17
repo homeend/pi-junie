@@ -58,6 +58,15 @@ describe("Pi plugins", () => {
 		expect(await toolsSentToModel(piAgentDir)).toContain("Agent");
 	});
 
+	it("the welcome message says whether subagents are available", async () => {
+		const stateDir = () => mkdtempSync(join(tmpdir(), "pi-junie-test-"));
+		const withPlugin = await PiBackend.create({ stateDir: stateDir(), piAgentDir: piAgentDirWithSubagents(), welcome: true });
+		expect(withPlugin.welcome()).toContain(`**Subagents: available** (\`${SUBAGENTS_PLUGIN}\` 0.26.0)`);
+		const without = await PiBackend.create({ stateDir: stateDir(), piAgentDir: mkdtempSync(join(tmpdir(), "pi-junie-piagent-")), welcome: true });
+		expect(without.welcome()).toContain(`**Subagents: not available** (install with \`pi install npm:${SUBAGENTS_PLUGIN}\``);
+		expect((await PiBackend.create({ stateDir: stateDir() })).welcome()).toBeUndefined();
+	});
+
 	it("without the plugin sessions have no subagent tool", async () => {
 		expect(await toolsSentToModel(undefined)).not.toContain("Agent");
 	});

@@ -13,6 +13,16 @@ export const SUBAGENT_TOOLS = ["Agent", "get_subagent_result", "steer_subagent"]
 
 const KNOWN_PLUGINS = [SUBAGENTS_PLUGIN];
 
+/** Welcome lines about the plugins (Markdown list items). */
+export function pluginWelcomeLines(detected: DetectedPlugin[]): string[] {
+	const subagents = detected.find((p) => p.name === SUBAGENTS_PLUGIN);
+	return [
+		subagents
+			? `- **Subagents: available** (\`${SUBAGENTS_PLUGIN}\` ${subagents.version ?? "unknown version"})`
+			: `- **Subagents: not available** (install with \`pi install npm:${SUBAGENTS_PLUGIN}\`, then restart the agent)`,
+	];
+}
+
 export interface DetectedPlugin {
 	name: string;
 	version?: string;
@@ -30,7 +40,7 @@ export function detectPlugins(piAgentDir: string, log?: Logger): DetectedPlugin[
 		const path = join(piAgentDir, "npm", "node_modules", name);
 		const manifest = join(path, "package.json");
 		if (!existsSync(manifest)) {
-			log?.info(`plugin ${name} not installed (install with: pi install npm:${name})`);
+			log?.info(`plugin ${name} not installed in ${piAgentDir} (install with: pi install npm:${name})`);
 			continue;
 		}
 		let version: string | undefined;

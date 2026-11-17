@@ -124,6 +124,10 @@ export class FakeBackend implements AgentBackend {
 	installedPlugins() {
 		return [];
 	}
+	welcomeText?: string;
+	welcome() {
+		return this.welcomeText;
+	}
 	readonly saved: SessionSummary[] = [
 		{ id: "fake-session-old", cwd: "/tmp", title: "Old chat", createdAt: "2026-11-01T10:00:00Z", updatedAt: "2026-11-01T10:05:00Z", lastPromptAt: "2026-11-01T10:04:00Z" },
 	];

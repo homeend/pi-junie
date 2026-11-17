@@ -213,6 +213,10 @@ that unlock each one:
   (`<pi agent dir>/npm/node_modules/<name>`, `~/.pi/agent` or `$PI_CODING_AGENT_DIR`), reports name + version,
   and loads it into every session by path (`additionalExtensionPaths`; other on-disk extensions stay off).
   `PI_AIR_PLUGINS=0` skips plugins.
+- Welcome: a new chat (session/new only, not resume/load) opens with one `agent_message_chunk` from the agent,
+  sent after the response: the Pi version and whether subagents are available (with the install command when
+  not). It is not part of the Pi transcript, so it is not replayed. `PI_AIR_WELCOME=0` turns it off. The
+  startup log also says `subagents: available` / `subagents: not available`.
 - Subagents (`@tintinweb/pi-subagents`, chosen because its children are in-process Pi sessions on the
   bridge's model runtime, reachable as live `AgentSession`s): sessions get its `Agent`, `get_subagent_result`
   and `steer_subagent` tools. Planned: children as AIR native subagent sessions (`subagent_spawned`, child

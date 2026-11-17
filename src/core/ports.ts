@@ -63,4 +63,6 @@ export interface AgentBackend {
 	listSessions(request: { cwd?: string; limit: number }): SessionSummary[];
 	/** Names + versions of installed agent-side plugins, for the compatibility layer. */
 	installedPlugins(): { name: string; version?: string }[];
+	/** Markdown shown once at the top of a new session (what this agent offers), or undefined for none. */
+	welcome(): string | undefined;
 }

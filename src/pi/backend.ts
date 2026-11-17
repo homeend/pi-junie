@@ -28,7 +28,7 @@ import { classifyFailure } from "./failures.ts";
 import { PLACEHOLDER_API_KEY } from "./proxy-auth.ts";
 import { ASK_USER_TOOL, askUserTool } from "./ask-user.ts";
 import { PhaseSplitter, type PhaseSplitterOptions, signaturePhase } from "./phases.ts";
-import { type DetectedPlugin, detectPlugins, SUBAGENT_TOOLS, SUBAGENTS_PLUGIN } from "./plugins.ts";
+import { type DetectedPlugin, detectPlugins, pluginWelcomeLines, SUBAGENT_TOOLS, SUBAGENTS_PLUGIN } from "./plugins.ts";
 import { discoverModels, type ListedModel, listingIdMatches } from "./discovery.ts";
 
 function ideRouterNote(name: string): string {
@@ -54,6 +54,8 @@ export interface PiBackendOptions {
 	phaseHold?: PhaseSplitterOptions;
 	/** The user's Pi agent dir, searched for plugins installed with `pi install` (see plugins.ts). Unset: no plugins. */
 	piAgentDir?: string;
+	/** Open new sessions with a welcome message (Pi version, plugin availability). Default false. */
+	welcome?: boolean;
 }
 
 export class PiBackend implements AgentBackend {
@@ -73,6 +75,7 @@ export class PiBackend implements AgentBackend {
 	private counter = 0;
 	readonly phaseHold?: PhaseSplitterOptions;
 	private readonly plugins: DetectedPlugin[];
+	private readonly showWelcome: boolean;
 
 	private constructor(runtime: ModelRuntime, stateDir: string, options: PiBackendOptions) {
 		this.runtime = runtime;
@@ -86,6 +89,9 @@ export class PiBackend implements AgentBackend {
 		this.phaseHold = options.phaseHold;
 		this.junieCompat = { ...JUNIE_COMPAT_DEFAULTS, ...options.junieCompat };
 		this.plugins = options.piAgentDir ? detectPlugins(options.piAgentDir, this.log) : [];
+		this.showWelcome = options.welcome ?? false;
+		const subagents = this.plugins.some((p) => p.name === SUBAGENTS_PLUGIN);
+		this.log.info(`subagents: ${subagents ? "available" : "not available"}`);
 	}
 
 	static async create(options: PiBackendOptions = {}): Promise<PiBackend> {
@@ -267,6 +273,11 @@ export class PiBackend implements AgentBackend {
 	onModelsChanged(listener: () => void): () => void {
 		this.listeners.add(listener);
 		return () => this.listeners.delete(listener);
+	}
+
+	welcome(): string | undefined {
+		if (!this.showWelcome) return undefined;
+		return [`**Pi** ${this.identity().version} is ready.`, "", ...pluginWelcomeLines(this.plugins)].join("\n");
 	}
 
 	installedPlugins() {

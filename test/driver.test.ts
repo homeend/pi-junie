@@ -15,6 +15,18 @@ async function connected() {
 }
 
 describe("ACP driver", () => {
+	it("opens a new session (not a resumed one) with the backend's welcome message", async () => {
+		const { wire, backend, call } = await connected();
+		backend.welcomeText = "**Pi** ready.\n\n- **Subagents: available**";
+		const s = await call("session/new", { cwd: "/tmp" });
+		await new Promise((r) => setTimeout(r, 10));
+		const chunks = wire.updates("agent_message_chunk") as Obj[];
+		expect(chunks.map((u) => [u.sessionId, u.update.content.text])).toEqual([[s.result.sessionId, "**Pi** ready.\n\n- **Subagents: available**"]]);
+		await call("session/resume", { sessionId: s.result.sessionId, cwd: "/tmp" });
+		await new Promise((r) => setTimeout(r, 10));
+		expect(wire.updates("agent_message_chunk")).toHaveLength(1);
+	});
+
 	it("returns no model option until a provider is bound, then pushes config_option_update", async () => {
 		const { wire, call } = await connected();
 		const s = await call("session/new", { cwd: "/tmp", mcpServers: [] });
