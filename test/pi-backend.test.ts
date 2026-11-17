@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { createLogger, redactSecrets } from "../src/core/log.ts";
-import { PiBackend } from "../src/pi/backend.ts";
+import { PiBackend, titleFromPrompt } from "../src/pi/backend.ts";
 import { LISTINGS, startFakeProxy } from "./fake-proxy.ts";
 
 const proxy = await startFakeProxy({
@@ -139,6 +139,35 @@ describe("PiBackend session persistence", () => {
 		expect(r?.restored).toBe(false);
 		expect(r?.session.id).toBe("pi-nope-1");
 		expect(await backend.resumeSession({ sessionId: "../etc/passwd", cwd: "/tmp" })).toBeUndefined();
+	});
+});
+
+describe("session title", () => {
+	it("names the chat from the first prompt once, and keeps it across resume", async () => {
+		const stateDir = mkdtempSync(join(tmpdir(), "pi-junie-test-"));
+		const { backend } = await newBackend(stateDir);
+		await bind(backend, "anthropic", "anthropic");
+		const s = await backend.openSession({ cwd: "/tmp" });
+		const titles: string[] = [];
+		const sink = (e: { kind: string; title?: string }) => e.kind === "title" && titles.push(e.title!);
+		await s.prompt("  How do I rebase\nonto main?", sink, new AbortController().signal);
+		await s.prompt("second question", sink, new AbortController().signal);
+		expect(titles).toEqual(["How do I rebase"]);
+
+		const again = (await newBackend(stateDir)).backend;
+		await bind(again, "anthropic", "anthropic");
+		const resumed = (await again.resumeSession({ sessionId: s.id, cwd: "/tmp" }))!.session;
+		const later: string[] = [];
+		await resumed.prompt("third", (e) => e.kind === "title" && later.push(e.title), new AbortController().signal);
+		expect(later).toEqual([]);
+	});
+
+	it("builds short, clean titles", () => {
+		expect(titleFromPrompt("# Fix   the build")).toBe("Fix the build");
+		expect(titleFromPrompt("\n\n")).toBeUndefined();
+		const long = titleFromPrompt("Please explain in detail how the dependency injection container resolves scoped services");
+		expect(long!.length).toBeLessThanOrEqual(61);
+		expect(long!.endsWith("…")).toBe(true);
 	});
 });
 

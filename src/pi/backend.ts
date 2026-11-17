@@ -309,6 +309,17 @@ class PiSession implements BackendSession {
 		this.backend.store.save({ ...this.meta, cwd: this.cwd, model: this.model });
 	}
 
+	/** The first prompt names the chat (like pi-acp's fallback title); sent once, then kept with the session. */
+	private nameIfUntitled(text: string, sink: TurnSink): void {
+		if (this.meta.title) return;
+		const title = titleFromPrompt(text);
+		if (!title) return;
+		this.meta.title = title;
+		this.persist();
+		this.backend.log.info(`session ${this.id}: title "${title}"`);
+		sink({ kind: "title", title });
+	}
+
 	/** The selected model if it is still reachable (its provider may have been switched off), else the default. */
 	currentModel(): ModelRef | undefined {
 		return this.backend.resolveModel(this.model) ? this.model : this.backend.defaultModel();
@@ -339,6 +350,7 @@ class PiSession implements BackendSession {
 		if (!this.pi) this.pi = await this.backend.createPiSession(this.id, this.cwd, model);
 		else if (this.pi.model?.id !== model.id || this.pi.model?.provider !== model.provider) await this.pi.setModel(model);
 		const pi = this.pi;
+		this.nameIfUntitled(text, sink);
 		const started = Date.now();
 		log.info(`session ${this.id}: prompt start model=${fmt(ref)} api=${model.api} baseUrl=${model.baseUrl} chars=${text.length}`);
 
@@ -408,4 +420,19 @@ function minimalResources(): ResourceLoader {
 
 function fmt(ref: ModelRef | undefined): string {
 	return ref ? `${ref.slotId}/${ref.modelId}` : "none";
+}
+
+const TITLE_MAX = 60;
+
+export function titleFromPrompt(text: string): string | undefined {
+	const line = text
+		.split("\n")
+		.map((l) => l.replace(/<context[^>]*>[\s\S]*$/, "").trim())
+		.find((l) => l.length > 0);
+	if (!line) return undefined;
+	const clean = line.replace(/\s+/g, " ").replace(/^[#>*\-\s]+/, "");
+	if (clean.length <= TITLE_MAX) return clean;
+	const cut = clean.slice(0, TITLE_MAX);
+	const space = cut.lastIndexOf(" ");
+	return `${(space > TITLE_MAX / 2 ? cut.slice(0, space) : cut).trimEnd()}…`;
 }

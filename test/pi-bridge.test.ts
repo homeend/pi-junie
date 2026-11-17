@@ -68,6 +68,10 @@ describe("Pi bridge replay: junie-hello", async () => {
 		expect(turns).toEqual(["user", "assistant", "user"]);
 	});
 
+	it("sends the chat title once, after the first prompt", () => {
+		expect(wire.updates("session_info_update").map((u: Obj) => u.update.title)).toEqual(["hello"]);
+	});
+
 	it("reports usage", () => {
 		const [p] = byMethod("session/prompt");
 		expect(p.result.usage).toMatchObject({ inputTokens: 12, outputTokens: 7 });
