@@ -31,6 +31,7 @@ import { type PhaseSplitterOptions, signaturePhase } from "./phases.ts";
 import { TranscriptStream } from "./transcript.ts";
 import { TODO_TOOL, todoPlan } from "./todo.ts";
 import { PLAN_COMPLETE_TOOL, PLAN_MODE_PLUGIN, PLAN_MODE_TOOLS, readPlanModeState, REVIEW_PLAN_ID, runPlanCommand } from "./plan-mode.ts";
+import { type FeatureFlags, INGRAZZIO_SLOT, loadFeatureFlags } from "./ingrazzio.ts";
 import { isReadOnlyCommand } from "./safe-commands.ts";
 import { FETCH_CONTENT_TOOL, WEB_READ_TOOLS, withoutBackgroundFetch } from "./web-access.ts";
 import { AGENT_TOOL, installChildSessionHook, markBridgeSession, SubagentRelay, subagentModelsNote, withChildHost } from "./subagents.ts";
@@ -78,6 +79,8 @@ export class PiBackend implements AgentBackend {
 	private readonly runtime: ModelRuntime;
 	private readonly bindings = new Map<string, { binding: ProviderBinding; generation: number; status: "discovering" | "ready" | "failed" }>();
 	private readonly pending = new Set<Promise<void>>();
+	/** The Ingrazzio route (no models) and the feature flags read through it. */
+	private ingrazzio?: { binding: ProviderBinding; generation: number; flags?: FeatureFlags };
 	private readonly fetchImpl?: typeof fetch;
 	private readonly discoveryTimeoutMs?: number;
 	private generation = 0;
@@ -136,10 +139,29 @@ export class PiBackend implements AgentBackend {
 			supportedApiTypes: Object.keys(s.apiTypes),
 			required: false,
 			binding: this.bindings.get(s.id)?.binding,
-		}));
+		})).concat({
+			id: INGRAZZIO_SLOT.id,
+			displayName: INGRAZZIO_SLOT.displayName,
+			supportedApiTypes: [INGRAZZIO_SLOT.apiType],
+			required: false,
+			binding: this.ingrazzio?.binding,
+		});
+	}
+
+	/** The Ingrazzio route serves no models: it is where the client's account feature flags are read. */
+	private bindIngrazzio(binding: ProviderBinding): void {
+		const generation = ++this.generation;
+		this.ingrazzio = { binding, generation };
+		this.log.info(`bind ${INGRAZZIO_SLOT.id}: apiType=${binding.apiType} baseUrl=${binding.baseUrl} headers=[${Object.keys(binding.headers).join(", ")}] -> loading feature flags`);
+		const done = loadFeatureFlags(binding, { fetch: this.fetchImpl, log: this.log }).then((flags) => {
+			if (this.ingrazzio?.generation === generation) this.ingrazzio.flags = flags;
+		});
+		this.pending.add(done);
+		void done.finally(() => this.pending.delete(done));
 	}
 
 	bindProvider(binding: ProviderBinding): void {
+		if (binding.slotId === INGRAZZIO_SLOT.id) return this.bindIngrazzio(binding);
 		const slot = this.slot(binding.slotId);
 		const target = slot.apiTypes[binding.apiType];
 		if (!target) throw new Error(`slot ${slot.id} has no apiType ${binding.apiType}`);
@@ -274,6 +296,11 @@ export class PiBackend implements AgentBackend {
 	}
 
 	unbindProvider(slotId: string): void {
+		if (slotId === INGRAZZIO_SLOT.id) {
+			this.log.info(`unbind ${slotId}: ${this.ingrazzio ? "feature flags dropped" : "was not bound"}`);
+			this.ingrazzio = undefined;
+			return;
+		}
 		if (!this.bindings.delete(slotId)) {
 			this.log.info(`unbind ${slotId}: was not bound`);
 			return;

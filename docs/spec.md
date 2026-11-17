@@ -41,6 +41,12 @@ reach through those bindings as the `model` config option on `session/new`, and 
 `_meta.jetbrains.air {eco, badge, modelDisplayName}`. Pi follows the same pattern: fixed slots, plus a
 curated model list per slot.
 
+**Ingrazzio slot** (`src/pi/ingrazzio.ts`). Like Junie, the agent also lists an `ingrazzio` slot (apiType
+`ingrazzio`, JetBrains' own API). It serves no models. When AIR binds it, the bridge reads the account's feature
+flags through that route, `GET <baseUrl>/api/feature-flags/ga` with the binding's headers, as Junie does
+(`RemoteFeatureFlags.kt`). The flags include `JUNIE_MIXES` (Junie's Default model group: Lite/Normal/Hard/Frontier as
+model + effort + Eco) and `ECO_MODE_IMPLEMENTATION`. For now the bridge only loads and logs them.
+
 ACP version: v1, matching the Junie examples. The codec keeps version-specific paths (v1
 `clientCapabilities`/`agentCapabilities`, v2 `capabilities`) in one place so v2 can be added later.
 
