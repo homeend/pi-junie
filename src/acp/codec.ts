@@ -1,6 +1,6 @@
 // Translation between ACP v1 wire shapes and core types. Pure functions.
 
-import type { ClientProfile, ModelGroup, ModelRef, ProviderBinding, ProviderSlotState, TurnEvent, TurnResult } from "../core/types.ts";
+import type { ClientProfile, ModelGroup, ModelRef, PromptImage, PromptInput, ProviderBinding, ProviderSlotState, TurnEvent, TurnResult } from "../core/types.ts";
 import { RpcError } from "./jsonrpc.ts";
 import type {
 	ContentBlock,
@@ -138,20 +138,31 @@ export function encodeConfigOptions(groups: ModelGroup[], current: ModelRef | un
 
 // --- prompt ---------------------------------------------------------------------------------
 
-export function decodePromptText(prompt: ContentBlock[] | undefined): string {
+/** ACP prompt blocks -> text + images. Images without inline data are referenced by URI in the text. */
+export function decodePrompt(prompt: ContentBlock[] | undefined): PromptInput {
 	if (!Array.isArray(prompt)) throw RpcError.invalidParams("prompt must be an array of content blocks");
-	return prompt
+	const images: PromptImage[] = [];
+	const text = prompt
 		.map((b) => {
+			if (b.type === "image") {
+				const { data, mimeType, uri } = b as { data?: string; mimeType?: string; uri?: string };
+				if (typeof data === "string" && data && typeof mimeType === "string") {
+					images.push({ data, mimeType });
+					return "";
+				}
+				return uri ? `[image: ${uri}]` : "";
+			}
 			if (b.type === "text") return String((b as { text: string }).text);
 			if (b.type === "resource_link") return `[${String(b.name ?? b.uri)}](${String(b.uri)})`;
 			if (b.type === "resource") {
 				const r = b.resource as { uri?: string; text?: string } | undefined;
 				return r?.text ? `<context uri="${r.uri ?? ""}">\n${r.text}\n</context>` : "";
 			}
-			return ""; // images/audio: not supported yet (promptCapabilities says so)
+			return ""; // audio: not supported (promptCapabilities says so)
 		})
 		.filter(Boolean)
 		.join("\n\n");
+	return { text, images };
 }
 
 export function encodeTurnEvent(event: TurnEvent): SessionUpdate | undefined {

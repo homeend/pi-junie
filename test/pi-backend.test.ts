@@ -102,7 +102,7 @@ describe("PiBackend model discovery", () => {
 		await bind(backend, "anthropic", "anthropic");
 		const s = await backend.openSession({ cwd: "/tmp" });
 		backend.unbindProvider("anthropic");
-		const r = await s.prompt("hi", () => {}, new AbortController().signal);
+		const r = await s.prompt({ text: "hi", images: [] }, () => {}, new AbortController().signal);
 		expect(r).toMatchObject({ stop: "error" });
 		expect(r.error).toContain("No model available");
 	});
@@ -115,7 +115,7 @@ describe("PiBackend session persistence", () => {
 		await bind(first, "anthropic", "anthropic");
 		const s1 = await first.openSession({ cwd: "/tmp" });
 		await s1.selectModel({ slotId: "anthropic", modelId: "claude-opus-5-5-20261001" });
-		const r1 = await s1.prompt("remember 42", () => {}, new AbortController().signal);
+		const r1 = await s1.prompt({ text: "remember 42", images: [] }, () => {}, new AbortController().signal);
 		expect(r1.stop).toBe("end_turn");
 
 		// "restart": a fresh backend on the same state dir, as after AIR re-launches the agent
@@ -126,7 +126,7 @@ describe("PiBackend session persistence", () => {
 		const s2 = resumed?.session;
 		expect(s2?.currentModel()).toEqual({ slotId: "anthropic", modelId: "claude-opus-5-5-20261001" });
 		let text = "";
-		await s2!.prompt("what did I say?", (e) => e.kind === "text" && (text += e.delta), new AbortController().signal);
+		await s2!.prompt({ text: "what did I say?", images: [] }, (e) => e.kind === "text" && (text += e.delta), new AbortController().signal);
 		expect(text).toBe("answer #2");
 		const last = proxy.requests.filter((r) => r.method === "POST").at(-1)!;
 		const turns = last.body.messages.filter((m: { role: string }) => m.role !== "system").map((m: { role: string; content: any }) => `${m.role}:${m.content?.[0]?.text}`);
@@ -150,15 +150,15 @@ describe("session title", () => {
 		const s = await backend.openSession({ cwd: "/tmp" });
 		const titles: string[] = [];
 		const sink = (e: { kind: string; title?: string }) => e.kind === "title" && titles.push(e.title!);
-		await s.prompt("  How do I rebase\nonto main?", sink, new AbortController().signal);
-		await s.prompt("second question", sink, new AbortController().signal);
+		await s.prompt({ text: "  How do I rebase\nonto main?", images: [] }, sink, new AbortController().signal);
+		await s.prompt({ text: "second question", images: [] }, sink, new AbortController().signal);
 		expect(titles).toEqual(["How do I rebase"]);
 
 		const again = (await newBackend(stateDir)).backend;
 		await bind(again, "anthropic", "anthropic");
 		const resumed = (await again.resumeSession({ sessionId: s.id, cwd: "/tmp" }))!.session;
 		const later: string[] = [];
-		await resumed.prompt("third", (e) => e.kind === "title" && later.push(e.title), new AbortController().signal);
+		await resumed.prompt({ text: "third", images: [] }, (e) => e.kind === "title" && later.push(e.title), new AbortController().signal);
 		expect(later).toEqual([]);
 	});
 
@@ -181,13 +181,28 @@ describe("reasoning effort", () => {
 		expect(s.effortLevels()).not.toContain("off");
 		expect(s.currentEffort()).toBe("medium");
 		await s.selectEffort("high");
-		await s.prompt("think hard", () => {}, new AbortController().signal);
+		await s.prompt({ text: "think hard", images: [] }, () => {}, new AbortController().signal);
 		const body = JSON.stringify(proxy.requests.filter((r) => r.method === "POST").at(-1)!.body);
 		expect(body).toContain('"effort":"high"');
 
 		const again = (await newBackend(stateDir)).backend;
 		await bind(again, "anthropic", "anthropic");
 		expect((await again.resumeSession({ sessionId: s.id, cwd: "/tmp" }))!.session.currentEffort()).toBe("high");
+	});
+});
+
+const PNG_1X1 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+
+describe("image prompts", () => {
+	it("sends images to the model as image blocks", async () => {
+		const { backend } = await newBackend();
+		await bind(backend, "anthropic", "anthropic");
+		const s = await backend.openSession({ cwd: "/tmp" });
+		await s.prompt({ text: "describe", images: [{ data: PNG_1X1, mimeType: "image/png" }] }, () => {}, new AbortController().signal);
+		const body = proxy.requests.filter((r) => r.method === "POST").at(-1)!.body;
+		const user = body.messages.find((m: { role: string }) => m.role === "user");
+		expect(user.content.map((c: { type: string }) => c.type)).toEqual(expect.arrayContaining(["text", "image"]));
+		expect(JSON.stringify(user)).not.toContain("Image omitted");
 	});
 });
 

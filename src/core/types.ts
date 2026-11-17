@@ -58,6 +58,18 @@ export interface ModelGroup {
 	models: ModelChoice[];
 }
 
+export interface PromptImage {
+	/** base64 */
+	data: string;
+	mimeType: string;
+}
+
+/** One user turn: text plus optional images. */
+export interface PromptInput {
+	text: string;
+	images: PromptImage[];
+}
+
 export type TurnEvent =
 	| { kind: "text"; delta: string }
 	| { kind: "thought"; delta: string }

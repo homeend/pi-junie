@@ -10,7 +10,7 @@ import {
 	MODEL_CONFIG_ID,
 	decodeClientProfile,
 	decodeModelValue,
-	decodePromptText,
+	decodePrompt,
 	decodeProviderBinding,
 	encodeConfigOptions,
 	encodePromptResult,
@@ -118,7 +118,7 @@ export class AcpAgent {
 			protocolVersion: PROTOCOL_VERSION,
 			agentCapabilities: {
 				loadSession: false,
-				promptCapabilities: { audio: false, image: false, embeddedContext: true },
+				promptCapabilities: { audio: false, image: true, embeddedContext: true },
 				mcpCapabilities: { http: false, sse: false },
 				sessionCapabilities: { list: {}, close: {}, resume: {} },
 				providers: {},
@@ -175,12 +175,12 @@ export class AcpAgent {
 	private async prompt(params: SessionPromptParams): Promise<unknown> {
 		const entry = this.requireSession(params.sessionId);
 		if (entry.turn) throw new RpcError(-32000, "A prompt is already running in this session");
-		const text = decodePromptText(params.prompt);
+		const input = decodePrompt(params.prompt);
 		const turn = new AbortController();
 		entry.turn = turn;
 		try {
 			const result = await entry.backend.prompt(
-				text,
+				input,
 				(event) => {
 					const update = encodeTurnEvent(event);
 					if (update) this.sendUpdate(params.sessionId, update);

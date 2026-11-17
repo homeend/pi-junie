@@ -97,6 +97,22 @@ describe("ACP driver", () => {
 		expect(init.result.agentCapabilities.sessionCapabilities.resume).toEqual({});
 	});
 
+	it("accepts image prompts (advertised) and passes them to the backend", async () => {
+		const { backend, call } = await connected();
+		const init = (await call("initialize", { protocolVersion: 1 })).result;
+		expect(init.agentCapabilities.promptCapabilities.image).toBe(true);
+		const s = await call("session/new", { cwd: "/tmp" });
+		const res = await call("session/prompt", {
+			sessionId: s.result.sessionId,
+			prompt: [
+				{ type: "text", text: "what is this?" },
+				{ type: "image", data: "iVBORw0KGgo=", mimeType: "image/png" },
+			],
+		});
+		expect(res.result.stopReason).toBe("end_turn");
+		expect(backend.calls).toContain(`prompt ${s.result.sessionId}: what is this? +1 image(s)`);
+	});
+
 	it("unknown methods get -32601", async () => {
 		const { call } = await connected();
 		expect((await call("_session/goal")).error.code).toBe(-32601);

@@ -6,7 +6,7 @@ import { AcpAgent } from "../src/acp/agent.ts";
 import type { JsonObject, Transport } from "../src/acp/jsonrpc.ts";
 import type { Logger } from "../src/core/log.ts";
 import type { AgentBackend, BackendSession, TurnSink } from "../src/core/ports.ts";
-import type { ModelGroup, ModelRef, ProviderBinding, ProviderSlotState, TurnResult } from "../src/core/types.ts";
+import type { ModelGroup, ModelRef, PromptInput, ProviderBinding, ProviderSlotState, TurnResult } from "../src/core/types.ts";
 
 export interface Fixture {
 	name: string;
@@ -132,8 +132,8 @@ export class FakeBackend implements AgentBackend {
 				calls.push(`select ${ref.slotId}/${ref.modelId}`);
 				model = ref;
 			},
-			prompt: async (text: string, sink: TurnSink, signal: AbortSignal): Promise<TurnResult> => {
-				calls.push(`prompt ${id}: ${text}`);
+			prompt: async ({ text, images }: PromptInput, sink: TurnSink, signal: AbortSignal): Promise<TurnResult> => {
+				calls.push(`prompt ${id}: ${text}${images.length ? ` +${images.length} image(s)` : ""}`);
 				sink({ kind: "text", delta: "echo: " });
 				await new Promise((r) => setTimeout(r, 5));
 				if (signal.aborted) return { stop: "cancelled" };

@@ -18,7 +18,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { type Logger, silentLogger } from "../core/log.ts";
 import type { AgentBackend, BackendSession, TurnSink } from "../core/ports.ts";
-import type { ModelChoice, ModelGroup, ModelRef, ProviderBinding, ProviderSlotState, TurnResult } from "../core/types.ts";
+import type { ModelChoice, ModelGroup, ModelRef, PromptInput, ProviderBinding, ProviderSlotState, TurnResult } from "../core/types.ts";
 import { bridgeProviderId, DEFAULT_MODEL, joinBaseUrl, SLOTS, type SlotDefinition } from "./catalog.ts";
 import { type SessionMeta, SessionStore } from "./session-store.ts";
 import { discoverModels, type ListedModel, listingIdMatches } from "./discovery.ts";
@@ -363,7 +363,8 @@ class PiSession implements BackendSession {
 		await this.pi?.setModel(model);
 	}
 
-	async prompt(text: string, sink: TurnSink, signal: AbortSignal): Promise<TurnResult> {
+	async prompt(input: PromptInput, sink: TurnSink, signal: AbortSignal): Promise<TurnResult> {
+		let { text } = input;
 		const log = this.backend.log;
 		const ref = this.currentModel();
 		const model = this.backend.resolveModel(ref);
@@ -380,9 +381,15 @@ class PiSession implements BackendSession {
 		else if (this.pi.model?.id !== model.id || this.pi.model?.provider !== model.provider) await this.pi.setModel(model);
 		if (this.pi.thinkingLevel !== this.thinkingLevel()) this.pi.setThinkingLevel(this.thinkingLevel());
 		const pi = this.pi;
-		this.nameIfUntitled(text, sink);
+		this.nameIfUntitled(text || (input.images.length ? "Image" : ""), sink);
+		let images = input.images.map((i) => ({ type: "image" as const, data: i.data, mimeType: i.mimeType }));
+		if (images.length && !model.input.includes("image")) {
+			log.warn(`session ${this.id}: ${fmt(ref)} does not accept images; ${images.length} image(s) dropped`);
+			text = `${text}\n\n[${images.length} image(s) omitted: ${model.name} does not accept images]`.trim();
+			images = [];
+		}
 		const started = Date.now();
-		log.info(`session ${this.id}: prompt start model=${fmt(ref)} effort=${pi.thinkingLevel} api=${model.api} baseUrl=${model.baseUrl} chars=${text.length}`);
+		log.info(`session ${this.id}: prompt start model=${fmt(ref)} effort=${pi.thinkingLevel} api=${model.api} baseUrl=${model.baseUrl} chars=${text.length} images=${images.length}`);
 
 		let last: AssistantMessage | undefined;
 		const unsubscribe = pi.subscribe((event) => {
@@ -406,7 +413,7 @@ class PiSession implements BackendSession {
 		const onAbort = () => void pi.abort();
 		signal.addEventListener("abort", onAbort, { once: true });
 		try {
-			await pi.prompt(text);
+			await pi.prompt(text, { images, expandPromptTemplates: false });
 		} catch (err) {
 			log.error(`session ${this.id}: prompt threw after ${Date.now() - started}ms: ${(err as Error).stack ?? String(err)}`);
 			return { stop: signal.aborted ? "cancelled" : "error", error: (err as Error).message };
