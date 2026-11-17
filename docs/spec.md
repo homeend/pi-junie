@@ -120,7 +120,7 @@ group ids (`proxy:<slot>`), `_meta` shapes and stop reasons.
 - `bindProvider` registers a **separate** Pi provider `air-<slot>` with `baseUrl` and `headers` from AIR,
   a placeholder API key, and the curated models copied from Pi's built-in catalog. It never overrides the
   user's real `anthropic`/`openai` providers, so the user's own credentials are never sent to the AIR proxy.
-- Each ACP session gets one Pi `AgentSession` with Pi's coding system prompt plus an IDE note, the built-in
+- Each ACP session gets one Pi `AgentSession` with Pi's coding system prompt plus a client note (the client as it named itself in initialize `clientInfo`, never assumed; `@path` mentions are paths), the built-in
   tools `read grep find ls edit write bash`, the project's context files (`AGENTS.md`/`CLAUDE.md` in the
   working directory and its parents) and skills (`.agents/skills`, `.pi/skills`, `~/.agents/skills`; the
   project counts as trusted unless `PI_AIR_TRUST_PROJECT=0`), and Pi's default auto-compaction. No
