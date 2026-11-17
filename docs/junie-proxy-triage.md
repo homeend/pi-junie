@@ -45,9 +45,10 @@ otherwise Chat Completions. The gpt-5.x/6.x models use Responses.
   BYOK key) upstream.
 - Junie adds the vendor auth header (`Authorization: Bearer`, `x-api-key` for Anthropic, `api-key` for Azure)
   only when the configured headers lack it **and** it has its own JBA token. Over ACP it normally sends none.
-- Pi always sends a vendor auth header with a placeholder key (`air-proxy`). Anthropic works with it. Whether
-  the proxy overwrites or forwards `Authorization: Bearer air-proxy` to OpenAI/BYOK is **unverified**; if it
-  forwards it, OpenAI rejects it with 401.
+- Pi's SDK clients need an API key, so the bridge registers the placeholder `air-proxy`. They would send it as
+  `x-api-key` (Anthropic), `Authorization: Bearer` (OpenAI) or `x-goog-api-key` (Google/Vertex); all four routes
+  worked with it in AIR. Like Junie, we now send none: `withoutPlaceholderAuth` (`src/pi/proxy-auth.ts`, installed
+  on the global fetch in `main.ts`) drops vendor auth headers whose value is the placeholder. Real keys pass.
 
 ## 3. `providers/set` parameters: JB extensions
 

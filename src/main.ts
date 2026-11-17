@@ -10,6 +10,7 @@ import { AcpAgent } from "./acp/agent.ts";
 import type { JsonObject, Transport } from "./acp/jsonrpc.ts";
 import { createLogger, type LogLevel, redactSecrets } from "./core/log.ts";
 import { PiBackend } from "./pi/backend.ts";
+import { withoutPlaceholderAuth } from "./pi/proxy-auth.ts";
 
 const LOG_FILE = process.env.PI_AIR_LOG;
 const WIRE = process.env.PI_AIR_WIRE !== "0";
@@ -48,8 +49,9 @@ for (const signal of ["SIGTERM", "SIGINT", "SIGHUP"] as const) {
 }
 process.on("exit", (code) => log.info(`process exit code=${code}`));
 
-// Log every outgoing LLM request (method, URL, status, duration; body excerpt on failure).
-const realFetch = globalThis.fetch;
+// Log every outgoing LLM request (method, URL, status, duration; body excerpt on failure), after dropping the
+// placeholder API key Pi's SDK clients add (the AIR proxy authenticates through its own headers, like Junie).
+const realFetch = withoutPlaceholderAuth(globalThis.fetch);
 globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
 	const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
 	const method = init?.method ?? (input instanceof Request ? input.method : "GET");

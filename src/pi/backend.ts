@@ -25,6 +25,7 @@ import { openPiTranscript, type SessionMeta, SessionStore } from "./session-stor
 import { BRIDGE_TOOLS, READ_ONLY_TOOLS, ToolTracker, toolKind, toolLocations, toolResultText, toolTitle } from "./tools.ts";
 import { IDE_ROUTER_TOOL, IDE_SERVER, ideRouterName, ideServerToolExposure, JUNIE_COMPAT_DEFAULTS, type JunieCompatOptions, junieExecuteToolAlias } from "./junie-compat.ts";
 import { classifyFailure } from "./failures.ts";
+import { PLACEHOLDER_API_KEY } from "./proxy-auth.ts";
 import { PhaseSplitter, type PhaseSplitterOptions, signaturePhase } from "./phases.ts";
 import { discoverModels, type ListedModel, listingIdMatches } from "./discovery.ts";
 
@@ -184,7 +185,7 @@ export class PiBackend implements AgentBackend {
 				name: `AIR ${slot.displayName}`,
 				baseUrl,
 				headers: binding.headers,
-				apiKey: "air-proxy", // the proxy authenticates via headers; Pi just needs a non-empty key
+				apiKey: PLACEHOLDER_API_KEY, // Pi needs a key; withoutPlaceholderAuth removes it from requests (see proxy-auth.ts)
 				api: target.piApi,
 				models,
 			});
