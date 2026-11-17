@@ -7,7 +7,7 @@ import type { PermissionDecision, PermissionRequest, ToolUpdate } from "../src/c
 import { PiBackend } from "../src/pi/backend.ts";
 import { LISTINGS, startFakeProxy } from "./fake-proxy.ts";
 
-let script: (string | { tool: string; input: unknown })[] = [];
+let script: (string | { tool: string; input: unknown; text?: string })[] = [];
 const proxy = await startFakeProxy({
 	reply: () => script.shift() ?? "done",
 	listing: (path) => (path.endsWith("/v1/models") ? [200, LISTINGS.anthropicVendor] : undefined),
@@ -219,6 +219,27 @@ describe("Pi bridge tools", () => {
 		}, new AbortController().signal, async () => "allow_once");
 		await slow;
 		expect(await during).toBe("busy");
+	});
+
+	it("tags text before a tool call as commentary and the answer as final_answer, also in history", async () => {
+		const { session } = await chat();
+		script = [{ text: "Let me look.", tool: "ls", input: {} }, "Here are the files."];
+		const chunks: [string, string | undefined][] = [];
+		await session.prompt(
+			{ text: "list files", images: [] },
+			(e) => e.kind === "text" && chunks.push([e.delta, e.phase]),
+			new AbortController().signal,
+			async () => "allow_once",
+		);
+		const byPhase = (phase: string) => chunks.filter(([, p]) => p === phase).map(([d]) => d).join("");
+		expect(byPhase("commentary")).toBe("Let me look.");
+		expect(byPhase("final_answer")).toBe("Here are the files.");
+		expect(chunks.every(([, p]) => p)).toBe(true);
+		const replay = session.history().filter((h) => h.kind === "assistant");
+		expect(replay).toEqual([
+			{ kind: "assistant", text: "Let me look.", phase: "commentary" },
+			{ kind: "assistant", text: "Here are the files.", phase: "final_answer" },
+		]);
 	});
 
 	it("sums usage over all model calls of a tool turn", async () => {

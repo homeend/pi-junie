@@ -24,6 +24,7 @@ import { bridgeProviderId, DEFAULT_MODEL, joinBaseUrl, SLOTS, type SlotDefinitio
 import { openPiTranscript, type SessionMeta, SessionStore } from "./session-store.ts";
 import { BRIDGE_TOOLS, READ_ONLY_TOOLS, ToolTracker, toolKind, toolLocations, toolResultText, toolTitle } from "./tools.ts";
 import { IDE_ROUTER_TOOL, IDE_SERVER, ideRouterName, ideServerToolExposure, JUNIE_COMPAT_DEFAULTS, type JunieCompatOptions, junieExecuteToolAlias } from "./junie-compat.ts";
+import { PhaseSplitter, type PhaseSplitterOptions, signaturePhase } from "./phases.ts";
 import { discoverModels, type ListedModel, listingIdMatches } from "./discovery.ts";
 
 function ideRouterNote(name: string): string {
@@ -45,6 +46,8 @@ export interface PiBackendOptions {
 	trustProject?: boolean;
 	/** Junie compatibility profile (see junie-compat.ts). */
 	junieCompat?: Partial<JunieCompatOptions>;
+	/** How long the start of a message is held back to tell commentary from the answer (see phases.ts). */
+	phaseHold?: PhaseSplitterOptions;
 }
 
 export class PiBackend implements AgentBackend {
@@ -62,6 +65,7 @@ export class PiBackend implements AgentBackend {
 	readonly log: Logger;
 	private readonly version: string;
 	private counter = 0;
+	readonly phaseHold?: PhaseSplitterOptions;
 
 	private constructor(runtime: ModelRuntime, stateDir: string, options: PiBackendOptions) {
 		this.runtime = runtime;
@@ -72,6 +76,7 @@ export class PiBackend implements AgentBackend {
 		this.fetchImpl = options.fetch;
 		this.discoveryTimeoutMs = options.discoveryTimeoutMs;
 		this.trustProject = options.trustProject ?? true;
+		this.phaseHold = options.phaseHold;
 		this.junieCompat = { ...JUNIE_COMPAT_DEFAULTS, ...options.junieCompat };
 	}
 
@@ -500,9 +505,14 @@ class PiSession implements BackendSession {
 				const text = parts.filter((p) => p.type === "text").map((p) => p.text ?? "").join("\n");
 				items.push({ kind: "user", text, imageCount: parts.filter((p) => p.type === "image").length });
 			} else if (message.role === "assistant") {
-				for (const part of message.content as { type: string; text?: string; thinking?: string; id?: string; name?: string; arguments?: unknown }[]) {
+				const parts = message.content as { type: string; text?: string; thinking?: string; id?: string; name?: string; arguments?: unknown; textSignature?: string }[];
+				const callsTools = parts.some((p) => p.type === "toolCall");
+				for (const part of parts) {
 					if (part.type === "thinking" && part.thinking) items.push({ kind: "thought", text: part.thinking });
-					else if (part.type === "text" && part.text) items.push({ kind: "assistant", text: part.text });
+					else if (part.type === "text" && part.text) {
+						const phase = signaturePhase(part.textSignature) ?? (callsTools ? "commentary" : "final_answer");
+						items.push({ kind: "assistant", text: part.text, phase });
+					}
 					else if (part.type === "toolCall" && part.id && part.name) {
 						const item: Extract<HistoryItem, { kind: "tool" }> = {
 							kind: "tool",
@@ -704,11 +714,17 @@ class PiSession implements BackendSession {
 		this.ask = ask;
 		this.onApproved = (id, name) => tool(tools.approved(id, name));
 		this.logMcpToolsOnce();
+		const phases = new PhaseSplitter((delta, phase) => sink({ kind: "text", delta, phase }), this.backend.phaseHold);
 		const unsubscribe = pi.subscribe((event) => {
+			if (event.type === "message_start" && event.message.role === "assistant") phases.messageStart();
 			if (event.type === "message_update") {
 				const e = event.assistantMessageEvent;
-				if (e.type === "text_delta") sink({ kind: "text", delta: e.delta });
-				else if (e.type === "thinking_delta") sink({ kind: "thought", delta: e.delta });
+				if (e.type === "text_delta") phases.text(e.delta);
+				else if (e.type === "text_end") {
+					const block = e.partial.content[e.contentIndex] as { textSignature?: string } | undefined;
+					phases.textEnd(signaturePhase(block?.textSignature));
+				} else if (e.type === "thinking_delta") sink({ kind: "thought", delta: e.delta });
+				else if (e.type === "toolcall_start") phases.toolCall();
 				else if (e.type === "toolcall_end") tool(tools.requested(e.toolCall.id, e.toolCall.name, e.toolCall.arguments));
 			} else if ((event.type === "tool_execution_start" || event.type === "tool_execution_update" || event.type === "tool_execution_end") && (event as { parentToolCallId?: string }).parentToolCallId) {
 				// nested call (reported through its parent tool's card)
@@ -722,6 +738,7 @@ class PiSession implements BackendSession {
 				log.info(`session ${this.id}: tool ${event.toolName} ${event.toolCallId} ${event.isError ? "FAILED" : "done"}${event.durationMs !== undefined ? ` ${event.durationMs}ms` : ""}`);
 				tool(tools.finished(event.toolCallId, event.toolName, event.result, event.isError));
 			} else if (event.type === "message_end" && event.message.role === "assistant") {
+				phases.messageEnd();
 				last = event.message as AssistantMessage;
 				const u = last.usage;
 				total.input += u.input;
@@ -751,6 +768,7 @@ class PiSession implements BackendSession {
 			return { stop: signal.aborted ? "cancelled" : "error", error: (err as Error).message };
 		} finally {
 			this.enterPhase("idle");
+			phases.messageEnd(); // an aborted or failed message still shows what it wrote
 			unsubscribe();
 			this.ask = undefined;
 			this.onApproved = undefined;

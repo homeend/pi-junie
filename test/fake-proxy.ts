@@ -13,7 +13,7 @@ export interface FakeProxyOptions {
 	/** Answer for GET requests (model listings): return [status, json] or undefined for 404. */
 	listing?: (path: string, req: FakeRequest) => [number, unknown] | undefined;
 	/** What the fake Anthropic model answers: text, or a tool call. */
-	reply?: (req: FakeRequest) => string | { tool: string; input: unknown };
+	reply?: (req: FakeRequest) => string | { tool: string; input: unknown; text?: string };
 }
 
 export async function startFakeProxy(options: FakeProxyOptions = {}): Promise<{ url: string; requests: FakeRequest[]; close: () => Promise<void> }> {
@@ -43,9 +43,17 @@ export async function startFakeProxy(options: FakeProxyOptions = {}): Promise<{ 
 							["message_delta", { type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { input_tokens: 12, output_tokens: 7 } }],
 						]
 					: [
-							["content_block_start", { type: "content_block_start", index: 0, content_block: { type: "tool_use", id: `toolu_${requests.length}`, name: answer.tool, input: {} } }],
-							["content_block_delta", { type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: JSON.stringify(answer.input) } }],
-							["content_block_stop", { type: "content_block_stop", index: 0 }],
+							// optional text before the call (commentary)
+							...(answer.text
+								? ([
+										["content_block_start", { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } }],
+										["content_block_delta", { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: answer.text } }],
+										["content_block_stop", { type: "content_block_stop", index: 0 }],
+									] as [string, unknown][])
+								: []),
+							["content_block_start", { type: "content_block_start", index: answer.text ? 1 : 0, content_block: { type: "tool_use", id: `toolu_${requests.length}`, name: answer.tool, input: {} } }],
+							["content_block_delta", { type: "content_block_delta", index: answer.text ? 1 : 0, delta: { type: "input_json_delta", partial_json: JSON.stringify(answer.input) } }],
+							["content_block_stop", { type: "content_block_stop", index: answer.text ? 1 : 0 }],
 							["message_delta", { type: "message_delta", delta: { stop_reason: "tool_use" }, usage: { input_tokens: 12, output_tokens: 7 } }],
 						];
 			const events: [string, unknown][] = [start, ...body, ["message_stop", { type: "message_stop" }]];

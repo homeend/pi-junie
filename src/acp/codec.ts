@@ -1,6 +1,6 @@
 // Translation between ACP v1 wire shapes and core types. Pure functions.
 
-import type { ClientProfile, CommandInfo, HistoryItem, McpServerSpec, ModelGroup, ModelRef, PromptImage, PromptInput, ProviderBinding, PermissionDecision, PermissionRequest, ProviderSlotState, SessionSummary, ToolUpdate, TurnEvent, TurnResult } from "../core/types.ts";
+import type { ClientProfile, CommandInfo, HistoryItem, McpServerSpec, ModelGroup, ModelRef, PromptImage, PromptInput, ProviderBinding, PermissionDecision, PermissionRequest, ProviderSlotState, SessionSummary, ToolUpdate, TurnEvent, TurnResult, MessagePhase } from "../core/types.ts";
 import { RpcError } from "./jsonrpc.ts";
 import type {
 	ContentBlock,
@@ -180,12 +180,21 @@ export function decodePrompt(prompt: ContentBlock[] | undefined): PromptInput {
 	return { text, images };
 }
 
+/**
+ * Message phase like Junie: AIR reads `_meta.jetbrains.air.phase` (commentary = working, final_answer = answer);
+ * Junie also sends the codex and junie keys for compatibility, so we do too.
+ */
+function phaseMeta(phase: MessagePhase | undefined): { _meta?: Record<string, unknown> } {
+	if (!phase) return {};
+	return { _meta: { codex: { phase }, jetbrains: { air: { phase } }, junie: { version: 1, phase } } };
+}
+
 export function encodeTurnEvent(event: TurnEvent): SessionUpdate | undefined {
 	switch (event.kind) {
 		case "tool":
 			return undefined; // stateful, see encodeToolUpdate
 		case "text":
-			return { sessionUpdate: "agent_message_chunk", content: { type: "text", text: event.delta } };
+			return { sessionUpdate: "agent_message_chunk", content: { type: "text", text: event.delta }, ...phaseMeta(event.phase) };
 		case "thought":
 			return { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: event.delta } };
 		case "title":
@@ -252,7 +261,7 @@ export function encodeHistory(items: HistoryItem[]): SessionUpdate[] {
 				return { sessionUpdate: "user_message_chunk", content: { type: "text", text } };
 			}
 			case "assistant":
-				return { sessionUpdate: "agent_message_chunk", content: { type: "text", text: item.text } };
+				return { sessionUpdate: "agent_message_chunk", content: { type: "text", text: item.text }, ...phaseMeta(item.phase) };
 			case "thought":
 				return { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: item.text } };
 		}

@@ -117,11 +117,14 @@ export interface PermissionRequest {
 export type PermissionDecision = "allow_once" | "allow_always" | "reject";
 
 export type TurnEvent =
-	| { kind: "text"; delta: string }
+	| { kind: "text"; delta: string; phase?: MessagePhase }
 	| { kind: "thought"; delta: string }
 	| { kind: "usage"; inputTokens: number; outputTokens: number; contextUsed?: number; contextSize?: number; costUsd?: number }
 	| { kind: "title"; title: string }
 	| { kind: "tool"; update: ToolUpdate };
+
+/** "commentary": text the agent writes while working (before tool calls); "final_answer": its answer. */
+export type MessagePhase = "commentary" | "final_answer";
 
 export type TurnStop = "end_turn" | "cancelled" | "max_tokens" | "refusal" | "error";
 
@@ -151,7 +154,7 @@ export interface SessionSummary {
 /** One past item of a conversation, replayed when a client reopens a session. */
 export type HistoryItem =
 	| { kind: "user"; text: string; imageCount: number }
-	| { kind: "assistant"; text: string }
+	| { kind: "assistant"; text: string; phase?: MessagePhase }
 	| { kind: "thought"; text: string }
 	| { kind: "tool"; update: ToolUpdate };
 

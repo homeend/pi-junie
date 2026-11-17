@@ -244,7 +244,7 @@ describe("session history", () => {
 		const reopened = (await again.resumeSession({ sessionId: a.id, cwd: "/proj" }))!.session;
 		expect(reopened.history()).toEqual([
 			{ kind: "user", text: "first chat", imageCount: 0 },
-			{ kind: "assistant", text: "answer #1" },
+			{ kind: "assistant", text: "answer #1", phase: "final_answer" },
 		]);
 		expect(reopened.title()).toBe("first chat");
 	});

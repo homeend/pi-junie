@@ -164,6 +164,11 @@ group ids (`proxy:<slot>`), `_meta` shapes and stop reasons.
 - **Tool events** (`src/pi/tools.ts`, ported from pi-acp, MIT) become neutral `ToolUpdate`s (title, kind,
   status, input, locations with the edit line, output text, edit/write diffs from a pre-execution snapshot).
   The driver turns the first update of an id into `tool_call` and later ones into `tool_call_update`.
+- **Message phases** (`src/pi/phases.ts`), like Junie: each assistant text chunk is `commentary` (written while
+  working, before tool calls) or `final_answer`, sent as `_meta.jetbrains.air.phase` (plus Junie's `codex` and
+  `junie` keys). The first text of a message is held up to 1.5 s / 600 chars: a tool call starting meanwhile makes
+  it commentary, OpenAI's own phase (Pi's text signature) decides when present, otherwise it streams as the
+  answer. Replayed history uses the same rule (text of a message that called tools = commentary).
 - Pi output is mapped to core `TurnEvent`s (`text`, `thought`, `usage`, `title`, `tool`) and nothing ACP-shaped.
 - Sessions are persisted under `~/.pi/pi-junie/sessions` (metadata JSON + Pi transcript with the same id).
   `session/resume` reopens them; `session/list` returns prompted sessions (newest first, AIR's `list.limit`,
