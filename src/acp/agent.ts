@@ -43,6 +43,9 @@ interface SessionEntry {
 export const STEERING_METHOD = "_session/steering";
 /** Top-level `_meta` key on the session/update that ends a turn AIR did not start with session/prompt. */
 const LAST_REQUEST_COMPLETE = "lastRequestComplete";
+const AUTH_STATUS_METHOD = "_auth/status_update";
+/** What Junie reports when its models come from the IDE's proxy (`AcpLlmAccess`). */
+const IDE_PROXY_AUTH_STATUS = { kind: "account", label: "JetBrains AI", detail: "IDE" };
 
 export interface AcpAgentOptions {
 	logger?: Logger;
@@ -93,6 +96,9 @@ export class AcpAgent {
 				return encodeProviderList(this.backend.providerSlots());
 			case "providers/set":
 				this.backend.bindProvider(decodeProviderBinding(params as unknown as ProvidersSetParams, this.backend.providerSlots()));
+				setTimeout(() => {
+					for (const id of this.sessions.keys()) this.pushAuthStatus(id);
+				});
 				return {};
 			case "providers/disable":
 				this.backend.unbindProvider(String(params.providerId));
@@ -144,6 +150,7 @@ export class AcpAgent {
 				mcpCapabilities: { http: true, sse: false },
 				sessionCapabilities: { list: {}, close: {}, resume: {}, additionalDirectories: {} },
 				providers: {},
+				_meta: { authStatus: {} }, // we push _auth/status_update (Junie's capability marker)
 			},
 			authMethods: [],
 			agentInfo: { name: id.name, title: id.title, version: id.version },
@@ -171,9 +178,20 @@ export class AcpAgent {
 		return { cwd, mcpServers: servers, skillRoots };
 	}
 
-	/** Sends the session's commands (built-ins, skills) after the lifecycle response. */
+	/**
+	 * AIR's account label (`_auth/status_update`), pushed like Junie after session/new, resume and load, and when
+	 * a provider is bound. Models go through AIR's own proxy, so Junie reports the IDE's JetBrains AI account
+	 * (BYOK included). Nothing is pushed while no provider is bound.
+	 */
+	private pushAuthStatus(sessionId: string): void {
+		if (!this.backend.providerSlots().some((s) => s.binding)) return;
+		this.peer.notify(AUTH_STATUS_METHOD, { sessionId, authStatus: IDE_PROXY_AUTH_STATUS });
+	}
+
+	/** Sends the session's commands (built-ins, skills) and the auth label after the lifecycle response. */
 	private publishCommands(session: BackendSession): void {
 		setTimeout(() => {
+			this.pushAuthStatus(session.id);
 			session.commands().then(
 				(commands) => this.sendUpdate(session.id, { sessionUpdate: "available_commands_update", availableCommands: encodeCommands(commands) }),
 				(err: unknown) => this.log.warn(`session ${session.id}: command list failed: ${(err as Error).message}`),
@@ -210,7 +228,10 @@ export class AcpAgent {
 	private async resumeSession(params: JsonObject): Promise<unknown> {
 		const sessionId = String(params.sessionId);
 		const existing = this.sessions.get(sessionId);
-		if (existing) return { configOptions: this.configOptionsFor(existing.backend) };
+		if (existing) {
+			setTimeout(() => this.pushAuthStatus(sessionId));
+			return { configOptions: this.configOptionsFor(existing.backend) };
+		}
 		const cwd = typeof params.cwd === "string" ? params.cwd : process.cwd();
 		await this.backend.modelsSettled(MODEL_DISCOVERY_WAIT_MS);
 		const resumed = await this.backend.resumeSession({ sessionId, ...this.sessionContext(params, cwd) });

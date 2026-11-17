@@ -334,6 +334,20 @@ describe("ACP driver", () => {
 		});
 	});
 
+	it("pushes Junie's IDE-proxy auth label once a provider is bound, after the session opens", async () => {
+		const { wire, call } = await connected();
+		expect((await call("initialize", { protocolVersion: 1 })).result.agentCapabilities._meta.authStatus).toEqual({});
+		const s = await call("session/new", { cwd: "/tmp" });
+		await new Promise((r) => setTimeout(r, 5));
+		expect(wire.notifications("_auth/status_update")).toEqual([]); // nothing bound yet
+		await call("providers/set", { providerId: "anthropic", apiType: "anthropic", baseUrl: "http://proxy/a" });
+		await call("session/resume", { sessionId: s.result.sessionId, cwd: "/tmp" });
+		await new Promise((r) => setTimeout(r, 5));
+		const pushes = wire.notifications("_auth/status_update").map((n) => n.params);
+		expect(pushes).toHaveLength(2); // on providers/set and after resume
+		expect(pushes[0]).toEqual({ sessionId: s.result.sessionId, authStatus: { kind: "account", label: "JetBrains AI", detail: "IDE" } });
+	});
+
 	it("advertises loadSession", async () => {
 		const { call } = await connected();
 		expect((await call("initialize", { protocolVersion: 1 })).result.agentCapabilities.loadSession).toBe(true);

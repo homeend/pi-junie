@@ -51,7 +51,7 @@ needs a `pi` subprocess and the user's Pi configuration.
 | `plan` | base | ✓ | — | ✗ | P2 |
 | `fs/*`, `terminal/*` client delegation | base (client) | ✗ (client says false) | ✗ | ✗ | not needed: AIR sends `fs:false, terminal:false` |
 | MCP servers from `session/new` | base | ✓ | stored only | ignored | P2 (AIR's `jetbrains_air_ide` MCP) |
-| `authMethods` / `_auth/status_update` | base / AIR | ✓ | terminal auth | none | P2: AIR status label only |
+| `authMethods` / `_auth/status_update` | base / AIR | ✓ | terminal auth | status ✓ (Junie's IDE-proxy label `JetBrains AI · IDE`), no auth methods | — |
 
 ## 3. What "normal conversation" needs, in order
 
