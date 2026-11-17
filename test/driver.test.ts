@@ -150,6 +150,19 @@ describe("ACP driver", () => {
 		expect((await call("session/load", { sessionId: "pi-unknown", cwd: "/tmp" })).error.code).toBe(-32002);
 	});
 
+	it("ends the load replay with AIR's loadReplayEnd marker when the client asks for it", async () => {
+		const { wire, call } = await connected();
+		await call("initialize", { protocolVersion: 1, clientCapabilities: { _meta: { jetbrains: { air: { version: 1, capabilities: ["loadReplayEnd"] } } } } });
+		const before = wire.sent.length;
+		await call("session/load", { sessionId: "fake-session-old", cwd: "/tmp" });
+		const sent = wire.sent.slice(before);
+		const responseIndex = sent.findIndex((m) => m.id !== undefined);
+		expect(sent[responseIndex - 1].params).toEqual({
+			sessionId: "fake-session-old",
+			update: { sessionUpdate: "session_info_update", _meta: { jetbrains: { air: { loadReplayEnd: true } } } },
+		});
+	});
+
 	it("replays tool calls as complete tool_call updates", async () => {
 		const { encodeHistory } = await import("../src/acp/codec.ts");
 		const updates = encodeHistory([

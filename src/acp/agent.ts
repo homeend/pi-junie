@@ -220,6 +220,10 @@ export class AcpAgent {
 		for (const update of encodeHistory(history)) this.sendUpdate(sessionId, update);
 		const title = backend.title();
 		if (title) this.sendUpdate(sessionId, { sessionUpdate: "session_info_update", title });
+		// AIR writes the loaded history once it sees this marker (else when the load answers).
+		if (this.client?.features.includes("loadReplayEnd")) {
+			this.sendUpdate(sessionId, { sessionUpdate: "session_info_update", _meta: { jetbrains: { air: { loadReplayEnd: true } } } });
+		}
 		this.log.info(`session/load ${sessionId}: replayed ${history.length} item(s)`);
 		return { configOptions: this.configOptionsFor(backend) };
 	}

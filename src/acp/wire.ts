@@ -71,7 +71,7 @@ export type SessionUpdate =
 	| { sessionUpdate: "agent_message_chunk"; content: { type: "text"; text: string }; _meta?: Record<string, unknown> }
 	| { sessionUpdate: "agent_thought_chunk"; content: { type: "text"; text: string } }
 	| { sessionUpdate: "config_option_update"; configOptions: SelectConfigOption[] }
-	| { sessionUpdate: "session_info_update"; title?: string }
+	| { sessionUpdate: "session_info_update"; title?: string; _meta?: Record<string, unknown> }
 	| { sessionUpdate: "available_commands_update"; availableCommands: Record<string, unknown>[] }
 	| { sessionUpdate: "tool_call"; toolCallId: string; [key: string]: unknown }
 	| { sessionUpdate: "tool_call_update"; toolCallId: string; [key: string]: unknown }
