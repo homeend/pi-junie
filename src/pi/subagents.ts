@@ -59,7 +59,7 @@ export interface RelayOptions {
 	cwd: string;
 	sink: TurnSink;
 	gate: ChildGate;
-	needsApproval: (toolName: string) => boolean;
+	needsApproval: (toolName: string, input: unknown) => boolean;
 	phaseHold?: PhaseSplitterOptions;
 	log: Logger;
 }
@@ -130,7 +130,7 @@ export class SubagentRelay implements ChildHost {
 			const call = { toolCallId: context.toolCall.id, toolName: context.toolCall.name, input: (context.args ?? {}) as Record<string, unknown> };
 			const verdict = await this.options.gate(id, call);
 			if (verdict) return verdict;
-			if (this.options.needsApproval(call.toolName)) transcript.approved(call.toolCallId, call.toolName);
+			if (this.options.needsApproval(call.toolName, call.input)) transcript.approved(call.toolCallId, call.toolName);
 			return earlier;
 		};
 

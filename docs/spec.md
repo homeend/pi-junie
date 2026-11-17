@@ -234,6 +234,12 @@ that unlock each one:
   child id (`<parent>:subagent-<n>`), child permission requests on the child id, `subagent_state_update` on the
   parent; the parent's `Agent` tool rows are hidden. Without the capability, only the `Agent` rows show.
   Not yet: background subagents, replay of children on session/load.
+- Brave Mode (Junie's `brave_mode` select, category `mode`, values `brave-auto` / `on` / `off` labelled Auto / Brave /
+  Safe, booleans accepted): per session, persisted in the session metadata, default Auto (Junie's default). Safe asks
+  for every tool that is not read-only; Auto also runs read-only shell commands without asking
+  (`src/pi/safe-commands.ts`: a quote-aware rule list of read-only commands and git subcommands, no redirection or
+  substitution; Junie uses an LLM classifier instead); Brave asks for nothing. Subagents' tools follow the parent's
+  mode.
 - Subagent models: with the plugin present, every prompt's system prompt lists the session's available models
   (`provider/id`, display name, which one the session uses) for the `Agent` tool's `model` parameter, so the
   agent can offer them (e.g. through `ask_user`). A child run on a chosen model is named `<type> · <model id>`.

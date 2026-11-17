@@ -6,7 +6,7 @@ import { AcpAgent } from "../src/acp/agent.ts";
 import type { JsonObject, Transport } from "../src/acp/jsonrpc.ts";
 import type { Logger } from "../src/core/log.ts";
 import type { AgentBackend, BackendSession, PermissionAsk, QuestionAsk, TurnSink } from "../src/core/ports.ts";
-import type { HistoryItem, McpServerSpec, ModelGroup, ModelRef, PromptInput, ProviderBinding, ProviderSlotState, SessionSummary, TurnResult } from "../src/core/types.ts";
+import type { ApprovalMode, HistoryItem, McpServerSpec, ModelGroup, ModelRef, PromptInput, ProviderBinding, ProviderSlotState, SessionSummary, TurnResult } from "../src/core/types.ts";
 
 export interface Fixture {
 	name: string;
@@ -146,6 +146,7 @@ export class FakeBackend implements AgentBackend {
 	private makeSession(id: string, cwd: string): BackendSession {
 		let model: ModelRef | undefined;
 		let effort = "medium";
+		let approval: ApprovalMode = "auto";
 		const history: HistoryItem[] = id.startsWith("fake-session-old")
 			? [{ kind: "user", text: "earlier question", imageCount: 0 }, { kind: "thought", text: "hmm" }, { kind: "assistant", text: "earlier answer" }]
 			: [];
@@ -168,6 +169,11 @@ export class FakeBackend implements AgentBackend {
 			selectEffort: async (level: string) => {
 				calls.push(`effort ${level}`);
 				effort = level;
+			},
+			approvalMode: () => approval,
+			selectApprovalMode: async (mode) => {
+				calls.push(`approval ${mode}`);
+				approval = mode;
 			},
 			selectModel: async (ref) => {
 				calls.push(`select ${ref.slotId}/${ref.modelId}`);

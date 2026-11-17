@@ -1,3 +1,4 @@
+import type { ApprovalMode } from "../core/types.ts";
 // Persists bridge sessions so they survive agent restarts (AIR restarts the agent whenever the proxy identity
 // changes and then calls session/resume). Two files per session under <stateDir>/sessions:
 //   <id>.json        our metadata (cwd, selected model, timestamps)
@@ -14,6 +15,8 @@ export interface SessionMeta {
 	model?: ModelRef;
 	title?: string;
 	effort?: string;
+	/** Brave Mode: safe / auto / brave. */
+	approvalMode?: ApprovalMode;
 	lastPromptAt?: string;
 	createdAt: string;
 	updatedAt: string;

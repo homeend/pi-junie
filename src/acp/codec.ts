@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 // Translation between ACP v1 wire shapes and core types. Pure functions.
 
-import type { ClientProfile, CommandInfo, HistoryItem, McpServerSpec, ModelGroup, ModelRef, PromptImage, PromptInput, ProviderBinding, PermissionDecision, PermissionRequest, ProviderSlotState, SessionSummary, ToolUpdate, TurnEvent, TurnResult, MessagePhase, QuestionAnswers, QuestionForm, TurnFailure } from "../core/types.ts";
+import type { ApprovalMode, ClientProfile, CommandInfo, HistoryItem, McpServerSpec, ModelGroup, ModelRef, PromptImage, PromptInput, ProviderBinding, PermissionDecision, PermissionRequest, ProviderSlotState, SessionSummary, ToolUpdate, TurnEvent, TurnResult, MessagePhase, QuestionAnswers, QuestionForm, TurnFailure } from "../core/types.ts";
 import { RpcError } from "./jsonrpc.ts";
 import type {
 	ContentBlock,
@@ -15,6 +15,46 @@ import type {
 
 export const MODEL_CONFIG_ID = "model";
 export const EFFORT_CONFIG_ID = "effort";
+export const BRAVE_CONFIG_ID = "brave_mode";
+
+/** Junie's Brave Mode values on the wire. */
+const BRAVE_VALUES: Record<ApprovalMode, string> = { auto: "brave-auto", brave: "on", safe: "off" };
+
+/** Junie's `brave_mode` select (same id, values, labels and order), shown by AIR as the approval mode picker. */
+export function encodeBraveOption(mode: ApprovalMode): SelectConfigOption {
+	return {
+		type: "select",
+		id: BRAVE_CONFIG_ID,
+		name: "Brave Mode",
+		description: "How Pi asks before running commands: Safe asks for everything, Auto auto-approves safe commands and asks for the rest, Brave runs everything without asking",
+		category: "mode",
+		currentValue: BRAVE_VALUES[mode],
+		options: [
+			{ value: BRAVE_VALUES.auto, name: "Auto" },
+			{ value: BRAVE_VALUES.brave, name: "Brave" },
+			{ value: BRAVE_VALUES.safe, name: "Safe" },
+		],
+	};
+}
+
+/** A `brave_mode` value (Junie's, or a boolean from clients that treat it as a switch); undefined if unknown. */
+export function decodeBraveValue(value: unknown): ApprovalMode | undefined {
+	if (value === true) return "brave";
+	if (value === false) return "safe";
+	switch (String(value).trim().toLowerCase()) {
+		case "on":
+		case "true":
+			return "brave";
+		case "brave-auto":
+		case "auto":
+			return "auto";
+		case "off":
+		case "false":
+			return "safe";
+		default:
+			return undefined;
+	}
+}
 const RECOMMENDED_EFFORT = "medium";
 const EFFORT_LABELS: Record<string, string> = {
 	off: "○ No reasoning",
@@ -191,7 +231,7 @@ export function encodeEffortOption(effort: EffortState | undefined): SelectConfi
 }
 
 /** Builds the `configOptions` array. Returns no model option when no model is reachable. */
-export function encodeConfigOptions(groups: ModelGroup[], current: ModelRef | undefined, effort?: EffortState): SelectConfigOption[] {
+export function encodeConfigOptions(groups: ModelGroup[], current: ModelRef | undefined, effort?: EffortState, approval?: ApprovalMode): SelectConfigOption[] {
 	const nonEmpty = groups.filter((g) => g.models.length > 0);
 	if (nonEmpty.length === 0) return [];
 	const options: SelectGroup[] = nonEmpty.map((g) => ({
@@ -211,7 +251,7 @@ export function encodeConfigOptions(groups: ModelGroup[], current: ModelRef | un
 			options,
 		},
 	];
-	return [...modelOption, ...encodeEffortOption(effort)];
+	return [...modelOption, ...encodeEffortOption(effort), ...(approval ? [encodeBraveOption(approval)] : [])];
 }
 
 // --- prompt ---------------------------------------------------------------------------------

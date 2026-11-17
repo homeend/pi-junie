@@ -10,7 +10,7 @@ export interface TranscriptOptions {
 	cwd: string;
 	phaseHold?: PhaseSplitterOptions;
 	/** Whether a tool waits for the user's approval before it runs (it stays pending until `approved`). */
-	needsApproval: (toolName: string) => boolean;
+	needsApproval: (toolName: string, input: unknown) => boolean;
 	/** Tools that start subagents (their updates are marked `launchesSubagent`). */
 	launchesSubagent?: (toolName: string) => boolean;
 	/** Diagnostics for tool starts and ends. */
@@ -47,7 +47,7 @@ export class TranscriptStream {
 			// nested call (reported through its parent tool's card)
 		} else if (event.type === "tool_execution_start") {
 			log?.(`tool ${event.toolName} ${event.toolCallId} start ${JSON.stringify(event.args).slice(0, 200)}`);
-			this.tool(this.tools.started(event.toolCallId, event.toolName, event.args, this.options.needsApproval(event.toolName)));
+			this.tool(this.tools.started(event.toolCallId, event.toolName, event.args, this.options.needsApproval(event.toolName, event.args)));
 		} else if (event.type === "tool_execution_update") {
 			this.tool(this.tools.progressed(event.toolCallId, event.toolName, event.partialResult));
 		} else if (event.type === "tool_execution_end") {

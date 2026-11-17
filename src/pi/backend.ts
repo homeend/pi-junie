@@ -19,7 +19,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { type Logger, silentLogger } from "../core/log.ts";
 import type { AgentBackend, BackendSession, PermissionAsk, QuestionAsk, SessionContext, TurnSink } from "../core/ports.ts";
-import type { CommandInfo, HistoryItem, McpServerSpec, ModelChoice, ModelGroup, ModelRef, PromptInput, ProviderBinding, ProviderSlotState, SessionSummary, SteerResult, TurnResult } from "../core/types.ts";
+import type { ApprovalMode, CommandInfo, HistoryItem, McpServerSpec, ModelChoice, ModelGroup, ModelRef, PromptInput, ProviderBinding, ProviderSlotState, SessionSummary, SteerResult, TurnResult } from "../core/types.ts";
 import { bridgeProviderId, DEFAULT_MODEL, joinBaseUrl, SLOTS, type SlotDefinition, vertexBaseUrl } from "./catalog.ts";
 import { openPiTranscript, type SessionMeta, SessionStore } from "./session-store.ts";
 import { BRIDGE_TOOLS, READ_ONLY_TOOLS, toolKind, toolLocations, toolResultText, toolTitle } from "./tools.ts";
@@ -29,6 +29,7 @@ import { PLACEHOLDER_API_KEY } from "./proxy-auth.ts";
 import { ASK_USER_TOOL, askUserTool } from "./ask-user.ts";
 import { type PhaseSplitterOptions, signaturePhase } from "./phases.ts";
 import { TranscriptStream } from "./transcript.ts";
+import { isReadOnlyCommand } from "./safe-commands.ts";
 import { AGENT_TOOL, installChildSessionHook, markBridgeSession, SubagentRelay, subagentModelsNote, withChildHost } from "./subagents.ts";
 import { type DetectedPlugin, detectPlugins, pluginWelcomeLines, SUBAGENT_TOOLS, SUBAGENTS_PLUGIN } from "./plugins.ts";
 import { discoverModels, type ListedModel, listingIdMatches } from "./discovery.ts";
@@ -508,6 +509,16 @@ class PiSession implements BackendSession {
 		this.pi?.setThinkingLevel(this.thinkingLevel());
 	}
 
+	approvalMode(): ApprovalMode {
+		return this.meta.approvalMode ?? DEFAULT_APPROVAL_MODE;
+	}
+
+	async selectApprovalMode(mode: ApprovalMode): Promise<void> {
+		this.backend.log.info(`session ${this.id}: brave mode ${this.approvalMode()} -> ${mode}`);
+		this.meta.approvalMode = mode;
+		this.persist();
+	}
+
 	private thinkingLevel(): ThinkingLevel {
 		return (this.currentEffort() ?? "off") as ThinkingLevel;
 	}
@@ -648,7 +659,18 @@ class PiSession implements BackendSession {
 		}
 	}
 
-	/** Runs without asking: built-in read-only tools, MCP tools the server marks read-only, tools allowed for this chat. */
+	/**
+	 * Runs without asking: everything in Brave mode; read-only shell commands in Auto mode; otherwise built-in read-only
+	 * tools, MCP tools the server marks read-only and tools allowed for this chat.
+	 */
+	private approvedUpfront(toolName: string, input: unknown): boolean {
+		const mode = this.approvalMode();
+		if (mode === "brave") return true;
+		if (mode === "auto" && toolName === "bash" && isReadOnlyCommand(String((input as { command?: unknown } | undefined)?.command ?? ""))) return true;
+		return this.runsWithoutAsking(toolName);
+	}
+
+	/** Runs without asking in every mode: built-in read-only tools, MCP tools the server marks read-only, tools allowed for this chat. */
 	private runsWithoutAsking(toolName: string): boolean {
 		// ask_user is itself a question to the user: no separate permission.
 		// The subagent tools only start or steer children, whose own tools pass this gate.
@@ -664,7 +686,7 @@ class PiSession implements BackendSession {
 			// Subagents run in the foreground for now: their child session lives within the parent's turn.
 			if (event.toolName === AGENT_TOOL) (event.input as Record<string, unknown>).run_in_background = false;
 			const verdict = await this.permit({ toolCallId: event.toolCallId, toolName: event.toolName, input: event.input as Record<string, unknown> });
-			if (!verdict && !this.runsWithoutAsking(event.toolName)) this.onApproved?.(event.toolCallId, event.toolName);
+			if (!verdict && !this.approvedUpfront(event.toolName, event.input)) this.onApproved?.(event.toolCallId, event.toolName);
 			return verdict;
 		});
 	};
@@ -672,7 +694,7 @@ class PiSession implements BackendSession {
 	/** Asks the user (unless the tool runs without asking); a block verdict when it must not run. Also for subagents' tools. */
 	private async permit(call: { toolCallId: string; toolName: string; input: Record<string, unknown> }, subagentId?: string): Promise<{ block: true; reason: string } | undefined> {
 		const log = this.backend.log;
-		if (this.runsWithoutAsking(call.toolName)) return undefined;
+		if (this.approvedUpfront(call.toolName, call.input)) return undefined;
 		if (!this.ask) return { block: true, reason: "No client to ask for permission." };
 		const decision = await this.ask({
 			toolCallId: call.toolCallId,
@@ -796,7 +818,7 @@ class PiSession implements BackendSession {
 		const transcript = new TranscriptStream(sink, {
 			cwd: this.cwd,
 			phaseHold: this.backend.phaseHold,
-			needsApproval: (name) => !this.runsWithoutAsking(name),
+			needsApproval: (name, input) => !this.approvedUpfront(name, input),
 			launchesSubagent: (name) => name === AGENT_TOOL,
 			log: (line) => log.info(`session ${this.id}: ${line}`),
 		});
@@ -808,7 +830,7 @@ class PiSession implements BackendSession {
 			cwd: this.cwd,
 			sink,
 			gate: (subagentId, call) => this.permit(call, subagentId),
-			needsApproval: (name) => !this.runsWithoutAsking(name),
+			needsApproval: (name, input) => !this.approvedUpfront(name, input),
 			phaseHold: this.backend.phaseHold,
 			log,
 		});
@@ -906,6 +928,8 @@ function fmt(ref: ModelRef | undefined): string {
 }
 
 const DEFAULT_EFFORT = "medium";
+/** Brave Mode default, as Junie for users without a stored choice: read-only commands run, the rest asks. */
+const DEFAULT_APPROVAL_MODE: ApprovalMode = "auto";
 /** Replayed tool output is cut to keep session/load small (the model still has the full transcript). */
 const HISTORY_OUTPUT_MAX = 4000;
 

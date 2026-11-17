@@ -87,9 +87,33 @@ describe("Pi bridge tools", () => {
 
 	it("'Allow for this chat' is remembered per tool", async () => {
 		const { asked, run } = await chat();
-		script = [{ tool: "bash", input: { command: "echo one" } }, { tool: "bash", input: { command: "echo two" } }, "both ran"];
+		script = [{ tool: "bash", input: { command: "touch one.txt" } }, { tool: "bash", input: { command: "touch two.txt" } }, "both ran"];
 		await run("echo twice", () => "allow_always");
 		expect(asked).toHaveLength(1);
+	});
+
+	it("Brave Mode: Auto runs read-only commands without asking, Brave runs everything, Safe asks for every command", async () => {
+		const auto = await chat();
+		expect(auto.session.approvalMode()).toBe("auto"); // Junie's default
+		script = [{ tool: "bash", input: { command: "git status && ls | head -3" } }, { tool: "bash", input: { command: "touch made.txt" } }, "done"];
+		await auto.run("look, then write", () => "allow_once");
+		expect(auto.asked.map((a) => a.title)).toEqual(["Run touch made.txt"]);
+		// a command that ran without asking is reported running, not left pending
+		const ls = auto.tools.filter((t) => (t.input as { command?: string } | undefined)?.command?.startsWith("git status"));
+		expect(ls.map((t) => t.status)).toContain("in_progress");
+
+		const brave = await chat();
+		await brave.session.selectApprovalMode("brave");
+		script = [{ tool: "write", input: { path: "b.txt", content: "x" } }, { tool: "bash", input: { command: "touch c.txt" } }, "done"];
+		await brave.run("write things", () => "reject");
+		expect(brave.asked).toEqual([]);
+		expect(existsSync(join(brave.cwd, "b.txt")) && existsSync(join(brave.cwd, "c.txt"))).toBe(true);
+
+		const safe = await chat();
+		await safe.session.selectApprovalMode("safe");
+		script = [{ tool: "bash", input: { command: "ls" } }, "done"];
+		await safe.run("list", () => "allow_once");
+		expect(safe.asked.map((a) => a.title)).toEqual(["Run ls"]);
 	});
 
 	it("puts the project's AGENTS.md and skills into the system prompt", async () => {

@@ -27,7 +27,7 @@ AIR.
 | Goal mode | **Plugin**: `@narumitw/pi-goal` or `pi-codex-goal` | Not yet; plugin + mapping |
 | Plans / plan review / plan files | **Plugin** for the todo part (`@juicesharp/rpiv-todo`); plan-mode approval likely bridge | Not yet |
 | Permission requests | Bridge (Pi has no permissions) | Done |
-| **Brave mode** (Safe / Auto / Brave) | Bridge (our gate); optional rules plugin `@gotgenes/pi-permission-system` | **Next** |
+| Brave mode (Safe / Auto / Brave) | Bridge (our gate); optional rules plugin `@gotgenes/pi-permission-system` | Done (Auto = rule-based read-only commands) |
 | Elicitation forms | Bridge (`ask_user`, Junie's tool) | Done |
 | Unattended interaction | — | AIR does not negotiate it; skip |
 | Commands and skills | Pi core (skills, `/compact`) | Done |

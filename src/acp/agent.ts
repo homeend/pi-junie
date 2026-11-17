@@ -26,6 +26,8 @@ import {
 	encodePermissionRequest,
 	encodeToolUpdate,
 	encodeTurnEvent,
+	BRAVE_CONFIG_ID,
+	decodeBraveValue,
 	MessageIds,
 	standaloneMessage,
 	encodeSessionFailure,
@@ -286,6 +288,10 @@ export class AcpAgent {
 			const level = String(params.value);
 			if (!entry.backend.effortLevels().includes(level)) throw RpcError.invalidParams(`Effort ${level} is not supported by the current model`);
 			await entry.backend.selectEffort(level);
+		} else if (params.configId === BRAVE_CONFIG_ID) {
+			const mode = decodeBraveValue(params.value);
+			if (!mode) throw RpcError.invalidParams(`Unknown Brave Mode value: ${String(params.value)}`);
+			await entry.backend.selectApprovalMode(mode);
 		} else throw RpcError.invalidParams(`Unknown config option: ${String(params.configId)}`);
 		return { configOptions: this.configOptionsFor(entry.backend) };
 	}
@@ -480,10 +486,12 @@ export class AcpAgent {
 	}
 
 	private configOptionsFor(session: BackendSession) {
-		return encodeConfigOptions(this.backend.availableModels(), session.currentModel(), {
-			levels: session.effortLevels(),
-			current: session.currentEffort(),
-		});
+		return encodeConfigOptions(
+			this.backend.availableModels(),
+			session.currentModel(),
+			{ levels: session.effortLevels(), current: session.currentEffort() },
+			session.approvalMode(),
+		);
 	}
 
 	private broadcastConfigOptions(): void {

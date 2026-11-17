@@ -44,6 +44,26 @@ describe("ACP driver", () => {
 		expect(update.update.configOptions[0].currentValue).toBe("pi:openai/gpt-6.1-sol");
 	});
 
+	it("offers Junie's Brave Mode select and switches it with session/set_config_option", async () => {
+		const { backend, call } = await connected();
+		await call("providers/set", { providerId: "anthropic", apiType: "anthropic", baseUrl: "http://proxy/a" });
+		const s = await call("session/new", { cwd: "/tmp" });
+		const brave = (options: Obj[]) => options.find((o) => o.id === "brave_mode");
+		expect(brave(s.result.configOptions)).toMatchObject({
+			type: "select",
+			category: "mode",
+			currentValue: "brave-auto",
+			options: [{ value: "brave-auto", name: "Auto" }, { value: "on", name: "Brave" }, { value: "off", name: "Safe" }],
+		});
+		const on = await call("session/set_config_option", { sessionId: s.result.sessionId, configId: "brave_mode", value: "on" });
+		expect(brave(on.result.configOptions)?.currentValue).toBe("on");
+		const off = await call("session/set_config_option", { sessionId: s.result.sessionId, configId: "brave_mode", value: false });
+		expect(brave(off.result.configOptions)?.currentValue).toBe("off");
+		expect(backend.calls.filter((c) => c.startsWith("approval"))).toEqual(["approval brave", "approval safe"]);
+		const bad = await call("session/set_config_option", { sessionId: s.result.sessionId, configId: "brave_mode", value: "yolo" });
+		expect(bad.error.code).toBe(-32602);
+	});
+
 	it("switches models with session/set_config_option", async () => {
 		const { backend, call } = await connected();
 		await call("providers/set", { providerId: "anthropic", apiType: "anthropic", baseUrl: "http://proxy/a" });

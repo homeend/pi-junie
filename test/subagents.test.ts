@@ -30,7 +30,7 @@ const proxy = await startFakeProxy({
 						also: [{ tool: "Agent", input: { prompt: "Describe how BYOK proxies work", description: "BYOK proxies", subagent_type: "Explore" } }],
 					};
 		}
-		if (text.includes("redis cache")) return answered ? "Redis caches model listings." : { tool: "bash", input: { command: "echo redis" } };
+		if (text.includes("redis cache")) return answered ? "Redis caches model listings." : { tool: "bash", input: { command: "touch redis.txt" } };
 		if (text.includes("BYOK")) return answered ? "BYOK proxies forward the user's key." : { tool: "ls", input: { path: "." } };
 		return "unexpected";
 	},
@@ -114,7 +114,7 @@ describe("subagents", () => {
 		// each child's transcript streams on its own session id
 		const child = (id: string) => updates.filter((u) => u.sessionId === id).map((u) => u.update);
 		expect(child(redis).filter((u) => u.sessionUpdate === "agent_message_chunk").map((u) => u.content.text).join("")).toBe("Redis caches model listings.");
-		expect(child(redis).find((u) => u.sessionUpdate === "tool_call")).toMatchObject({ title: "Run echo redis", kind: "execute" });
+		expect(child(redis).find((u) => u.sessionUpdate === "tool_call")).toMatchObject({ title: "Run touch redis.txt", kind: "execute" });
 		expect(child(byok).filter((u) => u.sessionUpdate === "agent_message_chunk").map((u) => u.content.text).join("")).toBe("BYOK proxies forward the user's key.");
 		expect(child(byok).at(-2)).toMatchObject({ sessionUpdate: "tool_call_update", status: "completed" });
 
@@ -126,7 +126,7 @@ describe("subagents", () => {
 		expect(system).toContain("claude-opus-5-5");
 
 		// the child's bash asked for permission on the child session; ls (read-only) did not ask
-		expect(asked.map((a) => [a.sessionId, a.toolCall.title])).toEqual([[redis, "Run echo redis"]]);
+		expect(asked.map((a) => [a.sessionId, a.toolCall.title])).toEqual([[redis, "Run touch redis.txt"]]);
 	});
 
 	it("without AIR's nativeSubagentSessions the client sees the Agent tool rows only", async () => {

@@ -120,6 +120,12 @@ export interface PermissionRequest {
 	subagentId?: string;
 }
 
+/**
+ * How tool calls are approved (Junie's Brave Mode): "safe" asks for everything not known to be read-only, "auto" also
+ * runs read-only shell commands without asking, "brave" runs everything without asking.
+ */
+export type ApprovalMode = "safe" | "auto" | "brave";
+
 export type PermissionDecision = "allow_once" | "allow_always" | "reject";
 
 export type TurnEvent =
