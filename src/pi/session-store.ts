@@ -17,6 +17,8 @@ export interface SessionMeta {
 	effort?: string;
 	/** Brave Mode: safe / auto / brave. */
 	approvalMode?: ApprovalMode;
+	/** Plan mode as the user last chose it (applied to the plan-mode plugin at the next prompt). */
+	planMode?: boolean;
 	lastPromptAt?: string;
 	createdAt: string;
 	updatedAt: string;

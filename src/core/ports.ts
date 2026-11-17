@@ -1,7 +1,7 @@
 // Ports: what the protocol side needs from an agent implementation.
 // The ACP driver depends on these interfaces; the Pi bridge implements them.
 
-import type { AgentIdentity, ApprovalMode, CommandInfo, ModelGroup, ModelRef, HistoryItem, McpServerSpec, PermissionDecision, PermissionRequest, PromptInput, ProviderBinding, ProviderSlotState, QuestionAnswers, QuestionForm, SessionSummary, SteerResult, TurnEvent, TurnResult } from "./types.ts";
+import type { AgentIdentity, ApprovalMode, CommandInfo, ModelGroup, ModelRef, HistoryItem, McpServerSpec, PermissionDecision, PermissionRequest, PlanDecision, PlanReview, PromptInput, ProviderBinding, ProviderSlotState, QuestionAnswers, QuestionForm, SessionSummary, SteerResult, TurnEvent, TurnResult } from "./types.ts";
 
 export type TurnSink = (event: TurnEvent) => void;
 
@@ -20,6 +20,9 @@ export interface SessionContext {
 /** Asks the user questions through a client form; resolves with the answers, a decline, or a cancel. */
 export type QuestionAsk = (form: QuestionForm, signal: AbortSignal) => Promise<QuestionAnswers>;
 
+/** Asks the user (through the client) to review a finished plan. */
+export type PlanReviewAsk = (review: PlanReview, signal: AbortSignal) => Promise<PlanDecision>;
+
 /** Asks the user (through the client) whether a tool call may run. */
 export type PermissionAsk = (request: PermissionRequest) => Promise<PermissionDecision>;
 
@@ -35,8 +38,15 @@ export interface BackendSession {
 	/** How tool calls are approved in this session (Brave Mode). */
 	approvalMode(): ApprovalMode;
 	selectApprovalMode(mode: ApprovalMode): Promise<void>;
+	/**
+	 * Plan mode (the agent only investigates and writes a plan for review): on/off, or undefined when this session has
+	 * no plan mode.
+	 */
+	planMode(): boolean | undefined;
+	/** Switches plan mode; takes effect at the next prompt when the agent is busy or not started yet. */
+	selectPlanMode(on: boolean): Promise<void>;
 	/** Runs one user turn. Streams events to `sink`; resolves when the turn has finished. */
-	prompt(input: PromptInput, sink: TurnSink, signal: AbortSignal, ask: PermissionAsk, askUser?: QuestionAsk): Promise<TurnResult>;
+	prompt(input: PromptInput, sink: TurnSink, signal: AbortSignal, ask: PermissionAsk, askUser?: QuestionAsk, reviewPlan?: PlanReviewAsk): Promise<TurnResult>;
 	/** Adds a message to the running turn (the user typed while the agent works). Never starts a turn itself. */
 	steer(input: PromptInput): Promise<SteerResult>;
 	/** Commands for the client's command popup (built-ins and skills). */

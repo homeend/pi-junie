@@ -5,6 +5,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Logger } from "../core/log.ts";
+import { PLAN_MODE_PLUGIN, PLAN_MODE_TOOLS } from "./plan-mode.ts";
 
 /** Subagents: in-process child Pi sessions (`Agent` tool), https://github.com/tintinweb/pi-subagents */
 export const SUBAGENTS_PLUGIN = "@tintinweb/pi-subagents";
@@ -16,11 +17,18 @@ export const TODO_PLUGIN = "@juicesharp/rpiv-todo";
 /** Tools the todo plugin registers. */
 export const TODO_TOOLS = ["todo"];
 
-const KNOWN_PLUGINS = [SUBAGENTS_PLUGIN, TODO_PLUGIN];
+/** Plan mode (read-only planning, then a reviewed plan): https://www.npmjs.com/package/@narumitw/pi-plan-mode */
+export { PLAN_MODE_PLUGIN } from "./plan-mode.ts";
+
+const KNOWN_PLUGINS = [SUBAGENTS_PLUGIN, TODO_PLUGIN, PLAN_MODE_PLUGIN];
 
 /** Tools of the detected plugins that bridge sessions enable. */
 export function pluginTools(detected: DetectedPlugin[]): string[] {
-	return [...(has(detected, SUBAGENTS_PLUGIN) ? SUBAGENT_TOOLS : []), ...(has(detected, TODO_PLUGIN) ? TODO_TOOLS : [])];
+	return [
+		...(has(detected, SUBAGENTS_PLUGIN) ? SUBAGENT_TOOLS : []),
+		...(has(detected, TODO_PLUGIN) ? TODO_TOOLS : []),
+		...(has(detected, PLAN_MODE_PLUGIN) ? PLAN_MODE_TOOLS : []),
+	];
 }
 
 export function has(detected: DetectedPlugin[], name: string): boolean {
@@ -35,7 +43,7 @@ export function pluginWelcomeLines(detected: DetectedPlugin[]): string[] {
 			? `- **${label}: available** (\`${name}\` ${plugin.version ?? "unknown version"})`
 			: `- **${label}: not available** (install with \`pi install npm:${name}\`, then restart the agent)`;
 	};
-	return [line("Subagents", SUBAGENTS_PLUGIN), line("Todo list", TODO_PLUGIN)];
+	return [line("Subagents", SUBAGENTS_PLUGIN), line("Todo list", TODO_PLUGIN), line("Plan mode", PLAN_MODE_PLUGIN)];
 }
 
 export interface DetectedPlugin {

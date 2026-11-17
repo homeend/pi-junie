@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 // Translation between ACP v1 wire shapes and core types. Pure functions.
 
-import type { ApprovalMode, ClientProfile, CommandInfo, HistoryItem, McpServerSpec, ModelGroup, ModelRef, PromptImage, PromptInput, ProviderBinding, PermissionDecision, PermissionRequest, PlanUpdate, ProviderSlotState, SessionSummary, ToolUpdate, TurnEvent, TurnResult, MessagePhase, QuestionAnswers, QuestionForm, TurnFailure } from "../core/types.ts";
+import type { ApprovalMode, ClientProfile, CommandInfo, HistoryItem, McpServerSpec, ModelGroup, ModelRef, PromptImage, PromptInput, ProviderBinding, PermissionDecision, PermissionRequest, PlanDecision, PlanReview, PlanUpdate, ProviderSlotState, SessionSummary, ToolUpdate, TurnEvent, TurnResult, MessagePhase, QuestionAnswers, QuestionForm, TurnFailure } from "../core/types.ts";
 import { RpcError } from "./jsonrpc.ts";
 import type {
 	ContentBlock,
@@ -35,6 +35,32 @@ export function encodeBraveOption(mode: ApprovalMode): SelectConfigOption {
 			{ value: BRAVE_VALUES.safe, name: "Safe" },
 		],
 	};
+}
+
+export const MODE_CONFIG_ID = "mode";
+
+/**
+ * Junie's `mode` select (Default / Plan; Junie's Goal is not offered). AIR finds its plan toggle through the `/plan`
+ * command's action (`encodeCommands`), which names this option and its two values.
+ */
+export function encodeModeOption(planMode: boolean): SelectConfigOption {
+	return {
+		type: "select",
+		id: MODE_CONFIG_ID,
+		name: "Mode",
+		description: "How Pi approaches your request: Default: Pi plans and implements as needed; Plan: Pi prepares a plan and waits for your approval before implementing",
+		currentValue: planMode ? "plan" : "default",
+		options: [
+			{ value: "default", name: "Default", description: "Pi plans and implements as needed" },
+			{ value: "plan", name: "Plan", description: "Pi prepares a plan and waits for your approval before implementing" },
+		],
+	};
+}
+
+/** A `mode` value -> plan mode on/off; undefined if unknown. */
+export function decodeModeValue(value: unknown): boolean | undefined {
+	const v = String(value).trim().toLowerCase();
+	return v === "plan" ? true : v === "default" ? false : undefined;
 }
 
 /** A `brave_mode` value (Junie's, or a boolean from clients that treat it as a switch); undefined if unknown. */
@@ -233,7 +259,7 @@ export function encodeEffortOption(effort: EffortState | undefined): SelectConfi
 }
 
 /** Builds the `configOptions` array. Returns no model option when no model is reachable. */
-export function encodeConfigOptions(groups: ModelGroup[], current: ModelRef | undefined, effort?: EffortState, approval?: ApprovalMode): SelectConfigOption[] {
+export function encodeConfigOptions(groups: ModelGroup[], current: ModelRef | undefined, effort?: EffortState, approval?: ApprovalMode, planMode?: boolean): SelectConfigOption[] {
 	const nonEmpty = groups.filter((g) => g.models.length > 0);
 	if (nonEmpty.length === 0) return [];
 	const options: SelectGroup[] = nonEmpty.map((g) => ({
@@ -253,7 +279,8 @@ export function encodeConfigOptions(groups: ModelGroup[], current: ModelRef | un
 			options,
 		},
 	];
-	return [...modelOption, ...encodeEffortOption(effort), ...(approval ? [encodeBraveOption(approval)] : [])];
+	// Like Junie, the mode option comes first.
+	return [...(planMode !== undefined ? [encodeModeOption(planMode)] : []), ...modelOption, ...encodeEffortOption(effort), ...(approval ? [encodeBraveOption(approval)] : [])];
 }
 
 // --- prompt ---------------------------------------------------------------------------------
@@ -324,6 +351,8 @@ export function encodeTurnEvent(event: TurnEvent): SessionUpdate | undefined {
 			return undefined; // stateful, see encodeToolUpdate
 		case "plan":
 			return undefined; // depends on the client, see encodePlan
+		case "settings_changed":
+			return undefined; // the driver sends the session's config options
 		case "text":
 			return { sessionUpdate: "agent_message_chunk", content: { type: "text", text: event.delta }, ...phaseMeta(event.phase) };
 		case "thought":
@@ -346,8 +375,13 @@ export function encodeTurnEvent(event: TurnEvent): SessionUpdate | undefined {
  * (items, by id) and `plan_removed`; others get the standard single `plan` (an empty one clears it).
  */
 export function encodePlan(plan: PlanUpdate, planUpdates: boolean): SessionUpdate {
-	if (!planUpdates) return { sessionUpdate: "plan", entries: plan.kind === "items" ? plan.entries : [] };
-	if (plan.kind === "removed" || plan.entries.length === 0) return { sessionUpdate: "plan_removed", id: plan.id };
+	if (!planUpdates) {
+		// The standard plan is a list: a Markdown plan is shown as a message of its own (like Junie's legacy path).
+		if (plan.kind === "markdown") return standaloneMessage(plan.content);
+		return { sessionUpdate: "plan", entries: plan.kind === "items" ? plan.entries : [] };
+	}
+	if (plan.kind === "removed" || (plan.kind === "items" && plan.entries.length === 0)) return { sessionUpdate: "plan_removed", id: plan.id };
+	if (plan.kind === "markdown") return { sessionUpdate: "plan_update", plan: { type: "markdown", id: plan.id, content: plan.content } };
 	return { sessionUpdate: "plan_update", plan: { type: "items", id: plan.id, entries: plan.entries } };
 }
 
@@ -512,6 +546,36 @@ export function encodePermissionRequest(sessionId: string, r: PermissionRequest)
 	};
 }
 
+const PLAN_REVIEW_OPTIONS: { optionId: PlanDecision; name: string; kind: string }[] = [
+	{ optionId: "implement", name: "Confirm and implement", kind: "allow_once" },
+	{ optionId: "revise", name: "Not yet — I'll revise it", kind: "reject_once" },
+	{ optionId: "stop", name: "Leave plan mode", kind: "reject_once" },
+];
+
+/**
+ * Plan review as Junie v1 asks it: a permission request whose tool call carries the plan (`rawInput.plan`, the same
+ * Markdown as the plan update, which AIR uses to attach the review to the plan card) and Junie's option ids.
+ */
+export function encodePlanReview(sessionId: string, toolCallId: string, review: PlanReview): Record<string, unknown> {
+	return {
+		sessionId,
+		toolCall: { toolCallId, title: "Implement this plan?", kind: "other", status: "pending", rawInput: { plan: review.markdown } },
+		options: PLAN_REVIEW_OPTIONS,
+	};
+}
+
+/** The chosen review option; a dismissed or unknown answer keeps the plan for revision (as Junie). */
+export function decodePlanDecision(response: { outcome?: { outcome?: string; optionId?: string } } | undefined): PlanDecision {
+	const id = response?.outcome?.outcome === "selected" ? response.outcome.optionId : undefined;
+	return id === "implement" || id === "stop" ? id : "revise";
+}
+
+/** Settles the review card after the answer (Junie's titles). */
+export function encodePlanReviewDone(toolCallId: string, decision: PlanDecision): SessionUpdate {
+	const title = decision === "revise" ? "Plan kept for revision. Send changes to revise it." : decision === "stop" ? "Plan not implemented." : undefined;
+	return { sessionUpdate: "tool_call_update", toolCallId, status: "completed", ...(title ? { title, content: [] } : {}) };
+}
+
 /** `{outcome: {outcome: "selected", optionId}}` | `{outcome: {outcome: "cancelled"}}`; anything else rejects. */
 export function decodePermissionOutcome(response: { outcome?: { outcome?: string; optionId?: string } } | undefined): PermissionDecision {
 	const o = response?.outcome;
@@ -573,6 +637,11 @@ export function encodeCommands(commands: CommandInfo[]): Record<string, unknown>
 		switch (c.kind) {
 			case "new_session":
 				return { name: c.name, description: c.description, _meta: { jetbrains: { air: { commandAction: { kind: "openNewSession" } } } } };
+			case "plan_mode": {
+				// Junie's /plan: the action names the `mode` option and its plan/default values (AIR's plan toggle).
+				const commandAction = { kind: "setConfigOption", configId: MODE_CONFIG_ID, value: "plan", resetValue: "default", presentation: "state" };
+				return { name: c.name, description: c.description, ...input, _meta: { commandAction, jetbrains: { air: { commandAction } } } };
+			}
 			case "skill":
 				return {
 					name: `$${c.name}`,

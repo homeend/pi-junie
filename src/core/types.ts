@@ -85,8 +85,11 @@ export interface CommandInfo {
 	description: string;
 	/** Placeholder for free-text arguments; absent when the command takes none. */
 	hint?: string;
-	/** `new_session` is handled by the client itself; `skill` runs one of the session's skills. */
-	kind: "builtin" | "skill" | "new_session";
+	/**
+	 * `new_session` is handled by the client itself; `skill` runs one of the session's skills; `plan_mode` switches
+	 * plan mode on (`/plan [task]`, `/plan off`), which clients may show as a toggle.
+	 */
+	kind: "builtin" | "skill" | "new_session" | "plan_mode";
 	skillPath?: string;
 }
 
@@ -139,6 +142,8 @@ export type TurnEvent =
 	| { kind: "title"; title: string }
 	| { kind: "tool"; update: ToolUpdate }
 	| { kind: "plan"; plan: PlanUpdate }
+	/** Session settings changed during the turn (e.g. plan mode switched): the client should refresh them. */
+	| { kind: "settings_changed" }
 	| SubagentEvent;
 
 export type PlanEntryStatus = "pending" | "in_progress" | "completed";
@@ -150,8 +155,23 @@ export interface PlanEntry {
 	priority: "high" | "medium" | "low";
 }
 
-/** The agent's plan, always a full snapshot: the current entries of plan `id`, or its removal. */
-export type PlanUpdate = { kind: "items"; id: string; entries: PlanEntry[] } | { kind: "removed"; id: string };
+/**
+ * The agent's plan, always a full snapshot: the current entries of plan `id` (a todo list), a Markdown plan (a plan
+ * written in plan mode, for the user to review), or its removal.
+ */
+export type PlanUpdate =
+	| { kind: "items"; id: string; entries: PlanEntry[] }
+	| { kind: "markdown"; id: string; content: string }
+	| { kind: "removed"; id: string };
+
+/** A finished plan the user reviews before the agent implements it. */
+export interface PlanReview {
+	planId: string;
+	markdown: string;
+}
+
+/** The user's verdict on a plan: build it now, keep planning (their next message revises it), or leave plan mode. */
+export type PlanDecision = "implement" | "revise" | "stop";
 
 /**
  * A subagent: a child agent session the turn started, with its own transcript. `subagentId` is unique per process;

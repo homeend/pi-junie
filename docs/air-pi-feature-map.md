@@ -25,7 +25,7 @@ AIR.
 | Session fork | Pi core (`forkFrom`, branching) | Not yet; small |
 | Steering | Pi core (`steer`) | Done (AIR does not send it yet) |
 | Goal mode | **Plugin**: `@narumitw/pi-goal` or `pi-codex-goal` | Not yet; plugin + mapping |
-| Plans / plan review / plan files | **Plugin**: todo list `@juicesharp/rpiv-todo`; plan mode `@narumitw/pi-plan-mode` | Todo list done (plan `main`); plan mode next |
+| Plans / plan review / plan files | **Plugin**: todo list `@juicesharp/rpiv-todo`; plan mode `@narumitw/pi-plan-mode` | Todo list and plan mode + review done; plan files not yet |
 | Permission requests | Bridge (Pi has no permissions) | Done |
 | Brave mode (Safe / Auto / Brave) | Bridge (our gate); optional rules plugin `@gotgenes/pi-permission-system` | Done (Auto = rule-based read-only commands) |
 | Elicitation forms | Bridge (`ask_user`, Junie's tool) | Done |

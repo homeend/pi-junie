@@ -170,6 +170,8 @@ export class FakeBackend implements AgentBackend {
 				calls.push(`effort ${level}`);
 				effort = level;
 			},
+			planMode: () => undefined,
+			selectPlanMode: async () => {},
 			approvalMode: () => approval,
 			selectApprovalMode: async (mode) => {
 				calls.push(`approval ${mode}`);

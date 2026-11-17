@@ -250,6 +250,22 @@ that unlock each one:
   `plan_update {plan: {type: "items", id: "main", entries}}` and `plan_removed {id: "main"}` for an empty list;
   others get the standard `plan {entries}`. session/load replays the list as it was last. A subagent's list goes
   to its child session. The welcome message says whether the todo list is available.
+- Plan mode (`@narumitw/pi-plan-mode`, `src/pi/plan-mode.ts`): the plugin owns the mode (read-only tools, the
+  model hands in the plan with `plan_mode_complete` or a `<proposed_plan>` block, then waits for a decision; its
+  state is the custom entry `plan-mode-state`). Its decision menu needs Pi's TUI, so the bridge drives it:
+  - Junie's `mode` select (Default / Plan, listed first) and a `/plan` command whose `_meta.commandAction`
+    (`setConfigOption` mode plan/default, `presentation: state`, top level and under `jetbrains.air`) is AIR's
+    plan toggle. `/plan <task>` switches on and plans the task, `/plan off` leaves. The choice is kept in the
+    session metadata and applied with the plugin's `/plan start` / `/plan exit` before the next prompt.
+  - After a run, a new awaiting plan is sent as `plan_update {type: "markdown", id: "plan"}` (clients without plan
+    updates: as a message) and reviewed like Junie v1: `session/request_permission`, tool call
+    `plan-review:<uuid>` "Implement this plan?" with `rawInput.plan` (same Markdown, which AIR uses to attach the
+    review to the plan card), options `implement` / `revise` / `stop`, then a `tool_call_update` completed.
+  - implement: `/plan implement` (the plugin sends "Implement the plan." without awaiting it; the bridge waits for
+    that run) in the same turn; stop: `/plan exit`; revise: the turn ends, the next message revises. Mode changes
+    during a turn send `config_option_update`. Replay shows the plan card instead of the plan tool's row.
+  - Limits: in plan mode the plugin allows only its read-only built-in tools (MCP, `ask_user`, subagents and todo
+    need its `defaultPlanTools` setting); its question tool needs Pi's TUI. No plan file (`planFile`) yet.
 
 ## 4. Testing: replay simulator
 

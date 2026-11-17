@@ -4,6 +4,7 @@
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import type { TurnSink } from "../core/ports.ts";
 import { PhaseSplitter, type PhaseSplitterOptions, signaturePhase } from "./phases.ts";
+import { PLAN_COMPLETE_TOOL } from "./plan-mode.ts";
 import { TODO_TOOL, todoPlan } from "./todo.ts";
 import { ToolTracker } from "./tools.ts";
 
@@ -78,7 +79,7 @@ export class TranscriptStream {
 	private tool(update: ReturnType<ToolTracker["finished"]> | undefined): void {
 		if (!update) return;
 		if (this.options.launchesSubagent?.(update.name)) update.launchesSubagent = true;
-		if (this.options.todoPlans && update.name === TODO_TOOL) update.presentsPlan = true;
+		if ((this.options.todoPlans && update.name === TODO_TOOL) || update.name === PLAN_COMPLETE_TOOL) update.presentsPlan = true;
 		this.sink({ kind: "tool", update });
 	}
 }

@@ -18,7 +18,7 @@ import {
 	VERSION as PI_VERSION,
 } from "@earendil-works/pi-coding-agent";
 import { type Logger, silentLogger } from "../core/log.ts";
-import type { AgentBackend, BackendSession, PermissionAsk, QuestionAsk, SessionContext, TurnSink } from "../core/ports.ts";
+import type { AgentBackend, BackendSession, PermissionAsk, PlanReviewAsk, QuestionAsk, SessionContext, TurnSink } from "../core/ports.ts";
 import type { ApprovalMode, CommandInfo, HistoryItem, PlanUpdate, McpServerSpec, ModelChoice, ModelGroup, ModelRef, PromptInput, ProviderBinding, ProviderSlotState, SessionSummary, SteerResult, TurnResult } from "../core/types.ts";
 import { bridgeProviderId, DEFAULT_MODEL, joinBaseUrl, SLOTS, type SlotDefinition, vertexBaseUrl } from "./catalog.ts";
 import { openPiTranscript, type SessionMeta, SessionStore } from "./session-store.ts";
@@ -30,6 +30,7 @@ import { ASK_USER_TOOL, askUserTool } from "./ask-user.ts";
 import { type PhaseSplitterOptions, signaturePhase } from "./phases.ts";
 import { TranscriptStream } from "./transcript.ts";
 import { TODO_TOOL, todoPlan } from "./todo.ts";
+import { PLAN_COMPLETE_TOOL, PLAN_MODE_PLUGIN, PLAN_MODE_TOOLS, readPlanModeState, REVIEW_PLAN_ID, runPlanCommand } from "./plan-mode.ts";
 import { isReadOnlyCommand } from "./safe-commands.ts";
 import { AGENT_TOOL, installChildSessionHook, markBridgeSession, SubagentRelay, subagentModelsNote, withChildHost } from "./subagents.ts";
 import { type DetectedPlugin, detectPlugins, has, pluginTools, pluginWelcomeLines, SUBAGENT_TOOLS, SUBAGENTS_PLUGIN, TODO_PLUGIN, TODO_TOOLS } from "./plugins.ts";
@@ -439,6 +440,11 @@ export class PiBackend implements AgentBackend {
 		return session;
 	}
 
+	/** The plan-mode plugin is loaded. */
+	planModeAvailable(): boolean {
+		return has(this.plugins, PLAN_MODE_PLUGIN);
+	}
+
 	/** The todo plugin is loaded: `todo` calls are shown as the session's plan. */
 	todoPlans(): boolean {
 		return has(this.plugins, TODO_PLUGIN);
@@ -524,6 +530,34 @@ class PiSession implements BackendSession {
 		return this.meta.approvalMode ?? DEFAULT_APPROVAL_MODE;
 	}
 
+	planMode(): boolean | undefined {
+		return this.backend.planModeAvailable() ? this.meta.planMode === true : undefined;
+	}
+
+	async selectPlanMode(on: boolean): Promise<void> {
+		if (!this.backend.planModeAvailable()) throw new Error("Plan mode needs the plan-mode plugin");
+		this.backend.log.info(`session ${this.id}: plan mode ${this.planMode() ? "on" : "off"} -> ${on ? "on" : "off"}`);
+		this.meta.planMode = on;
+		this.persist();
+	}
+
+	/** Brings the plugin's mode in line with the user's choice (before a prompt; the plugin switches only when idle). */
+	private async syncPlanMode(pi: AgentSession, sink: TurnSink): Promise<void> {
+		if (!this.backend.planModeAvailable()) return;
+		const actual = readPlanModeState(pi).enabled;
+		if (this.meta.planMode === undefined) this.meta.planMode = actual; // a chat from before: the plugin's own state
+		if (this.meta.planMode === actual) return;
+		await runPlanCommand(pi, this.meta.planMode ? "/plan start" : "/plan exit", 0);
+		const now = readPlanModeState(pi).enabled;
+		this.backend.log.info(`session ${this.id}: plan mode plugin ${actual ? "on" : "off"} -> ${now ? "on" : "off"}`);
+		if (now !== this.meta.planMode) {
+			sink({ kind: "text", delta: `Plan mode could not be switched ${this.meta.planMode ? "on" : "off"} (see the agent log).\n\n`, phase: "commentary" });
+			this.meta.planMode = now;
+			sink({ kind: "settings_changed" });
+		}
+		this.persist();
+	}
+
 	async selectApprovalMode(mode: ApprovalMode): Promise<void> {
 		this.backend.log.info(`session ${this.id}: brave mode ${this.approvalMode()} -> ${mode}`);
 		this.meta.approvalMode = mode;
@@ -543,6 +577,9 @@ class PiSession implements BackendSession {
 	commands(): Promise<CommandInfo[]> {
 		this.commandList ??= this.backend.resources(this.cwd, this.context).then(({ resourceLoader }) => [
 			{ name: "new", description: "Open a new empty chat", kind: "new_session" },
+			...(this.backend.planModeAvailable()
+				? [{ name: PLAN_COMMAND, description: "Switch to plan mode with an optional task, or leave it with /plan off", hint: "describe what to plan, or use 'off'", kind: "plan_mode" } satisfies CommandInfo]
+				: []),
 			{ name: "compact", description: "Summarize the conversation so far to free up context", hint: "optional instructions for the summary", kind: "builtin" },
 			...resourceLoader.getSkills().skills.map(
 				(sk): CommandInfo => ({ name: sk.name, description: sk.description, hint: "optional task for the skill", kind: "skill", skillPath: sk.filePath }),
@@ -611,7 +648,7 @@ class PiSession implements BackendSession {
 								status: "pending", // completed by its toolResult below; stays pending if the turn was cut off
 								input: part.arguments,
 								locations: toolLocations(part.arguments, this.cwd),
-								...(todoPlans && part.name === TODO_TOOL ? { presentsPlan: true } : {}),
+								...((todoPlans && part.name === TODO_TOOL) || part.name === PLAN_COMPLETE_TOOL ? { presentsPlan: true } : {}),
 							},
 						};
 						toolItems.set(part.id, item);
@@ -623,7 +660,11 @@ class PiSession implements BackendSession {
 				if (!item) continue;
 				item.update.status = message.isError ? "failed" : "completed";
 				item.update.output = truncate(toolResultText({ content: message.content }), HISTORY_OUTPUT_MAX);
-				if (item.update.presentsPlan && !message.isError) plan = todoPlan(message.details) ?? plan;
+				if (item.update.presentsPlan && !message.isError) {
+					const reviewed = item.update.name === PLAN_COMPLETE_TOOL ? (item.update.input as { plan?: unknown } | undefined)?.plan : undefined;
+					if (typeof reviewed === "string" && reviewed.trim()) items.push({ kind: "plan", plan: { kind: "markdown", id: REVIEW_PLAN_ID, content: reviewed.trim() } });
+					else plan = todoPlan(message.details) ?? plan;
+				}
 			}
 		}
 		if (plan?.kind === "items") items.push({ kind: "plan", plan });
@@ -690,7 +731,7 @@ class PiSession implements BackendSession {
 	private runsWithoutAsking(toolName: string): boolean {
 		// ask_user is itself a question to the user: no separate permission.
 		// The subagent tools only start or steer children, whose own tools pass this gate; the todo tool only edits its list.
-		return READ_ONLY_TOOLS.has(toolName) || toolName === ASK_USER_TOOL || SUBAGENT_TOOLS.includes(toolName) || TODO_TOOLS.includes(toolName) || this.alwaysAllowed.has(toolName) || this.toolInfo?.(toolName)?.annotations?.readOnlyHint === true;
+		return READ_ONLY_TOOLS.has(toolName) || toolName === ASK_USER_TOOL || SUBAGENT_TOOLS.includes(toolName) || TODO_TOOLS.includes(toolName) || PLAN_MODE_TOOLS.includes(toolName) || this.alwaysAllowed.has(toolName) || this.toolInfo?.(toolName)?.annotations?.readOnlyHint === true;
 	}
 
 	private readonly gate = (pi: ExtensionAPI) => {
@@ -731,12 +772,12 @@ class PiSession implements BackendSession {
 	}
 
 	/** Runs a turn, tracking its phase so messages typed meanwhile (steer) know where to go. */
-	async prompt(input: PromptInput, sink: TurnSink, signal: AbortSignal, ask: PermissionAsk, askUser?: QuestionAsk): Promise<TurnResult> {
+	async prompt(input: PromptInput, sink: TurnSink, signal: AbortSignal, ask: PermissionAsk, askUser?: QuestionAsk, reviewPlan?: PlanReviewAsk): Promise<TurnResult> {
 		this.askUser = askUser;
 		this.phase = "dispatching";
 		this.dispatched = new Promise<void>((resolve) => (this.endDispatch = resolve));
 		try {
-			return await this.runPrompt(input, sink, signal, ask);
+			return await this.runPrompt(input, sink, signal, ask, reviewPlan);
 		} finally {
 			this.askUser = undefined;
 			this.enterPhase("idle");
@@ -782,10 +823,28 @@ class PiSession implements BackendSession {
 		return "injected";
 	}
 
-	private async runPrompt(input: PromptInput, sink: TurnSink, signal: AbortSignal, ask: PermissionAsk): Promise<TurnResult> {
+	private async runPrompt(input: PromptInput, sink: TurnSink, signal: AbortSignal, ask: PermissionAsk, reviewPlan?: PlanReviewAsk): Promise<TurnResult> {
 		let { text } = input;
 		if (signal.aborted) return { stop: "cancelled" };
 		const command = input.command;
+		if (command?.name === PLAN_COMMAND && this.planMode() !== undefined) {
+			// `/plan [task]` switches plan mode on (and plans the task), `/plan off` leaves it.
+			const args = command.args.trim();
+			if (/^(off|exit|close|stop)$/i.test(args)) {
+				await this.selectPlanMode(false);
+				sink({ kind: "settings_changed" });
+				sink({ kind: "text", delta: "Plan mode is off." });
+				return { stop: "end_turn" };
+			}
+			await this.selectPlanMode(true);
+			sink({ kind: "settings_changed" });
+			if (!args) {
+				sink({ kind: "text", delta: "Plan mode is on: I will investigate and write a plan for you to review before changing anything. Send what to plan." });
+				return { stop: "end_turn" };
+			}
+			text = args;
+			input = { ...input, text, command: undefined };
+		}
 		if (command?.name === "compact") {
 			this.enterPhase("command");
 			return this.compact(command.args, sink);
@@ -817,6 +876,9 @@ class PiSession implements BackendSession {
 		else if (this.pi.model?.id !== model.id || this.pi.model?.provider !== model.provider) await this.pi.setModel(model);
 		if (this.pi.thinkingLevel !== this.thinkingLevel()) this.pi.setThinkingLevel(this.thinkingLevel());
 		const pi = this.pi;
+		await this.syncPlanMode(pi, sink);
+		const planBefore = this.backend.planModeAvailable() ? readPlanModeState(pi).awaitingPlan : undefined;
+		let planSubmitted = false;
 		this.nameIfUntitled(text || (input.images.length ? "Image" : ""), sink);
 		this.meta.lastPromptAt = new Date().toISOString();
 		this.persist();
@@ -856,6 +918,7 @@ class PiSession implements BackendSession {
 			transcript.handle(event);
 			if (event.type === "tool_execution_start" && event.toolName === AGENT_TOOL) subagents.agentCallStarted(event.toolCallId, event.args);
 			if (event.type === "tool_execution_end" && event.toolName === AGENT_TOOL) subagents.agentCallEnded(event.toolCallId, event.isError, signal.aborted);
+			if (event.type === "tool_execution_end" && event.toolName === PLAN_COMPLETE_TOOL && !event.isError) planSubmitted = true;
 			if (event.type === "message_end" && event.message.role === "assistant") {
 				last = event.message as AssistantMessage;
 				const u = last.usage;
@@ -882,6 +945,7 @@ class PiSession implements BackendSession {
 			await withChildHost(subagents, async () => {
 				await pi.prompt(text, { images, expandPromptTemplates: !!skillCommand });
 				await this.drainSteering(pi, signal);
+				if (this.backend.planModeAvailable()) await this.reviewNewPlan(pi, sink, signal, reviewPlan, planBefore, planSubmitted);
 			});
 		} catch (err) {
 			log.error(`session ${this.id}: prompt threw after ${Date.now() - started}ms: ${(err as Error).stack ?? String(err)}`);
@@ -908,6 +972,26 @@ class PiSession implements BackendSession {
 		}
 		if (last?.stopReason === "length") return { stop: "max_tokens", usage };
 		return { stop: "end_turn", usage };
+	}
+
+	/**
+	 * Plan mode produced a plan in this turn (the plugin waits for a decision): shows it and asks the user, then
+	 * implements it in the same turn, keeps planning (the user's next message revises it), or leaves plan mode.
+	 * Without a review callback the plan is only shown; `/plan off` or a new message decides.
+	 */
+	private async reviewNewPlan(pi: AgentSession, sink: TurnSink, signal: AbortSignal, reviewPlan: PlanReviewAsk | undefined, before: string | undefined, submitted: boolean): Promise<void> {
+		const plan = readPlanModeState(pi).awaitingPlan;
+		if (!plan || signal.aborted || (plan === before && !submitted)) return;
+		sink({ kind: "plan", plan: { kind: "markdown", id: REVIEW_PLAN_ID, content: plan } });
+		if (!reviewPlan) return;
+		const decision = await reviewPlan({ planId: REVIEW_PLAN_ID, markdown: plan }, signal);
+		this.backend.log.info(`session ${this.id}: plan review -> ${decision}`);
+		if (signal.aborted || decision === "revise") return;
+		this.meta.planMode = false;
+		this.persist();
+		sink({ kind: "settings_changed" });
+		await runPlanCommand(pi, decision === "implement" ? "/plan implement" : "/plan exit", decision === "implement" ? 2000 : 0);
+		await this.drainSteering(pi, signal);
 	}
 
 	/**
@@ -945,6 +1029,8 @@ function fmt(ref: ModelRef | undefined): string {
 	return ref ? `${ref.slotId}/${ref.modelId}` : "none";
 }
 
+/** The command that switches plan mode (also the plugin's own command name). */
+const PLAN_COMMAND = "plan";
 const DEFAULT_EFFORT = "medium";
 /** Brave Mode default, as Junie for users without a stored choice: read-only commands run, the rest asks. */
 const DEFAULT_APPROVAL_MODE: ApprovalMode = "auto";

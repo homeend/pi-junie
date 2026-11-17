@@ -1,10 +1,11 @@
 // ACP agent driver: dispatches ACP methods from the client (AIR) to an AgentBackend (core port).
 // All ACP knowledge lives in src/acp; the backend only sees core types.
+import { randomUUID } from "node:crypto";
 
 import { resolveFeatures } from "../compat/features.ts";
 import { type Logger, silentLogger } from "../core/log.ts";
 import type { AgentBackend, BackendSession } from "../core/ports.ts";
-import type { ClientProfile, PermissionDecision, PermissionRequest, PromptInput, QuestionAnswers, QuestionForm, SubagentEvent, TurnEvent, TurnResult } from "../core/types.ts";
+import type { ClientProfile, PermissionDecision, PermissionRequest, PlanDecision, PlanReview, PromptInput, QuestionAnswers, QuestionForm, SubagentEvent, TurnEvent, TurnResult } from "../core/types.ts";
 import {
 	EFFORT_CONFIG_ID,
 	MODEL_CONFIG_ID,
@@ -20,6 +21,11 @@ import {
 	encodeConfigOptions,
 	encodeHistory,
 	encodePlan,
+	encodePlanReview,
+	encodePlanReviewDone,
+	decodePlanDecision,
+	decodeModeValue,
+	MODE_CONFIG_ID,
 	encodeSessionSummary,
 	encodePromptResult,
 	encodeProviderList,
@@ -295,6 +301,10 @@ export class AcpAgent {
 			const level = String(params.value);
 			if (!entry.backend.effortLevels().includes(level)) throw RpcError.invalidParams(`Effort ${level} is not supported by the current model`);
 			await entry.backend.selectEffort(level);
+		} else if (params.configId === MODE_CONFIG_ID && entry.backend.planMode() !== undefined) {
+			const plan = decodeModeValue(params.value);
+			if (plan === undefined) throw RpcError.invalidParams(`Unknown mode: ${String(params.value)}`);
+			await entry.backend.selectPlanMode(plan);
 		} else if (params.configId === BRAVE_CONFIG_ID) {
 			const mode = decodeBraveValue(params.value);
 			if (!mode) throw RpcError.invalidParams(`Unknown Brave Mode value: ${String(params.value)}`);
@@ -361,6 +371,10 @@ export class AcpAgent {
 						if (event.kind === "tool" && event.update.launchesSubagent && this.nativeSubagents()) return;
 						// The todo tool's calls show as the plan itself.
 						if (event.kind === "tool" && event.update.presentsPlan) return;
+						if (event.kind === "settings_changed") {
+							this.sendUpdate(sessionId, { sessionUpdate: "config_option_update", configOptions: this.configOptionsFor(entry.backend) });
+							return;
+						}
 						if (event.kind === "subagent_spawned" || event.kind === "subagent_update" || event.kind === "subagent_finished") {
 							this.relaySubagent(sessionId, event, children);
 							return;
@@ -377,6 +391,7 @@ export class AcpAgent {
 							: this.requestPermission(sessionId, request, knownTools, turn.signal);
 					},
 					(form, signal) => this.askQuestions(sessionId, form, signal),
+					(review, signal) => this.reviewPlan(sessionId, review, knownTools, signal),
 				);
 				if (result.stop === "error") this.reportFailure(sessionId, entry, result);
 				return result;
@@ -477,6 +492,22 @@ export class AcpAgent {
 	}
 
 	/** session/request_permission: the client shows the tool call with Allow once / Allow for this chat / Reject. */
+	/** Plan review: Junie's permission request with the plan; the card is settled with the answer. */
+	private async reviewPlan(sessionId: string, review: PlanReview, knownTools: Set<string>, signal: AbortSignal): Promise<PlanDecision> {
+		if (signal.aborted) return "revise";
+		const toolCallId = `plan-review:${randomUUID()}`;
+		knownTools.add(toolCallId);
+		const started = Date.now();
+		const response = await Promise.race([
+			this.peer.request<{ outcome?: { outcome?: string; optionId?: string } }>("session/request_permission", encodePlanReview(sessionId, toolCallId, review)),
+			new Promise<undefined>((r) => signal.addEventListener("abort", () => r(undefined), { once: true })),
+		]);
+		const decision = decodePlanDecision(response);
+		this.log.info(`plan review ${toolCallId} -> ${decision} after ${Date.now() - started}ms`);
+		this.sendUpdate(sessionId, encodePlanReviewDone(toolCallId, decision));
+		return decision;
+	}
+
 	private async requestPermission(sessionId: string, request: PermissionRequest, knownTools: Set<string>, signal: AbortSignal): Promise<PermissionDecision> {
 		if (signal.aborted) return "reject";
 		knownTools.add(request.toolCallId);
@@ -506,6 +537,7 @@ export class AcpAgent {
 			session.currentModel(),
 			{ levels: session.effortLevels(), current: session.currentEffort() },
 			session.approvalMode(),
+			session.planMode(),
 		);
 	}
 
