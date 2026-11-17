@@ -6,6 +6,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Logger } from "../core/log.ts";
 import { PLAN_MODE_PLUGIN, PLAN_MODE_TOOLS } from "./plan-mode.ts";
+import { WEB_ACCESS_PLUGIN, WEB_ACCESS_TOOLS } from "./web-access.ts";
 
 /** Subagents: in-process child Pi sessions (`Agent` tool), https://github.com/tintinweb/pi-subagents */
 export const SUBAGENTS_PLUGIN = "@tintinweb/pi-subagents";
@@ -20,7 +21,10 @@ export const TODO_TOOLS = ["todo"];
 /** Plan mode (read-only planning, then a reviewed plan): https://www.npmjs.com/package/@narumitw/pi-plan-mode */
 export { PLAN_MODE_PLUGIN } from "./plan-mode.ts";
 
-const KNOWN_PLUGINS = [SUBAGENTS_PLUGIN, TODO_PLUGIN, PLAN_MODE_PLUGIN];
+/** Web search and fetching (`web_search`, `fetch_content`, ...): https://github.com/nicobailon/pi-web-access */
+export { WEB_ACCESS_PLUGIN } from "./web-access.ts";
+
+const KNOWN_PLUGINS = [SUBAGENTS_PLUGIN, TODO_PLUGIN, PLAN_MODE_PLUGIN, WEB_ACCESS_PLUGIN];
 
 /** Tools of the detected plugins that bridge sessions enable. */
 export function pluginTools(detected: DetectedPlugin[]): string[] {
@@ -28,6 +32,7 @@ export function pluginTools(detected: DetectedPlugin[]): string[] {
 		...(has(detected, SUBAGENTS_PLUGIN) ? SUBAGENT_TOOLS : []),
 		...(has(detected, TODO_PLUGIN) ? TODO_TOOLS : []),
 		...(has(detected, PLAN_MODE_PLUGIN) ? PLAN_MODE_TOOLS : []),
+		...(has(detected, WEB_ACCESS_PLUGIN) ? WEB_ACCESS_TOOLS : []),
 	];
 }
 
@@ -43,7 +48,7 @@ export function pluginWelcomeLines(detected: DetectedPlugin[]): string[] {
 			? `- **${label}: available** (\`${name}\` ${plugin.version ?? "unknown version"})`
 			: `- **${label}: not available** (install with \`pi install npm:${name}\`, then restart the agent)`;
 	};
-	return [line("Subagents", SUBAGENTS_PLUGIN), line("Todo list", TODO_PLUGIN), line("Plan mode", PLAN_MODE_PLUGIN)];
+	return [line("Subagents", SUBAGENTS_PLUGIN), line("Todo list", TODO_PLUGIN), line("Plan mode", PLAN_MODE_PLUGIN), line("Web access", WEB_ACCESS_PLUGIN)];
 }
 
 export interface DetectedPlugin {

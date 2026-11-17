@@ -266,6 +266,16 @@ that unlock each one:
     during a turn send `config_option_update`. Replay shows the plan card instead of the plan tool's row.
   - Limits: in plan mode the plugin allows only its read-only built-in tools (MCP, `ask_user`, subagents and todo
     need its `defaultPlanTools` setting); its question tool needs Pi's TUI. No plan file (`planFile`) yet.
+- Web access (`pi-web-access`, `src/pi/web-access.ts`): sessions get `web_search`, `source_check`, `fetch_content`
+  and `get_search_content` directly; the plugin's `web_enable` loader is left out, so the tools are always there.
+  Rows: `web_search`/`source_check` kind `search` ("Search the web: \"…\"", "Check claim: \"…\""),
+  `fetch_content`/`get_search_content` kind `fetch` ("Fetch <url>"); output is the plugin's Markdown text.
+  Searching and stored results run without asking; `fetch_content` (pages, PDFs, GitHub clones with the user's `gh`
+  login, local videos) asks in Safe mode and runs in Auto/Brave. `web_search`'s `includeContent` is forced off: its
+  background fetch starts an agent run of its own when done, possibly after the turn. Without keys the plugin searches
+  through Exa's hosted MCP; keys and providers go in `~/.pi/agent/web-search.json`. Its TUI commands (`/websearch`,
+  `/curator`, `/search`) are not offered; renamed tools (`toolNames` in its config) are not supported. In plan mode
+  the plan-mode plugin blocks the web tools unless its `defaultPlanTools` lists them.
 
 ## 4. Testing: replay simulator
 

@@ -32,6 +32,7 @@ import { TranscriptStream } from "./transcript.ts";
 import { TODO_TOOL, todoPlan } from "./todo.ts";
 import { PLAN_COMPLETE_TOOL, PLAN_MODE_PLUGIN, PLAN_MODE_TOOLS, readPlanModeState, REVIEW_PLAN_ID, runPlanCommand } from "./plan-mode.ts";
 import { isReadOnlyCommand } from "./safe-commands.ts";
+import { FETCH_CONTENT_TOOL, WEB_READ_TOOLS, withoutBackgroundFetch } from "./web-access.ts";
 import { AGENT_TOOL, installChildSessionHook, markBridgeSession, SubagentRelay, subagentModelsNote, withChildHost } from "./subagents.ts";
 import { type DetectedPlugin, detectPlugins, has, pluginTools, pluginWelcomeLines, SUBAGENT_TOOLS, SUBAGENTS_PLUGIN, TODO_PLUGIN, TODO_TOOLS } from "./plugins.ts";
 import { discoverModels, type ListedModel, listingIdMatches } from "./discovery.ts";
@@ -717,21 +718,23 @@ class PiSession implements BackendSession {
 	}
 
 	/**
-	 * Runs without asking: everything in Brave mode; read-only shell commands in Auto mode; otherwise built-in read-only
-	 * tools, MCP tools the server marks read-only and tools allowed for this chat.
+	 * Runs without asking: everything in Brave mode; read-only shell commands and web fetches in Auto mode; otherwise
+	 * built-in read-only tools, web search, MCP tools the server marks read-only and tools allowed for this chat.
 	 */
 	private approvedUpfront(toolName: string, input: unknown): boolean {
 		const mode = this.approvalMode();
 		if (mode === "brave") return true;
 		if (mode === "auto" && toolName === "bash" && isReadOnlyCommand(String((input as { command?: unknown } | undefined)?.command ?? ""))) return true;
+		// Fetching (pages, PDFs, GitHub clones with the user's gh login) only reads; it asks in Safe mode.
+		if (mode === "auto" && toolName === FETCH_CONTENT_TOOL) return true;
 		return this.runsWithoutAsking(toolName);
 	}
 
-	/** Runs without asking in every mode: built-in read-only tools, MCP tools the server marks read-only, tools allowed for this chat. */
+	/** Runs without asking in every mode: built-in read-only tools, web search, MCP tools the server marks read-only, tools allowed for this chat. */
 	private runsWithoutAsking(toolName: string): boolean {
 		// ask_user is itself a question to the user: no separate permission.
 		// The subagent tools only start or steer children, whose own tools pass this gate; the todo tool only edits its list.
-		return READ_ONLY_TOOLS.has(toolName) || toolName === ASK_USER_TOOL || SUBAGENT_TOOLS.includes(toolName) || TODO_TOOLS.includes(toolName) || PLAN_MODE_TOOLS.includes(toolName) || this.alwaysAllowed.has(toolName) || this.toolInfo?.(toolName)?.annotations?.readOnlyHint === true;
+		return READ_ONLY_TOOLS.has(toolName) || toolName === ASK_USER_TOOL || SUBAGENT_TOOLS.includes(toolName) || TODO_TOOLS.includes(toolName) || PLAN_MODE_TOOLS.includes(toolName) || WEB_READ_TOOLS.includes(toolName) || this.alwaysAllowed.has(toolName) || this.toolInfo?.(toolName)?.annotations?.readOnlyHint === true;
 	}
 
 	private readonly gate = (pi: ExtensionAPI) => {
@@ -751,6 +754,7 @@ class PiSession implements BackendSession {
 	/** Asks the user (unless the tool runs without asking); a block verdict when it must not run. Also for subagents' tools. */
 	private async permit(call: { toolCallId: string; toolName: string; input: Record<string, unknown> }, subagentId?: string): Promise<{ block: true; reason: string } | undefined> {
 		const log = this.backend.log;
+		withoutBackgroundFetch(call.toolName, call.input);
 		if (this.approvedUpfront(call.toolName, call.input)) return undefined;
 		if (!this.ask) return { block: true, reason: "No client to ask for permission." };
 		const decision = await this.ask({

@@ -5,6 +5,7 @@
 import { readFileSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 import type { ToolKind, ToolUpdate } from "../core/types.ts";
+import { FETCH_CONTENT_TOOL, SOURCE_CHECK_TOOL, STORED_CONTENT_TOOL, WEB_SEARCH_TOOL, webToolTitle } from "./web-access.ts";
 
 /** Tools the bridge enables in Pi sessions. */
 export const BRIDGE_TOOLS = ["read", "grep", "find", "ls", "edit", "write", "bash"];
@@ -21,7 +22,12 @@ export function toolKind(name: string): ToolKind {
 			return "edit";
 		case "grep":
 		case "find":
+		case WEB_SEARCH_TOOL:
+		case SOURCE_CHECK_TOOL:
 			return "search";
+		case FETCH_CONTENT_TOOL:
+		case STORED_CONTENT_TOOL:
+			return "fetch";
 		case "bash":
 			return "execute";
 		case "ask_user":
@@ -64,6 +70,8 @@ export function toolTitle(name: string, args: unknown): string {
 			return names.length ? `Asked: ${short(names.join(", "))}` : "Asked the user";
 		}
 		default: {
+			const web = webToolTitle(name, r);
+			if (web) return web;
 			if (name.endsWith("__execute_tool") && typeof r.command === "string") return `IDE: ${short(r.command)}`;
 			const mcp = /^mcp__(.+?)__(.+)$/.exec(name);
 			return mcp ? `${mcp[1]} · ${mcp[2]}` : name;

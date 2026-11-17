@@ -67,6 +67,9 @@ presentation). Plugins matter most for *agent behaviour* (subagents, goals, plan
     custom entry, `PLAN.md` export) or `@plannotator/pi-extension` 0.28 (21.7k/wk, browser approval UI; too much
     surface for AIR). Their plans are markdown, so entries must be parsed. Likely simpler: bridge plan mode
     (read-only tools + "submit plan" tool approved through AIR's plan review) with rpiv-todo for execution tracking.
+- **Web access** (not an AIR contract feature; Junie has its own web search/fetch tools, shown as `search`/`fetch`
+  rows): `pi-web-access` 0.48: `web_search`, `fetch_content` (pages, PDFs, GitHub clones, video), `source_check`,
+  `get_search_content`. Done: tools enabled without its loader, search/fetch rows, fetching asks in Safe mode.
 - **Permission rules** (optional, for Brave "Auto"): `@gotgenes/pi-permission-system` 42 (9.6k/wk) allow/ask/deny per
   tool, bash pattern and path, `getPermissionsService(sessionId)`. Pi itself never asks; the bridge's gate is what asks
   AIR, so Brave mode is bridge code either way.
