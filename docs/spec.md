@@ -166,6 +166,13 @@ group ids (`proxy:<slot>`), `_meta` shapes and stop reasons.
 - **Tool events** (`src/pi/tools.ts`, ported from pi-acp, MIT) become neutral `ToolUpdate`s (title, kind,
   status, input, locations with the edit line, output text, edit/write diffs from a pre-execution snapshot).
   The driver turns the first update of an id into `tool_call` and later ones into `tool_call_update`.
+- **Questions to the user** (`src/pi/ask-user.ts`): when the client advertises form elicitation
+  (`clientCapabilities.elicitation.form`, AIR does), Pi gets Junie's `ask_user` tool (same name, schema,
+  description and result text). It runs without a permission prompt and asks through the core `QuestionAsk`
+  port; the driver sends `elicitation/create` (mode `form`) in Junie's shape: `question_<i>` as text, single
+  choice (`oneOf`) or multi choice (array of `anyOf`), plus an "Other" text `question_<i>_custom` with AIR's
+  `customAnswer` marker; nothing required. Accept returns the answers; decline/cancel tell the model not to ask
+  again this turn. Cancelling the turn cancels the form. Shown as a "think" tool card "Asked: <names>".
 - **Failures** (`src/pi/failures.ts`): a failed turn carries a neutral `TurnFailure` (category connection /
   access / limit / request / service / unknown, one-line title, the provider's message as details, actions
   retry / new_session), classified from Pi's error (HTTP status, network errors, Pi's context-overflow check).

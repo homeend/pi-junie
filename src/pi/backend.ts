@@ -18,7 +18,7 @@ import {
 	VERSION as PI_VERSION,
 } from "@earendil-works/pi-coding-agent";
 import { type Logger, silentLogger } from "../core/log.ts";
-import type { AgentBackend, BackendSession, PermissionAsk, SessionContext, TurnSink } from "../core/ports.ts";
+import type { AgentBackend, BackendSession, PermissionAsk, QuestionAsk, SessionContext, TurnSink } from "../core/ports.ts";
 import type { CommandInfo, HistoryItem, McpServerSpec, ModelChoice, ModelGroup, ModelRef, PromptInput, ProviderBinding, ProviderSlotState, SessionSummary, SteerResult, TurnResult } from "../core/types.ts";
 import { bridgeProviderId, DEFAULT_MODEL, joinBaseUrl, SLOTS, type SlotDefinition, vertexBaseUrl } from "./catalog.ts";
 import { openPiTranscript, type SessionMeta, SessionStore } from "./session-store.ts";
@@ -26,6 +26,7 @@ import { BRIDGE_TOOLS, READ_ONLY_TOOLS, ToolTracker, toolKind, toolLocations, to
 import { IDE_ROUTER_TOOL, IDE_SERVER, ideRouterName, ideServerToolExposure, JUNIE_COMPAT_DEFAULTS, type JunieCompatOptions, junieExecuteToolAlias } from "./junie-compat.ts";
 import { classifyFailure } from "./failures.ts";
 import { PLACEHOLDER_API_KEY } from "./proxy-auth.ts";
+import { ASK_USER_TOOL, askUserTool } from "./ask-user.ts";
 import { PhaseSplitter, type PhaseSplitterOptions, signaturePhase } from "./phases.ts";
 import { discoverModels, type ListedModel, listingIdMatches } from "./discovery.ts";
 
@@ -354,6 +355,7 @@ export class PiBackend implements AgentBackend {
 		thinkingLevel: ThinkingLevel,
 		gate: (pi: ExtensionAPI) => void,
 		context: SessionContext,
+		askUser?: (pi: ExtensionAPI) => void,
 	): Promise<AgentSession> {
 		const mcpServers = context.mcpServers ?? [];
 		const hasIde = mcpServers.some((s) => s.name === IDE_SERVER);
@@ -366,6 +368,7 @@ export class PiBackend implements AgentBackend {
 			registerClientMcpServers(mcpServers, this.junieCompat),
 			createMcpExtension(),
 			...(routerAlias ? [junieExecuteToolAlias] : []),
+			...(askUser ? [askUser] : []),
 		]);
 		const contextFiles = resourceLoader.getAgentsFiles().agentsFiles.map((f) => f.path);
 		const skills = resourceLoader.getSkills().skills.map((s) => s.name);
@@ -379,7 +382,7 @@ export class PiBackend implements AgentBackend {
 			thinkingLevel,
 			modelRuntime: this.runtime,
 			resourceLoader,
-			tools: [...BRIDGE_TOOLS, "mcp__*", ...(routerAlias ? [IDE_ROUTER_TOOL] : [])],
+			tools: [...BRIDGE_TOOLS, "mcp__*", ...(routerAlias ? [IDE_ROUTER_TOOL] : []), ...(askUser ? [ASK_USER_TOOL] : [])],
 			sessionManager: manager,
 			settingsManager,
 		});
@@ -411,6 +414,8 @@ class PiSession implements BackendSession {
 	private pi?: AgentSession;
 	/** Permission callback of the running turn (the Pi gate extension lives as long as the Pi session). */
 	private ask?: PermissionAsk;
+	/** Question form callback of the running turn (for ask_user). */
+	private askUser?: QuestionAsk;
 	/** Reports an allowed tool as running (set for the duration of a turn). */
 	private onApproved?: (toolCallId: string, toolName: string) => void;
 	private readonly alwaysAllowed = new Set<string>();
@@ -607,7 +612,8 @@ class PiSession implements BackendSession {
 
 	/** Runs without asking: built-in read-only tools, MCP tools the server marks read-only, tools allowed for this chat. */
 	private runsWithoutAsking(toolName: string): boolean {
-		return READ_ONLY_TOOLS.has(toolName) || this.alwaysAllowed.has(toolName) || this.toolInfo?.(toolName)?.annotations?.readOnlyHint === true;
+		// ask_user is itself a question to the user: no separate permission.
+		return READ_ONLY_TOOLS.has(toolName) || toolName === ASK_USER_TOOL || this.alwaysAllowed.has(toolName) || this.toolInfo?.(toolName)?.annotations?.readOnlyHint === true;
 	}
 
 	private readonly gate = (pi: ExtensionAPI) => {
@@ -639,12 +645,14 @@ class PiSession implements BackendSession {
 	};
 
 	/** Runs a turn, tracking its phase so messages typed meanwhile (steer) know where to go. */
-	async prompt(input: PromptInput, sink: TurnSink, signal: AbortSignal, ask: PermissionAsk): Promise<TurnResult> {
+	async prompt(input: PromptInput, sink: TurnSink, signal: AbortSignal, ask: PermissionAsk, askUser?: QuestionAsk): Promise<TurnResult> {
+		this.askUser = askUser;
 		this.phase = "dispatching";
 		this.dispatched = new Promise<void>((resolve) => (this.endDispatch = resolve));
 		try {
 			return await this.runPrompt(input, sink, signal, ask);
 		} finally {
+			this.askUser = undefined;
 			this.enterPhase("idle");
 		}
 	}
@@ -715,7 +723,11 @@ class PiSession implements BackendSession {
 			this.model = ref;
 			this.persist();
 		}
-		if (!this.pi) this.pi = await this.backend.createPiSession(this.id, this.cwd, model, this.thinkingLevel(), this.gate, this.context);
+		if (!this.pi) {
+			// The form tool exists only when the client can show forms; it asks through the running turn's QuestionAsk.
+			const askUser = this.context.questionForms ? askUserTool(() => this.askUser) : undefined;
+			this.pi = await this.backend.createPiSession(this.id, this.cwd, model, this.thinkingLevel(), this.gate, this.context, askUser);
+		}
 		else if (this.pi.model?.id !== model.id || this.pi.model?.provider !== model.provider) await this.pi.setModel(model);
 		if (this.pi.thinkingLevel !== this.thinkingLevel()) this.pi.setThinkingLevel(this.thinkingLevel());
 		const pi = this.pi;

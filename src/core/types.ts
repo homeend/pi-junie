@@ -16,6 +16,8 @@ export interface ClientProfile {
 	features: string[];
 	/** The client renders live terminal output from deltas. */
 	liveTerminal: boolean;
+	/** The client shows question forms (ACP elicitation, form mode). */
+	questionForms?: boolean;
 }
 
 /** A fixed provider slot the agent can route through an external endpoint. */
@@ -149,6 +151,27 @@ export interface TurnResult {
  * "busy" the running turn cannot take messages now (a command runs, or the message is a command that starts its own turn).
  */
 export type SteerResult = "injected" | "not_running" | "busy";
+
+/** One question the agent asks the user: free text, or a choice among options (with free text as "Other"). */
+export interface Question {
+	/** Short human-readable label, e.g. "Tech stack". */
+	name: string;
+	question?: string;
+	options?: { title: string; description?: string }[];
+	allowMultiple?: boolean;
+}
+
+/** Questions asked together in one form; `context` is shown before them. */
+export interface QuestionForm {
+	questions: Question[];
+	context?: string;
+}
+
+/** The user's reply to a form: per question (same order) the chosen option titles and/or own text. */
+export type QuestionAnswers =
+	| { action: "accept"; answers: { selected: string[]; text?: string }[] }
+	| { action: "decline" }
+	| { action: "cancel" };
 
 /** A saved session as shown in the client's history. */
 export interface SessionSummary {

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { AcpAgent } from "../src/acp/agent.ts";
 import type { JsonObject, Transport } from "../src/acp/jsonrpc.ts";
 import type { Logger } from "../src/core/log.ts";
-import type { AgentBackend, BackendSession, PermissionAsk, TurnSink } from "../src/core/ports.ts";
+import type { AgentBackend, BackendSession, PermissionAsk, QuestionAsk, TurnSink } from "../src/core/ports.ts";
 import type { HistoryItem, McpServerSpec, ModelGroup, ModelRef, PromptInput, ProviderBinding, ProviderSlotState, SessionSummary, TurnResult } from "../src/core/types.ts";
 
 export interface Fixture {
@@ -178,9 +178,15 @@ export class FakeBackend implements AgentBackend {
 				calls.push(`steer ${id}: ${text}${command ? ` [command ${command.name}: ${command.args}]` : ""}`);
 				return "injected";
 			},
-			prompt: async (input: PromptInput, sink: TurnSink, signal: AbortSignal, ask: PermissionAsk): Promise<TurnResult> => {
+			prompt: async (input: PromptInput, sink: TurnSink, signal: AbortSignal, ask: PermissionAsk, askUser?: QuestionAsk): Promise<TurnResult> => {
 				running = input.command?.name === "compact" ? "command" : "turn";
 				try {
+					if (input.text === "ask") {
+						if (!askUser) return { stop: "error", error: "no askUser" };
+						const answers = await askUser({ questions: [{ name: "Color", question: "Which color?", options: [{ title: "Red" }, { title: "Blue" }] }, { name: "Why" }] }, signal);
+						sink({ kind: "text", delta: JSON.stringify(answers) });
+						return { stop: "end_turn" };
+					}
 					return await prompt(input, sink, signal, ask);
 				} finally {
 					running = "no";

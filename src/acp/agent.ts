@@ -4,7 +4,7 @@
 import { resolveFeatures } from "../compat/features.ts";
 import { type Logger, silentLogger } from "../core/log.ts";
 import type { AgentBackend, BackendSession } from "../core/ports.ts";
-import type { ClientProfile, PermissionDecision, PermissionRequest, PromptInput, TurnResult } from "../core/types.ts";
+import type { ClientProfile, PermissionDecision, PermissionRequest, PromptInput, QuestionAnswers, QuestionForm, TurnResult } from "../core/types.ts";
 import {
 	EFFORT_CONFIG_ID,
 	MODEL_CONFIG_ID,
@@ -27,6 +27,8 @@ import {
 	encodeToolUpdate,
 	encodeTurnEvent,
 	encodeSessionFailure,
+	encodeQuestionForm,
+	decodeQuestionAnswers,
 } from "./codec.ts";
 import { type JsonObject, JsonRpcPeer, RpcError, type Transport } from "./jsonrpc.ts";
 import { type InitializeParams, type InitializeResult, PROTOCOL_VERSION, type ProvidersSetParams, type SessionPromptParams, type SessionUpdate } from "./wire.ts";
@@ -178,7 +180,7 @@ export class AcpAgent {
 		this.log.info(
 			`session context: mcp [${servers.map((s) => `${s.name} (${s.transport})`).join(", ")}]${skipped.length ? ` skipped [${skipped.join(", ")}]` : ""} skill roots [${skillRoots.join(", ")}]`,
 		);
-		return { cwd, mcpServers: servers, skillRoots };
+		return { cwd, mcpServers: servers, skillRoots, questionForms: this.client?.questionForms === true };
 	}
 
 	/**
@@ -327,6 +329,7 @@ export class AcpAgent {
 					},
 					turn.signal,
 					(request) => this.requestPermission(sessionId, request, knownTools, turn.signal),
+					(form, signal) => this.askQuestions(sessionId, form, signal),
 				);
 				if (result.stop === "error") this.reportFailure(sessionId, entry, result);
 				return result;
@@ -354,6 +357,22 @@ export class AcpAgent {
 		} else {
 			this.sendUpdate(sessionId, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: `\n\n**Error:** ${result.error ?? failure.title}` } });
 		}
+	}
+
+	/** elicitation/create (form): the client shows the questions; a cancelled turn or tool cancels the form. */
+	private async askQuestions(sessionId: string, form: QuestionForm, signal: AbortSignal): Promise<QuestionAnswers> {
+		if (signal.aborted) return { action: "cancel" };
+		const started = Date.now();
+		const response = await Promise.race([
+			this.peer.request("elicitation/create", encodeQuestionForm(sessionId, form)).catch((err: unknown) => {
+				this.log.warn(`elicitation/create failed: ${(err as Error).message}`);
+				return undefined;
+			}),
+			new Promise<undefined>((r) => signal.addEventListener("abort", () => r(undefined), { once: true })),
+		]);
+		const answers = decodeQuestionAnswers(form, response);
+		this.log.info(`elicitation/create ${form.questions.length} question(s) -> ${answers.action} after ${Date.now() - started}ms`);
+		return answers;
 	}
 
 	/** session/request_permission: the client shows the tool call with Allow once / Allow for this chat / Reject. */

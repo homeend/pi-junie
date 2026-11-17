@@ -1,6 +1,6 @@
 // Translation between ACP v1 wire shapes and core types. Pure functions.
 
-import type { ClientProfile, CommandInfo, HistoryItem, McpServerSpec, ModelGroup, ModelRef, PromptImage, PromptInput, ProviderBinding, PermissionDecision, PermissionRequest, ProviderSlotState, SessionSummary, ToolUpdate, TurnEvent, TurnResult, MessagePhase, TurnFailure } from "../core/types.ts";
+import type { ClientProfile, CommandInfo, HistoryItem, McpServerSpec, ModelGroup, ModelRef, PromptImage, PromptInput, ProviderBinding, PermissionDecision, PermissionRequest, ProviderSlotState, SessionSummary, ToolUpdate, TurnEvent, TurnResult, MessagePhase, QuestionAnswers, QuestionForm, TurnFailure } from "../core/types.ts";
 import { RpcError } from "./jsonrpc.ts";
 import type {
 	ContentBlock,
@@ -37,6 +37,68 @@ export function decodeClientProfile(params: InitializeParams): ClientProfile {
 		version: params.clientInfo?.version,
 		features,
 		liveTerminal: params.clientCapabilities?._meta?.terminal_output_delta === true || params.clientCapabilities?._meta?.terminal_output === true,
+		questionForms: isObject((params.clientCapabilities?.elicitation as Record<string, unknown> | undefined)?.form),
+	};
+}
+
+function isObject(v: unknown): boolean {
+	return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+// --- question forms (elicitation) -------------------------------------------------------------
+
+const questionKey = (i: number) => `question_${i}`;
+const customKey = (i: number) => `${questionKey(i)}_custom`;
+
+/**
+ * `elicitation/create` params for a question form, in Junie's shape (ElicitationMapping.kt): one property per
+ * question (`question_<i>`: text, single choice `oneOf`, or multi choice array of `anyOf`), plus an optional
+ * "Other" text (`question_<i>_custom`, AIR's customAnswer marker) for choice questions. Nothing is required.
+ */
+export function encodeQuestionForm(sessionId: string, form: QuestionForm): Record<string, unknown> {
+	const describe = form.questions.length > 1;
+	const properties: Record<string, unknown> = {};
+	form.questions.forEach((q, i) => {
+		const description = describe && q.question?.trim() && q.question !== q.name ? { description: q.question } : {};
+		const options = (q.options ?? []).map((o) => ({ const: o.title, title: o.title, ...(o.description?.trim() && o.description !== o.title ? { description: o.description } : {}) }));
+		if (!options.length) properties[questionKey(i)] = { type: "string", title: q.name, ...description };
+		else if (q.allowMultiple) properties[questionKey(i)] = { type: "array", title: q.name, ...description, minItems: 0, items: { anyOf: options } };
+		else properties[questionKey(i)] = { type: "string", title: q.name, ...description, oneOf: options };
+		if (options.length) {
+			properties[customKey(i)] = {
+				type: "string",
+				title: "Other",
+				description: "Or type your own answer instead of choosing an option above (optional).",
+				_meta: { _askUserQuestionCustomAnswer: true, jetbrains: { air: { customAnswer: true } } },
+			};
+		}
+	});
+	const single = form.questions.length === 1 ? form.questions[0] : undefined;
+	const message = single ? single.question?.trim() || single.name : "Please answer the following questions.";
+	return {
+		sessionId,
+		mode: "form",
+		message: form.context ? `${form.context}\n\n${message}` : message,
+		requestedSchema: { type: "object", title: "Questions", properties, required: [] },
+	};
+}
+
+/** The client's form reply as answers per question; anything unreadable counts as cancel. */
+export function decodeQuestionAnswers(form: QuestionForm, result: unknown): QuestionAnswers {
+	const r = result as { action?: unknown; content?: Record<string, unknown> } | undefined;
+	if (r?.action === "decline") return { action: "decline" };
+	if (r?.action !== "accept") return { action: "cancel" };
+	const content = r.content ?? {};
+	return {
+		action: "accept",
+		answers: form.questions.map((q, i) => {
+			const value = content[questionKey(i)];
+			const custom = content[customKey(i)];
+			const hasOptions = !!q.options?.length;
+			const selected = hasOptions ? (Array.isArray(value) ? value : value === undefined || value === "" ? [] : [value]).filter((v): v is string => typeof v === "string") : [];
+			const texts = [hasOptions ? undefined : value, custom].filter((v): v is string => typeof v === "string" && v.trim() !== "");
+			return { selected, ...(texts.length ? { text: texts.join("; ") } : {}) };
+		}),
 	};
 }
 

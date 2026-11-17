@@ -1,7 +1,7 @@
 // Ports: what the protocol side needs from an agent implementation.
 // The ACP driver depends on these interfaces; the Pi bridge implements them.
 
-import type { AgentIdentity, CommandInfo, ModelGroup, ModelRef, HistoryItem, McpServerSpec, PermissionDecision, PermissionRequest, PromptInput, ProviderBinding, ProviderSlotState, SessionSummary, SteerResult, TurnEvent, TurnResult } from "./types.ts";
+import type { AgentIdentity, CommandInfo, ModelGroup, ModelRef, HistoryItem, McpServerSpec, PermissionDecision, PermissionRequest, PromptInput, ProviderBinding, ProviderSlotState, QuestionAnswers, QuestionForm, SessionSummary, SteerResult, TurnEvent, TurnResult } from "./types.ts";
 
 export type TurnSink = (event: TurnEvent) => void;
 
@@ -12,7 +12,12 @@ export interface SessionContext {
 	mcpServers?: McpServerSpec[];
 	/** Extra directories whose `.agents/skills` and `.junie/skills` hold client-provided skills. */
 	skillRoots?: string[];
+	/** The client can show question forms, so the agent may ask the user (QuestionAsk). */
+	questionForms?: boolean;
 }
+/** Asks the user questions through a client form; resolves with the answers, a decline, or a cancel. */
+export type QuestionAsk = (form: QuestionForm, signal: AbortSignal) => Promise<QuestionAnswers>;
+
 /** Asks the user (through the client) whether a tool call may run. */
 export type PermissionAsk = (request: PermissionRequest) => Promise<PermissionDecision>;
 
@@ -26,7 +31,7 @@ export interface BackendSession {
 	currentEffort(): string | undefined;
 	selectEffort(level: string): Promise<void>;
 	/** Runs one user turn. Streams events to `sink`; resolves when the turn has finished. */
-	prompt(input: PromptInput, sink: TurnSink, signal: AbortSignal, ask: PermissionAsk): Promise<TurnResult>;
+	prompt(input: PromptInput, sink: TurnSink, signal: AbortSignal, ask: PermissionAsk, askUser?: QuestionAsk): Promise<TurnResult>;
 	/** Adds a message to the running turn (the user typed while the agent works). Never starts a turn itself. */
 	steer(input: PromptInput): Promise<SteerResult>;
 	/** Commands for the client's command popup (built-ins and skills). */

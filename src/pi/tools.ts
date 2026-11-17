@@ -24,6 +24,8 @@ export function toolKind(name: string): ToolKind {
 			return "search";
 		case "bash":
 			return "execute";
+		case "ask_user":
+			return "think";
 		default:
 			return "other";
 	}
@@ -57,6 +59,10 @@ export function toolTitle(name: string, args: unknown): string {
 			return typeof r.command === "string" ? `Run ${short(r.command.split("\n")[0])}` : "Run command";
 		case "execute_tool":
 			return typeof r.command === "string" ? `IDE: ${short(r.command)}` : "IDE";
+		case "ask_user": {
+			const names = Array.isArray(r.questions) ? r.questions.map((q) => (q as { name?: unknown })?.name).filter((n): n is string => typeof n === "string") : [];
+			return names.length ? `Asked: ${short(names.join(", "))}` : "Asked the user";
+		}
 		default: {
 			if (name.endsWith("__execute_tool") && typeof r.command === "string") return `IDE: ${short(r.command)}`;
 			const mcp = /^mcp__(.+?)__(.+)$/.exec(name);
