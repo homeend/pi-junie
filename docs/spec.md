@@ -106,6 +106,7 @@ group ids (`proxy:<slot>`), `_meta` shapes and stop reasons.
 
 ### 3.2 Pi bridge
 
+- Default model: `anthropic/claude-sonnet-5-5` when bound, otherwise the first available.
 - Fixed slots, like Junie's: `anthropic` (apiType `anthropic`), `openai` (`openai`) and `google`
   (`google`/`vertex`, experimental).
 - `bindProvider` registers a **separate** Pi provider `air-<slot>` with `baseUrl` and `headers` from AIR,
