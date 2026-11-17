@@ -38,9 +38,18 @@ function ideRouterNote(name: string): string {
 	return `The IDE tool \`${name}\` runs IDE tools by name: \`command: "<tool> --param value ..."\`. Use it when the user asks you to do something in the IDE, or when a skill you read for the task directs you to. Take tool names from such skills, from the router's own description, or from its error messages (they say which parameter is missing). Do not cycle through guessed names: after one 'not found', tell the user which IDE capability seems to be missing.`;
 }
 
-const IDE_NOTE =
-	"You are running inside a JetBrains IDE (AIR) through the Agent Client Protocol. The user sees your Markdown answers and your tool calls in the IDE; edits and commands may need their approval.\n" +
-	"In the user's messages, `@name` mentions a file or folder (existing or to be created) by its path relative to the project: the `@` is not part of the name. `create @notes/a.txt` means the file `notes/a.txt`.";
+/**
+ * Where the agent runs, from the client's own introduction (ACP initialize `clientInfo`); no client is assumed.
+ * The `@path` line is about how mentions read, not about a particular client.
+ */
+function clientNote(client: SessionContext["client"]): string {
+	const known = client && client.name !== "unknown";
+	const where = known ? `${client.title ?? client.name} (an Agent Client Protocol client)` : "an Agent Client Protocol client";
+	return (
+		`You are running inside ${where}. The user sees your Markdown answers and your tool calls there; edits and commands may need their approval.\n` +
+		"If the user's message mentions a file or folder as `@path`, the `@` is not part of the name: `create @notes/a.txt` means the file `notes/a.txt`."
+	);
+}
 
 export interface PiBackendOptions {
 	/** Directory for Pi state of this bridge (isolated from the user's ~/.pi/agent). */
@@ -374,7 +383,7 @@ export class PiBackend implements AgentBackend {
 			// Plugin skills drive plugin tools the bridge leaves off (the subagents plugin's `workflow-authoring` is for
 			// its SubagentWorkflow tool): not offered.
 			skillsOverride: (base) => ({ ...base, skills: base.skills.filter((s) => !this.plugins.some((p) => s.filePath.startsWith(`${p.path}/`))) }),
-			appendSystemPrompt: [IDE_NOTE, ...(hasIde ? [ideRouterNote(ideRouterName(this.junieCompat))] : [])],
+			appendSystemPrompt: [clientNote(context.client), ...(hasIde ? [ideRouterNote(ideRouterName(this.junieCompat))] : [])],
 			extensionFactories,
 		});
 		await resourceLoader.reload();

@@ -14,6 +14,8 @@ export interface SessionContext {
 	skillRoots?: string[];
 	/** The client can show question forms, so the agent may ask the user (QuestionAsk). */
 	questionForms?: boolean;
+	/** The application the user runs the agent in, as it introduced itself (ACP initialize clientInfo). */
+	client?: { name: string; title?: string };
 }
 /** Asks the user questions through a client form; resolves with the answers, a decline, or a cancel. */
 export type QuestionAsk = (form: QuestionForm, signal: AbortSignal) => Promise<QuestionAnswers>;

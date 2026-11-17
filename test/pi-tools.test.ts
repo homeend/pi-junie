@@ -23,7 +23,7 @@ async function chat() {
 	const backend = await PiBackend.create({ stateDir });
 	backend.bindProvider({ slotId: "anthropic", apiType: "anthropic", baseUrl: `${proxy.url}/a`, headers: {} });
 	await backend.modelsSettled(3000);
-	const session = await backend.openSession({ cwd });
+	const session = await backend.openSession({ cwd, client: { name: "zed", title: "Zed" } });
 	const asked: PermissionRequest[] = [];
 	const tools: ToolUpdate[] = [];
 	const run = async (text: string, decide: (r: PermissionRequest) => PermissionDecision) =>
@@ -130,7 +130,8 @@ describe("Pi bridge tools", () => {
 		const system = JSON.stringify(proxy.requests.filter((r) => r.method === "POST").at(-1)!.body.system);
 		expect(system).toContain("Always run `make check` before committing.");
 		expect(system).toContain("release-notes");
-		expect(system).toContain("JetBrains IDE");
+		expect(system).toContain("You are running inside Zed (an Agent Client Protocol client)"); // as the client introduced itself
+		expect(system).not.toContain("JetBrains IDE (AIR)"); // no client is assumed
 		expect(system).toContain("the `@` is not part of the name"); // AIR's @-mentions are paths
 	});
 

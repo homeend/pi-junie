@@ -194,7 +194,13 @@ export class AcpAgent {
 		this.log.info(
 			`session context: mcp [${servers.map((s) => `${s.name} (${s.transport})`).join(", ")}]${skipped.length ? ` skipped [${skipped.join(", ")}]` : ""} skill roots [${skillRoots.join(", ")}]`,
 		);
-		return { cwd, mcpServers: servers, skillRoots, questionForms: this.client?.questionForms === true };
+		return {
+			cwd,
+			mcpServers: servers,
+			skillRoots,
+			questionForms: this.client?.questionForms === true,
+			...(this.client ? { client: { name: this.client.name, ...(this.client.title ? { title: this.client.title } : {}) } } : {}),
+		};
 	}
 
 	/**
