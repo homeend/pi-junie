@@ -116,6 +116,9 @@ export class FakeBackend implements AgentBackend {
 			.filter((s) => s.binding)
 			.map((s) => ({ slotId: s.id, name: s.displayName, models: this.catalog[s.id].map((id) => ({ slotId: s.id, modelId: id, name: id })) }));
 	}
+	modelMixes() {
+		return [];
+	}
 	async modelsSettled() {}
 	onModelsChanged(l: () => void) {
 		this.listeners.add(l);
@@ -170,6 +173,8 @@ export class FakeBackend implements AgentBackend {
 				calls.push(`effort ${level}`);
 				effort = level;
 			},
+			currentMix: () => undefined,
+			selectMix: async () => {},
 			planMode: () => undefined,
 			selectPlanMode: async () => {},
 			approvalMode: () => approval,

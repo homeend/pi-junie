@@ -1,7 +1,7 @@
 // Ports: what the protocol side needs from an agent implementation.
 // The ACP driver depends on these interfaces; the Pi bridge implements them.
 
-import type { AgentIdentity, ApprovalMode, CommandInfo, ModelGroup, ModelRef, HistoryItem, McpServerSpec, PermissionDecision, PermissionRequest, PlanDecision, PlanReview, PromptInput, ProviderBinding, ProviderSlotState, QuestionAnswers, QuestionForm, SessionSummary, SteerResult, TurnEvent, TurnResult } from "./types.ts";
+import type { AgentIdentity, ApprovalMode, CommandInfo, ModelGroup, ModelMix, ModelRef, HistoryItem, McpServerSpec, PermissionDecision, PermissionRequest, PlanDecision, PlanReview, PromptInput, ProviderBinding, ProviderSlotState, QuestionAnswers, QuestionForm, SessionSummary, SteerResult, TurnEvent, TurnResult } from "./types.ts";
 
 export type TurnSink = (event: TurnEvent) => void;
 
@@ -35,6 +35,10 @@ export interface BackendSession {
 	effortLevels(): string[];
 	currentEffort(): string | undefined;
 	selectEffort(level: string): Promise<void>;
+	/** The Default group level in use, or undefined when the model and effort were chosen by hand. */
+	currentMix(): string | undefined;
+	/** Switches to a Default group level (its model and effort). */
+	selectMix(id: string): Promise<void>;
 	/** How tool calls are approved in this session (Brave Mode). */
 	approvalMode(): ApprovalMode;
 	selectApprovalMode(mode: ApprovalMode): Promise<void>;
@@ -64,6 +68,8 @@ export interface AgentBackend {
 	unbindProvider(slotId: string): void;
 	/** Models reachable right now (only slots with a binding). */
 	availableModels(): ModelGroup[];
+	/** The Default group: preset levels whose model is reachable right now (empty when there is no catalog). */
+	modelMixes(): ModelMix[];
 	/** Resolves when pending model discovery has finished, or after `timeoutMs`. */
 	modelsSettled(timeoutMs: number): Promise<void>;
 	/** Called whenever availableModels() may have changed. */

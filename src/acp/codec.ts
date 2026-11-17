@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 // Translation between ACP v1 wire shapes and core types. Pure functions.
 
-import type { ApprovalMode, ClientProfile, CommandInfo, HistoryItem, McpServerSpec, ModelGroup, ModelRef, PromptImage, PromptInput, ProviderBinding, PermissionDecision, PermissionRequest, PlanDecision, PlanReview, PlanUpdate, ProviderSlotState, SessionSummary, ToolUpdate, TurnEvent, TurnResult, MessagePhase, QuestionAnswers, QuestionForm, TurnFailure } from "../core/types.ts";
+import type { ApprovalMode, ClientProfile, CommandInfo, HistoryItem, McpServerSpec, ModelGroup, ModelMix, ModelRef, PromptImage, PromptInput, ProviderBinding, PermissionDecision, PermissionRequest, PlanDecision, PlanReview, PlanUpdate, ProviderSlotState, SessionSummary, ToolUpdate, TurnEvent, TurnResult, MessagePhase, QuestionAnswers, QuestionForm, TurnFailure } from "../core/types.ts";
 import { RpcError } from "./jsonrpc.ts";
 import type {
 	ContentBlock,
@@ -92,6 +92,32 @@ const EFFORT_LABELS: Record<string, string> = {
 	max: "● Max effort",
 };
 const MODEL_VALUE_PREFIX = "pi:";
+/** Junie's value of a Default group level (`mix.<level>`): no colon, so it is never read as a model value. */
+const MIX_VALUE_PREFIX = "mix.";
+
+/** The level id of a Default group value, undefined for other values. */
+export function decodeMixValue(value: string): string | undefined {
+	return value.startsWith(MIX_VALUE_PREFIX) && value.length > MIX_VALUE_PREFIX.length ? value.slice(MIX_VALUE_PREFIX.length) : undefined;
+}
+
+/**
+ * Junie's Default group: the levels as the first group of the model option. AIR (`_meta.jetbrains.air.defaultGroup`)
+ * shows them on a slider behind one Default item, each with its model's name and Eco state; other clients see a group.
+ * Eco is always "off": Pi runs a level on its model and effort only.
+ */
+function encodeDefaultGroup(mixes: ModelMix[]): SelectGroup {
+	return {
+		group: "default",
+		name: "Default",
+		options: mixes.map((m) => ({
+			value: `${MIX_VALUE_PREFIX}${m.id}`,
+			name: m.label,
+			description: m.description,
+			_meta: { jetbrains: { air: { version: 1, eco: "off", modelDisplayName: m.modelName } } },
+		})),
+		_meta: { jetbrains: { air: { version: 1, defaultGroup: { description: "Uses recommended models." } } } },
+	};
+}
 
 // --- initialize -----------------------------------------------------------------------------
 
@@ -259,10 +285,18 @@ export function encodeEffortOption(effort: EffortState | undefined): SelectConfi
 }
 
 /** Builds the `configOptions` array. Returns no model option when no model is reachable. */
-export function encodeConfigOptions(groups: ModelGroup[], current: ModelRef | undefined, effort?: EffortState, approval?: ApprovalMode, planMode?: boolean): SelectConfigOption[] {
+export function encodeConfigOptions(
+	groups: ModelGroup[],
+	current: ModelRef | undefined,
+	effort?: EffortState,
+	approval?: ApprovalMode,
+	planMode?: boolean,
+	mixes: ModelMix[] = [],
+	currentMix?: string,
+): SelectConfigOption[] {
 	const nonEmpty = groups.filter((g) => g.models.length > 0);
 	if (nonEmpty.length === 0) return [];
-	const options: SelectGroup[] = nonEmpty.map((g) => ({
+	const providerGroups: SelectGroup[] = nonEmpty.map((g) => ({
 		group: `proxy:${g.slotId}`,
 		name: g.name,
 		options: g.models.map((m) => ({ value: encodeModelValue(m), name: m.name, description: m.description ?? "" })),
@@ -275,8 +309,8 @@ export function encodeConfigOptions(groups: ModelGroup[], current: ModelRef | un
 			name: "Model",
 			description: "Select the model Pi uses for responses",
 			category: "model",
-			currentValue: encodeModelValue(current ?? fallback),
-			options,
+			currentValue: currentMix && mixes.some((m) => m.id === currentMix) ? `${MIX_VALUE_PREFIX}${currentMix}` : encodeModelValue(current ?? fallback),
+			options: [...(mixes.length ? [encodeDefaultGroup(mixes)] : []), ...providerGroups],
 		},
 	];
 	// Like Junie, the mode option comes first.

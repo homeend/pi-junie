@@ -10,6 +10,7 @@ import {
 	EFFORT_CONFIG_ID,
 	MODEL_CONFIG_ID,
 	decodeClientProfile,
+	decodeMixValue,
 	decodeModelValue,
 	decodePrompt,
 	decodeProviderBinding,
@@ -296,7 +297,12 @@ export class AcpAgent {
 
 	private async setConfigOption(params: JsonObject): Promise<unknown> {
 		const entry = this.requireSession(params.sessionId);
-		if (params.configId === MODEL_CONFIG_ID) await entry.backend.selectModel(decodeModelValue(String(params.value)));
+		if (params.configId === MODEL_CONFIG_ID) {
+			const mix = decodeMixValue(String(params.value));
+			if (mix === undefined) await entry.backend.selectModel(decodeModelValue(String(params.value)));
+			else if (this.backend.modelMixes().some((m) => m.id === mix)) await entry.backend.selectMix(mix);
+			else throw RpcError.invalidParams(`Default level ${mix} is not available`);
+		}
 		else if (params.configId === EFFORT_CONFIG_ID) {
 			const level = String(params.value);
 			if (!entry.backend.effortLevels().includes(level)) throw RpcError.invalidParams(`Effort ${level} is not supported by the current model`);
@@ -538,6 +544,8 @@ export class AcpAgent {
 			{ levels: session.effortLevels(), current: session.currentEffort() },
 			session.approvalMode(),
 			session.planMode(),
+			this.backend.modelMixes(),
+			session.currentMix(),
 		);
 	}
 

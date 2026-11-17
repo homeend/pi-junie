@@ -19,7 +19,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { type Logger, silentLogger } from "../core/log.ts";
 import type { AgentBackend, BackendSession, PermissionAsk, PlanReviewAsk, QuestionAsk, SessionContext, TurnSink } from "../core/ports.ts";
-import type { ApprovalMode, CommandInfo, HistoryItem, PlanUpdate, McpServerSpec, ModelChoice, ModelGroup, ModelRef, PromptInput, ProviderBinding, ProviderSlotState, SessionSummary, SteerResult, TurnResult } from "../core/types.ts";
+import type { ApprovalMode, CommandInfo, HistoryItem, PlanUpdate, McpServerSpec, ModelChoice, ModelGroup, ModelMix, ModelRef, PromptInput, ProviderBinding, ProviderSlotState, SessionSummary, SteerResult, TurnResult } from "../core/types.ts";
 import { bridgeProviderId, DEFAULT_MODEL, joinBaseUrl, SLOTS, type SlotDefinition, vertexBaseUrl } from "./catalog.ts";
 import { openPiTranscript, type SessionMeta, SessionStore } from "./session-store.ts";
 import { BRIDGE_TOOLS, READ_ONLY_TOOLS, toolKind, toolLocations, toolResultText, toolTitle } from "./tools.ts";
@@ -31,7 +31,8 @@ import { type PhaseSplitterOptions, signaturePhase } from "./phases.ts";
 import { TranscriptStream } from "./transcript.ts";
 import { TODO_TOOL, todoPlan } from "./todo.ts";
 import { PLAN_COMPLETE_TOOL, PLAN_MODE_PLUGIN, PLAN_MODE_TOOLS, readPlanModeState, REVIEW_PLAN_ID, runPlanCommand } from "./plan-mode.ts";
-import { type FeatureFlags, INGRAZZIO_SLOT, ingrazzioProvider, loadFeatureFlags } from "./ingrazzio.ts";
+import { FLAG_JUNIE_MIXES, type FeatureFlags, INGRAZZIO_SLOT, ingrazzioProvider, JUNIE_LITE, loadFeatureFlags } from "./ingrazzio.ts";
+import { type MixCatalog, parseMixCatalog } from "./mixes.ts";
 import { isReadOnlyCommand } from "./safe-commands.ts";
 import { FETCH_CONTENT_TOOL, WEB_READ_TOOLS, withoutBackgroundFetch } from "./web-access.ts";
 import { AGENT_TOOL, installChildSessionHook, markBridgeSession, SubagentRelay, subagentModelsNote, withChildHost } from "./subagents.ts";
@@ -80,7 +81,7 @@ export class PiBackend implements AgentBackend {
 	private readonly bindings = new Map<string, { binding: ProviderBinding; generation: number; status: "discovering" | "ready" | "failed" }>();
 	private readonly pending = new Set<Promise<void>>();
 	/** The Ingrazzio route (no models) and the feature flags read through it. */
-	private ingrazzio?: { binding: ProviderBinding; generation: number; flags?: FeatureFlags };
+	private ingrazzio?: { binding: ProviderBinding; generation: number; flags?: FeatureFlags; mixes?: MixCatalog };
 	private readonly fetchImpl?: typeof fetch;
 	private readonly discoveryTimeoutMs?: number;
 	private generation = 0;
@@ -156,7 +157,12 @@ export class PiBackend implements AgentBackend {
 		this.emit();
 		this.log.info(`bind ${INGRAZZIO_SLOT.id}: apiType=${binding.apiType} baseUrl=${binding.baseUrl} headers=[${Object.keys(binding.headers).join(", ")}] -> loading feature flags`);
 		const done = loadFeatureFlags(binding, { fetch: this.fetchImpl, log: this.log }).then((flags) => {
-			if (this.ingrazzio?.generation === generation) this.ingrazzio.flags = flags;
+			if (this.ingrazzio?.generation !== generation) return;
+			this.ingrazzio.flags = flags;
+			this.ingrazzio.mixes = flags.kind === "loaded" ? parseMixCatalog(flags.values[FLAG_JUNIE_MIXES], this.log) : undefined;
+			const mixes = this.modelMixes();
+			this.log.info(`mixes: Default group [${mixes.map((m) => `${m.id}=${fmt(m.model)}${m.effort ? `@${m.effort}` : ""}${m.recommended ? "*" : ""}`).join(", ")}]`);
+			this.emit();
 		});
 		this.pending.add(done);
 		void done.finally(() => this.pending.delete(done));
@@ -326,6 +332,33 @@ export class PiBackend implements AgentBackend {
 		}));
 	}
 
+	/** The Default group: the catalog's levels whose model (and effort) this bridge can run now, in catalog order. */
+	modelMixes(): ModelMix[] {
+		const catalog = this.ingrazzio?.mixes;
+		if (!catalog) return [];
+		const out: ModelMix[] = [];
+		for (const preset of catalog.presets) {
+			const ref = this.modelForSetting(preset.modelId);
+			const model = ref && this.resolveModel(ref);
+			if (!ref || !model) continue;
+			const levels = getSupportedThinkingLevels(model).filter((l) => l !== "off");
+			const effort = preset.effort === "none" ? undefined : preset.effort;
+			if (effort && !levels.includes(effort as (typeof levels)[number])) continue; // the model can't run the level's effort
+			out.push({ id: preset.id, label: preset.label, description: preset.description, model: ref, modelName: model.name, ...(effort ? { effort } : {}), recommended: preset.id === catalog.recommended });
+		}
+		return out;
+	}
+
+	/** A model by Junie's setting id (the mixes catalog's `modelId`). */
+	private modelForSetting(settingId: string): ModelRef | undefined {
+		if (settingId === JUNIE_LITE.settingId) return this.ingrazzio ? { slotId: INGRAZZIO_SLOT.id, modelId: JUNIE_LITE.id } : undefined;
+		for (const group of this.availableModels()) {
+			const found = group.models.find((m) => listingIdMatches(m.modelId, settingId));
+			if (found) return { slotId: found.slotId, modelId: found.modelId };
+		}
+		return undefined;
+	}
+
 	onModelsChanged(listener: () => void): () => void {
 		this.listeners.add(listener);
 		return () => this.listeners.delete(listener);
@@ -345,6 +378,9 @@ export class PiBackend implements AgentBackend {
 		const id = `pi-${Date.now().toString(36)}-${++this.counter}`;
 		const now = new Date().toISOString();
 		const meta: SessionMeta = { id, cwd, createdAt: now, updatedAt: now };
+		// Like Junie, a new chat starts on the recommended Default level when there is one.
+		const recommended = this.modelMixes().find((m) => m.recommended);
+		if (recommended) Object.assign(meta, { mix: recommended.id, model: recommended.model, ...(recommended.effort ? { effort: recommended.effort } : {}) });
 		this.store.save(meta);
 		this.log.info(`session ${id} opened (cwd ${cwd}), default model ${fmt(this.defaultModel())}`);
 		return new PiSession(meta, this, context);
@@ -555,6 +591,7 @@ class PiSession implements BackendSession {
 	async selectEffort(level: string): Promise<void> {
 		this.backend.log.info(`session ${this.id}: effort ${this.meta.effort ?? "default"} -> ${level}`);
 		this.meta.effort = level;
+		this.meta.mix = undefined; // like Junie: changing the effort of a level makes the choice manual
 		this.persist();
 		this.pi?.setThinkingLevel(this.thinkingLevel());
 	}
@@ -725,8 +762,30 @@ class PiSession implements BackendSession {
 		if (!model) throw new Error(`model ${ref.slotId}/${ref.modelId} is not available`);
 		this.backend.log.info(`session ${this.id}: model ${fmt(this.model)} -> ${fmt(ref)}`);
 		this.model = ref;
+		this.meta.mix = undefined;
 		this.persist();
 		await this.pi?.setModel(model);
+	}
+
+	/** The level in use while its model and effort are still the session's (the catalog may have moved it). */
+	currentMix(): string | undefined {
+		const mix = this.backend.modelMixes().find((m) => m.id === this.meta.mix);
+		const current = this.currentModel();
+		if (!mix || !current || current.slotId !== mix.model.slotId || current.modelId !== mix.model.modelId) return undefined;
+		return !mix.effort || this.currentEffort() === mix.effort ? mix.id : undefined;
+	}
+
+	async selectMix(id: string): Promise<void> {
+		const mix = this.backend.modelMixes().find((m) => m.id === id);
+		const model = mix && this.backend.resolveModel(mix.model);
+		if (!mix || !model) throw new Error(`Default level ${id} is not available`);
+		this.backend.log.info(`session ${this.id}: Default level ${this.meta.mix ?? "none"} -> ${id} (${fmt(mix.model)}${mix.effort ? ` effort ${mix.effort}` : ""})`);
+		this.model = mix.model;
+		this.meta.mix = id;
+		if (mix.effort) this.meta.effort = mix.effort;
+		this.persist();
+		await this.pi?.setModel(model);
+		this.pi?.setThinkingLevel(this.thinkingLevel());
 	}
 
 	/** Pi extension: read-only tools run; everything else asks the user unless allowed for this chat. */

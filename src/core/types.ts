@@ -60,6 +60,20 @@ export interface ModelChoice extends ModelRef {
 	reasoning?: boolean;
 }
 
+/** A preset level of the Default model group (Junie's mixes): a model and an effort under one name. */
+export interface ModelMix {
+	id: string;
+	label: string;
+	description: string;
+	model: ModelRef;
+	/** Name of the level's model, shown by clients in place of the level name. */
+	modelName: string;
+	/** The level's effort; undefined when the model takes none. */
+	effort?: string;
+	/** The level new sessions start on. */
+	recommended: boolean;
+}
+
 export interface ModelGroup {
 	slotId: string;
 	name: string;

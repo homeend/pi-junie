@@ -52,6 +52,15 @@ routing headers `X-LLM-Model: jbai`, `X-Keep-Path: true` and the free license (`
 `X-Accept-EAP-License: false`, `X-Accept-Release-License: false`); no effort. Ingrazzio has no vLLM listing, so it is
 offered without discovery (as in Junie).
 
+**Default group** (`src/pi/mixes.ts`). From `JUNIE_MIXES` (schema 1: `recommended` plus presets `{id, label,
+description, selection: {modelId, effort, ecoMode}}`) the bridge builds Junie's Default group: the first group of
+the `model` option, `{group: "default", name: "Default", _meta.jetbrains.air: {version: 1, defaultGroup:
+{description}}}`, with values `mix.<id>` carrying `_meta.jetbrains.air {eco: "off", modelDisplayName}`. A level is
+listed only when its model is reachable (Junie's setting id, matched like discovery; `junie-lite` = Junie Lite) and
+supports its effort. Picking a level sets its model and effort; a new chat starts on the recommended level; picking
+a model or an effort by hand makes the choice manual (`currentValue` becomes the model). Eco is always reported
+off: Pi has no Eco mode (Junie: the level's model plans, `ECO_MODE_IMPLEMENTATION`'s model implements).
+
 ACP version: v1, matching the Junie examples. The codec keeps version-specific paths (v1
 `clientCapabilities`/`agentCapabilities`, v2 `capabilities`) in one place so v2 can be added later.
 

@@ -15,6 +15,8 @@ export interface SessionMeta {
 	model?: ModelRef;
 	title?: string;
 	effort?: string;
+	/** The Default group level in use (its model and effort are in `model` and `effort`). */
+	mix?: string;
 	/** Brave Mode: safe / auto / brave. */
 	approvalMode?: ApprovalMode;
 	/** Plan mode as the user last chose it (applied to the plan-mode plugin at the next prompt). */
