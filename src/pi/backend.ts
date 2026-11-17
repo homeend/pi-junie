@@ -369,6 +369,9 @@ export class PiBackend implements AgentBackend {
 			additionalSkillPaths: clientSkillPaths,
 			// Plugins the user installed with `pi install` (only known ones, see plugins.ts).
 			additionalExtensionPaths: this.plugins.map((p) => p.path),
+			// Plugin skills drive plugin tools the bridge leaves off (the subagents plugin's `workflow-authoring` is for
+			// its SubagentWorkflow tool): not offered.
+			skillsOverride: (base) => ({ ...base, skills: base.skills.filter((s) => !this.plugins.some((p) => s.filePath.startsWith(`${p.path}/`))) }),
 			appendSystemPrompt: [IDE_NOTE, ...(hasIde ? [ideRouterNote(ideRouterName(this.junieCompat))] : [])],
 			extensionFactories,
 		});

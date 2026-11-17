@@ -18,7 +18,9 @@ function piAgentDirWithSubagents(version = "0.26.0"): string {
 	const agentDir = mkdtempSync(join(tmpdir(), "pi-junie-piagent-"));
 	const pkg = join(agentDir, "npm", "node_modules", SUBAGENTS_PLUGIN);
 	mkdirSync(pkg, { recursive: true });
-	writeFileSync(join(pkg, "package.json"), JSON.stringify({ name: SUBAGENTS_PLUGIN, version, pi: { extensions: ["./index.ts"] } }));
+	writeFileSync(join(pkg, "package.json"), JSON.stringify({ name: SUBAGENTS_PLUGIN, version, pi: { extensions: ["./index.ts"], skills: ["./skills"] } }));
+	mkdirSync(join(pkg, "skills", "workflow-authoring"), { recursive: true });
+	writeFileSync(join(pkg, "skills", "workflow-authoring", "SKILL.md"), "---\nname: workflow-authoring\ndescription: Write SubagentWorkflow scripts.\n---\nUse SubagentWorkflow.\n");
 	writeFileSync(
 		join(pkg, "index.ts"),
 		`export default function (pi) {
@@ -59,6 +61,9 @@ describe("Pi plugins", () => {
 		expect(process.env.PI_CODING_AGENT_SESSION_DIR).toBe(join(stateDir, "subagents"));
 		expect(backend.installedPlugins()).toEqual([{ name: SUBAGENTS_PLUGIN, version: "0.26.0" }]);
 		expect(await toolsSentToModel(piAgentDir)).toContain("Agent");
+		// the plugin's own skills (for tools the bridge leaves off) are not offered
+		const session = await backend.openSession({ cwd: mkdtempSync(join(tmpdir(), "pi-junie-proj-")) });
+		expect((await session.commands()).map((c) => c.name)).not.toContain("workflow-authoring");
 	});
 
 	it("the welcome message says whether subagents are available", async () => {
