@@ -52,7 +52,17 @@ export function decodeProviderBinding(params: ProvidersSetParams, slots: Provide
 	if (!slot.supportedApiTypes.includes(params.apiType)) {
 		throw RpcError.invalidParams(`Provider ${params.providerId} does not support apiType ${params.apiType}`);
 	}
-	return { slotId: params.providerId, apiType: params.apiType, baseUrl: params.baseUrl, headers: params.headers ?? {} };
+	const selected = params._meta?.jetbrains?.air?.selectedModels;
+	if (selected !== undefined && (!Array.isArray(selected) || selected.some((m) => typeof m !== "string"))) {
+		throw RpcError.invalidParams("_meta.jetbrains.air.selectedModels must be an array of strings");
+	}
+	return {
+		slotId: params.providerId,
+		apiType: params.apiType,
+		baseUrl: params.baseUrl,
+		headers: params.headers ?? {},
+		...(selected ? { selectedModels: selected as string[] } : {}),
+	};
 }
 
 // --- models as config option ----------------------------------------------------------------

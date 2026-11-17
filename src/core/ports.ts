@@ -22,6 +22,8 @@ export interface AgentBackend {
 	unbindProvider(slotId: string): void;
 	/** Models reachable right now (only slots with a binding). */
 	availableModels(): ModelGroup[];
+	/** Resolves when pending model discovery has finished, or after `timeoutMs`. */
+	modelsSettled(timeoutMs: number): Promise<void>;
 	/** Called whenever availableModels() may have changed. */
 	onModelsChanged(listener: () => void): () => void;
 	openSession(request: { cwd: string }): Promise<BackendSession>;

@@ -19,6 +19,8 @@ import {
 import { type JsonObject, JsonRpcPeer, RpcError, type Transport } from "./jsonrpc.ts";
 import { type InitializeParams, type InitializeResult, PROTOCOL_VERSION, type ProvidersSetParams, type SessionPromptParams, type SessionUpdate } from "./wire.ts";
 
+const MODEL_DISCOVERY_WAIT_MS = 10_000;
+
 interface SessionEntry {
 	backend: BackendSession;
 	turn?: AbortController;
@@ -126,6 +128,8 @@ export class AcpAgent {
 
 	private async newSession(params: JsonObject): Promise<unknown> {
 		const cwd = typeof params.cwd === "string" ? params.cwd : process.cwd();
+		// Like Junie: give model discovery a moment so the first picker is complete; late results arrive as config_option_update.
+		await this.backend.modelsSettled(MODEL_DISCOVERY_WAIT_MS);
 		const backend = await this.backend.openSession({ cwd });
 		this.sessions.set(backend.id, { backend });
 		return { sessionId: backend.id, configOptions: this.configOptionsFor(backend) };

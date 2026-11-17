@@ -104,6 +104,7 @@ export class FakeBackend implements AgentBackend {
 			.filter((s) => s.binding)
 			.map((s) => ({ slotId: s.id, name: s.displayName, models: this.catalog[s.id].map((id) => ({ slotId: s.id, modelId: id, name: id })) }));
 	}
+	async modelsSettled() {}
 	onModelsChanged(l: () => void) {
 		this.listeners.add(l);
 		return () => this.listeners.delete(l);

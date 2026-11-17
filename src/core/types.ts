@@ -31,6 +31,8 @@ export interface ProviderBinding {
 	apiType: string;
 	baseUrl: string;
 	headers: Record<string, string>;
+	/** Model ids the user picked in the client for this provider, in order (narrows a discovered account catalog). */
+	selectedModels?: string[];
 }
 
 export interface ProviderSlotState extends ProviderSlot {

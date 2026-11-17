@@ -40,6 +40,14 @@ describe("ACP driver", () => {
 		expect(res.error.code).toBe(-32602);
 	});
 
+	it("passes AIR's selectedModels to the backend and validates them", async () => {
+		const { call } = await connected();
+		const ok = await call("providers/set", { providerId: "openai", apiType: "openai", baseUrl: "http://x", _meta: { jetbrains: { air: { selectedModels: ["gpt-6.1-sol"] } } } });
+		expect(ok.result).toEqual({});
+		const bad = await call("providers/set", { providerId: "openai", apiType: "openai", baseUrl: "http://x", _meta: { jetbrains: { air: { selectedModels: "gpt" } } } });
+		expect(bad.error.code).toBe(-32602);
+	});
+
 	it("session/cancel stops the running turn", async () => {
 		const { wire, call } = await connected();
 		const s = await call("session/new", { cwd: "/tmp" });

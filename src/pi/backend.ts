@@ -18,6 +18,7 @@ import { type Logger, silentLogger } from "../core/log.ts";
 import type { AgentBackend, BackendSession, TurnSink } from "../core/ports.ts";
 import type { ModelChoice, ModelGroup, ModelRef, ProviderBinding, ProviderSlotState, TurnResult } from "../core/types.ts";
 import { bridgeProviderId, DEFAULT_MODEL, joinBaseUrl, SLOTS, type SlotDefinition } from "./catalog.ts";
+import { discoverModels, type ListedModel, listingIdMatches } from "./discovery.ts";
 
 const SYSTEM_PROMPT = "You are Pi, a helpful assistant running inside a JetBrains IDE. Answer concisely. Use Markdown.";
 
@@ -26,11 +27,18 @@ export interface PiBackendOptions {
 	stateDir?: string;
 	version?: string;
 	logger?: Logger;
+	/** HTTP client for model discovery (defaults to global fetch). */
+	fetch?: typeof fetch;
+	discoveryTimeoutMs?: number;
 }
 
 export class PiBackend implements AgentBackend {
 	private readonly runtime: ModelRuntime;
-	private readonly bindings = new Map<string, ProviderBinding>();
+	private readonly bindings = new Map<string, { binding: ProviderBinding; generation: number; status: "discovering" | "ready" | "failed" }>();
+	private readonly pending = new Set<Promise<void>>();
+	private readonly fetchImpl?: typeof fetch;
+	private readonly discoveryTimeoutMs?: number;
+	private generation = 0;
 	private readonly listeners = new Set<() => void>();
 	readonly log: Logger;
 	private readonly version: string;
@@ -40,6 +48,8 @@ export class PiBackend implements AgentBackend {
 		this.runtime = runtime;
 		this.log = options.logger ?? silentLogger;
 		this.version = options.version ?? "0.0.0";
+		this.fetchImpl = options.fetch;
+		this.discoveryTimeoutMs = options.discoveryTimeoutMs;
 	}
 
 	static async create(options: PiBackendOptions = {}): Promise<PiBackend> {
@@ -59,7 +69,7 @@ export class PiBackend implements AgentBackend {
 			displayName: s.displayName,
 			supportedApiTypes: Object.keys(s.apiTypes),
 			required: false,
-			binding: this.bindings.get(s.id),
+			binding: this.bindings.get(s.id)?.binding,
 		}));
 	}
 
@@ -67,37 +77,108 @@ export class PiBackend implements AgentBackend {
 		const slot = this.slot(binding.slotId);
 		const target = slot.apiTypes[binding.apiType];
 		if (!target) throw new Error(`slot ${slot.id} has no apiType ${binding.apiType}`);
-		const models = slot.models
-			.map((id) => this.runtime.getModel(target.catalogProvider, id))
-			.filter((m): m is Model<Api> => !!m)
-			.map((m) => ({
-				id: m.id,
-				name: m.name,
-				api: target.piApi,
-				reasoning: m.reasoning,
-				input: m.input,
-				cost: m.cost,
-				contextWindow: m.contextWindow,
-				maxTokens: m.maxTokens,
-				...(m.thinkingLevelMap ? { thinkingLevelMap: m.thinkingLevelMap } : {}),
-				...(m.compat ? { compat: m.compat } : {}),
-			}));
-		const missing = slot.models.filter((id) => !models.some((m) => m.id === id));
-		if (missing.length) this.log.warn(`slot ${slot.id}: models not in Pi's catalog, skipped: ${missing.join(", ")}`);
-		const baseUrl = joinBaseUrl(binding.baseUrl, target.basePath);
-		this.runtime.registerProvider(bridgeProviderId(slot.id), {
-			name: `AIR ${slot.displayName}`,
-			baseUrl,
-			headers: binding.headers,
-			apiKey: "air-proxy", // the proxy authenticates via headers; Pi just needs a non-empty key
-			api: target.piApi,
-			models,
-		});
-		this.bindings.set(slot.id, binding);
+		// A new binding invalidates the previous one's models until discovery answers (no fallback list).
+		this.runtime.unregisterProvider(bridgeProviderId(slot.id));
+		const generation = ++this.generation;
+		this.bindings.set(slot.id, { binding, generation, status: "discovering" });
 		this.log.info(
-			`bind ${slot.id}: apiType=${binding.apiType} piApi=${target.piApi} baseUrl=${baseUrl} headers=[${Object.keys(binding.headers).join(", ")}] models=${models.length}`,
+			`bind ${slot.id}: apiType=${binding.apiType} baseUrl=${binding.baseUrl} headers=[${Object.keys(binding.headers).join(", ")}]` +
+				`${binding.selectedModels ? ` selectedModels=[${binding.selectedModels.join(", ")}]` : ""} -> discovering models`,
 		);
+		const done = this.discover(slot, binding, generation);
+		this.pending.add(done);
+		void done.finally(() => this.pending.delete(done));
 		this.emit();
+	}
+
+	private async discover(slot: SlotDefinition, binding: ProviderBinding, generation: number): Promise<void> {
+		const target = slot.apiTypes[binding.apiType];
+		const started = Date.now();
+		const result = await discoverModels(
+			{ apiType: binding.apiType, baseUrl: binding.baseUrl, headers: binding.headers },
+			{ fetch: this.fetchImpl, timeoutMs: this.discoveryTimeoutMs, log: this.log },
+		);
+		const state = this.bindings.get(slot.id);
+		if (!state || state.generation !== generation) return; // superseded by a newer binding or unbound
+		const took = Date.now() - started;
+		if (result.kind === "failed") {
+			state.status = "failed";
+			this.log.error(`discovery ${slot.id}: FAILED after ${took}ms at ${result.url}: ${result.reason} -> no models for this provider`);
+			this.emit();
+			return;
+		}
+
+		const catalog = this.runtime.getModels().filter((m) => m.provider === target.catalogProvider);
+		let listed = result.models;
+		if (result.source === "account" && binding.selectedModels) {
+			const byId = new Map(listed.map((m) => [m.id, m]));
+			listed = binding.selectedModels.map((id) => byId.get(id)).filter((m): m is ListedModel => !!m);
+		}
+		const unknown: ListedModel[] = [];
+		const matched: { listed: ListedModel; known: Model<Api> }[] = [];
+		for (const l of listed) {
+			const known = catalog.find((k) => listingIdMatches(l.id, k.id));
+			if (known) matched.push({ listed: l, known });
+			else unknown.push(l);
+		}
+		// Account catalogs carry the account's order; vendor listings are unordered, so use Pi's catalog order.
+		if (result.source === "vendor") matched.sort((a, b) => catalog.indexOf(a.known) - catalog.indexOf(b.known));
+
+		const models = matched.map(({ listed: l, known: m }) => ({
+			id: l.id, // the proxy's id is what goes on the wire
+			name: l.displayName ?? m.name,
+			api: target.piApi,
+			reasoning: m.reasoning,
+			input: m.input,
+			cost: {
+				input: l.pricing?.input ?? m.cost.input,
+				output: l.pricing?.output ?? m.cost.output,
+				cacheRead: l.pricing?.cacheRead ?? m.cost.cacheRead,
+				cacheWrite: l.pricing?.cacheWrite ?? m.cost.cacheWrite,
+			},
+			contextWindow: l.contextWindow ?? m.contextWindow,
+			maxTokens: l.maxOutputTokens ?? m.maxTokens,
+			...(m.thinkingLevelMap ? { thinkingLevelMap: m.thinkingLevelMap } : {}),
+			...(m.compat ? { compat: m.compat } : {}),
+		}));
+		const baseUrl = joinBaseUrl(binding.baseUrl, target.basePath);
+		if (models.length) {
+			this.runtime.registerProvider(bridgeProviderId(slot.id), {
+				name: `AIR ${slot.displayName}`,
+				baseUrl,
+				headers: binding.headers,
+				apiKey: "air-proxy", // the proxy authenticates via headers; Pi just needs a non-empty key
+				api: target.piApi,
+				models,
+			});
+		}
+		state.status = "ready";
+		this.log.info(
+			`discovery ${slot.id}: ${result.source} listing at ${result.url} after ${took}ms: listed=${result.models.length}` +
+				`${result.source === "account" && binding.selectedModels ? ` selected=${listed.length}` : ""} offered=${models.length} [${models.map((m) => m.id).join(", ")}]` +
+				` piApi=${target.piApi} requestBase=${baseUrl}`,
+		);
+		// Grep-able backlog of models the proxy allows but Pi cannot describe yet (dropped, like Junie does).
+		for (const u of unknown) {
+			this.log.warn(
+				`[models-todo] ${slot.id}/${u.id} listed by the ${result.source} catalog but not in Pi's ${target.catalogProvider} catalog; not offered` +
+					` (name=${u.displayName ?? "-"} context=${u.contextWindow ?? "-"} maxOut=${u.maxOutputTokens ?? "-"} input=${u.inputModalities?.join("+") ?? "-"})`,
+			);
+		}
+		this.emit();
+	}
+
+	async modelsSettled(timeoutMs: number): Promise<void> {
+		if (!this.pending.size) return;
+		let timer: NodeJS.Timeout | undefined;
+		const timeout = new Promise<void>((r) => {
+			timer = setTimeout(() => {
+				this.log.warn(`model discovery still running after ${timeoutMs}ms; answering without it`);
+				r();
+			}, timeoutMs);
+		});
+		await Promise.race([Promise.allSettled([...this.pending]).then(() => undefined), timeout]);
+		clearTimeout(timer);
 	}
 
 	unbindProvider(slotId: string): void {
