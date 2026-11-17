@@ -160,8 +160,6 @@ export class PiBackend implements AgentBackend {
 			if (this.ingrazzio?.generation !== generation) return;
 			this.ingrazzio.flags = flags;
 			this.ingrazzio.mixes = flags.kind === "loaded" ? parseMixCatalog(flags.values[FLAG_JUNIE_MIXES], this.log) : undefined;
-			const mixes = this.modelMixes();
-			this.log.info(`mixes: Default group [${mixes.map((m) => `${m.id}=${fmt(m.model)}${m.effort ? `@${m.effort}` : ""}${m.recommended ? "*" : ""}`).join(", ")}]`);
 			this.emit();
 		});
 		this.pending.add(done);
@@ -526,7 +524,21 @@ export class PiBackend implements AgentBackend {
 	}
 
 	private emit() {
+		this.logMixesIfChanged();
 		for (const l of this.listeners) l();
+	}
+
+	private loggedMixes?: string;
+
+	/** The Default group depends on the catalog and on every slot's discovery, so it is logged whenever it changes. */
+	private logMixesIfChanged(): void {
+		if (!this.ingrazzio?.mixes) return;
+		const line = this.modelMixes()
+			.map((m) => `${m.id}=${fmt(m.model)}${m.effort ? `@${m.effort}` : ""}${m.recommended ? "*" : ""}`)
+			.join(", ");
+		if (line === this.loggedMixes) return;
+		this.loggedMixes = line;
+		this.log.info(`mixes: Default group [${line}]`);
 	}
 }
 
