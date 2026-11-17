@@ -2,7 +2,13 @@
 import { appendFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 
-const tools = [
+const router = {
+	name: "execute_tool",
+	description: "Universal tool executor that can invoke specific IDE MCP tool dynamically.",
+	inputSchema: { type: "object", properties: { command: { type: "string", description: "Command-line string with tool name and arguments" } }, required: ["command"] },
+};
+// MCP_ROUTER=1: behave like AIR's jetbrains_air_ide server (only the router)
+const tools = process.env.MCP_ROUTER === "1" ? [router] : [
 	{
 		name: "get_open_file",
 		description: "Returns the file open in the editor",
@@ -26,6 +32,11 @@ createInterface({ input: process.stdin }).on("line", (line) => {
 			return send({ id: msg.id, result: { tools } });
 		case "tools/call": {
 			if (process.env.MCP_CALL_LOG) appendFileSync(process.env.MCP_CALL_LOG, `${msg.params.name}\n`);
+			if (msg.params.name === "execute_tool") {
+				const [tool, ...rest] = String(msg.params.arguments?.command ?? "").split(/\s+/);
+				if (tool !== "get_file_problems") return send({ id: msg.id, result: { content: [{ type: "text", text: `Tool '${tool}' not found` }], isError: true } });
+				return send({ id: msg.id, result: { content: [{ type: "text", text: `no problems in ${rest[1]}` }] } });
+			}
 			const text = msg.params.name === "get_open_file" ? "src/Main.kt (line 12)" : `reformatted ${msg.params.arguments?.path}`;
 			return send({ id: msg.id, result: { content: [{ type: "text", text }] } });
 		}

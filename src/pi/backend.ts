@@ -23,10 +23,12 @@ import type { HistoryItem, McpServerSpec, ModelChoice, ModelGroup, ModelRef, Pro
 import { bridgeProviderId, DEFAULT_MODEL, joinBaseUrl, SLOTS, type SlotDefinition } from "./catalog.ts";
 import { openPiTranscript, type SessionMeta, SessionStore } from "./session-store.ts";
 import { BRIDGE_TOOLS, READ_ONLY_TOOLS, ToolTracker, toolKind, toolLocations, toolResultText, toolTitle } from "./tools.ts";
+import { IDE_ROUTER_TOOL, IDE_SERVER, ideRouterName, ideServerToolExposure, JUNIE_COMPAT_DEFAULTS, type JunieCompatOptions, junieExecuteToolAlias } from "./junie-compat.ts";
 import { discoverModels, type ListedModel, listingIdMatches } from "./discovery.ts";
 
-const IDE_ROUTER_NOTE =
-	"The IDE tool `mcp__jetbrains_air_ide__execute_tool` runs IDE tools by name: `command: \"<tool> --param value ...\"`. Use it when the user asks you to do something in the IDE, or when a skill you read for the task directs you to. Take tool names from such skills, from the router's own description, or from its error messages (they say which parameter is missing). Do not cycle through guessed names: after one 'not found', tell the user which IDE capability seems to be missing.";
+function ideRouterNote(name: string): string {
+	return `The IDE tool \`${name}\` runs IDE tools by name: \`command: "<tool> --param value ..."\`. Use it when the user asks you to do something in the IDE, or when a skill you read for the task directs you to. Take tool names from such skills, from the router's own description, or from its error messages (they say which parameter is missing). Do not cycle through guessed names: after one 'not found', tell the user which IDE capability seems to be missing.`;
+}
 
 const IDE_NOTE =
 	"You are running inside a JetBrains IDE (AIR) through the Agent Client Protocol. The user sees your Markdown answers and your tool calls in the IDE; edits and commands need their approval.";
@@ -41,6 +43,8 @@ export interface PiBackendOptions {
 	discoveryTimeoutMs?: number;
 	/** Trust the session's project for Pi project resources (skills). Default true. */
 	trustProject?: boolean;
+	/** Junie compatibility profile (see junie-compat.ts). */
+	junieCompat?: Partial<JunieCompatOptions>;
 }
 
 export class PiBackend implements AgentBackend {
@@ -53,6 +57,7 @@ export class PiBackend implements AgentBackend {
 	readonly store: SessionStore;
 	private readonly agentDir: string;
 	private readonly trustProject: boolean;
+	private readonly junieCompat: JunieCompatOptions;
 	private readonly listeners = new Set<() => void>();
 	readonly log: Logger;
 	private readonly version: string;
@@ -67,6 +72,7 @@ export class PiBackend implements AgentBackend {
 		this.fetchImpl = options.fetch;
 		this.discoveryTimeoutMs = options.discoveryTimeoutMs;
 		this.trustProject = options.trustProject ?? true;
+		this.junieCompat = { ...JUNIE_COMPAT_DEFAULTS, ...options.junieCompat };
 	}
 
 	static async create(options: PiBackendOptions = {}): Promise<PiBackend> {
@@ -301,6 +307,8 @@ export class PiBackend implements AgentBackend {
 		context: SessionContext,
 	): Promise<AgentSession> {
 		const mcpServers = context.mcpServers ?? [];
+		const hasIde = mcpServers.some((s) => s.name === IDE_SERVER);
+		const routerAlias = hasIde && this.junieCompat.executeToolAlias;
 		// Client skill roots (AIR's IDE skills, e.g. ij-debugger) are read like Junie: <root>/.agents/skills and <root>/.junie/skills.
 		const clientSkillPaths = (context.skillRoots ?? []).flatMap((r) => [join(r, ".agents", "skills"), join(r, ".junie", "skills")]).filter((p) => existsSync(p));
 		const { manager, restored } = this.store.piSessionManager(id, cwd);
@@ -315,9 +323,9 @@ export class PiBackend implements AgentBackend {
 			noPromptTemplates: true,
 			noThemes: true,
 			additionalSkillPaths: clientSkillPaths,
-			appendSystemPrompt: [IDE_NOTE, ...(mcpServers.some((s) => s.name === "jetbrains_air_ide") ? [IDE_ROUTER_NOTE] : [])],
+			appendSystemPrompt: [IDE_NOTE, ...(hasIde ? [ideRouterNote(ideRouterName(this.junieCompat))] : [])],
 			// The client's MCP servers (e.g. the IDE's own) are registered for this session and connected by Pi's MCP extension.
-			extensionFactories: [gate, registerClientMcpServers(mcpServers), createMcpExtension()],
+			extensionFactories: [gate, registerClientMcpServers(mcpServers, this.junieCompat), createMcpExtension(), ...(routerAlias ? [junieExecuteToolAlias] : [])],
 		});
 		await resourceLoader.reload();
 		const contextFiles = resourceLoader.getAgentsFiles().agentsFiles.map((f) => f.path);
@@ -332,13 +340,15 @@ export class PiBackend implements AgentBackend {
 			thinkingLevel,
 			modelRuntime: this.runtime,
 			resourceLoader,
-			tools: [...BRIDGE_TOOLS, "mcp__*"],
+			tools: [...BRIDGE_TOOLS, "mcp__*", ...(routerAlias ? [IDE_ROUTER_TOOL] : [])],
 			sessionManager: manager,
 			settingsManager,
 		});
 		// Emits session_start: Pi's MCP extension starts connecting the servers (prompts wait for direct tools).
 		await session.bindExtensions({});
-		if (mcpServers.length) this.log.info(`session ${id}: MCP servers registered [${mcpServers.map((s) => s.name).join(", ")}]`);
+		if (mcpServers.length) {
+			this.log.info(`session ${id}: MCP servers registered [${mcpServers.map((s) => s.name).join(", ")}]${hasIde ? ` IDE router as ${ideRouterName(this.junieCompat)}` : ""}`);
+		}
 		return session;
 	}
 
@@ -512,6 +522,8 @@ class PiSession implements BackendSession {
 		this.allTools = () => pi.getAllTools();
 		pi.on("tool_call", async (event) => {
 			const log = this.backend.log;
+			// A call made by another tool (e.g. the execute_tool alias forwarding to the IDE router) was approved with its parent.
+			if ((event as { parentToolCallId?: string }).parentToolCallId) return undefined;
 			if (this.runsWithoutAsking(event.toolName)) return undefined;
 			if (!this.ask) return { block: true, reason: "No client to ask for permission." };
 			const decision = await this.ask({
@@ -576,6 +588,8 @@ class PiSession implements BackendSession {
 				if (e.type === "text_delta") sink({ kind: "text", delta: e.delta });
 				else if (e.type === "thinking_delta") sink({ kind: "thought", delta: e.delta });
 				else if (e.type === "toolcall_end") tool(tools.requested(e.toolCall.id, e.toolCall.name, e.toolCall.arguments));
+			} else if ((event.type === "tool_execution_start" || event.type === "tool_execution_update" || event.type === "tool_execution_end") && (event as { parentToolCallId?: string }).parentToolCallId) {
+				// nested call (reported through its parent tool's card)
 			} else if (event.type === "tool_execution_start") {
 				log.info(`session ${this.id}: tool ${event.toolName} ${event.toolCallId} start ${JSON.stringify(event.args).slice(0, 200)}`);
 				const needsApproval = !this.runsWithoutAsking(event.toolName);
@@ -663,13 +677,18 @@ export function titleFromPrompt(text: string): string | undefined {
 	return `${(space > TITLE_MAX / 2 ? cut.slice(0, space) : cut).trimEnd()}…`;
 }
 
-/** Pi extension registering the client's MCP servers for one session, with tools exposed directly to the model. */
-function registerClientMcpServers(servers: McpServerSpec[]) {
+/**
+ * Pi extension registering the client's MCP servers for one session, tools exposed directly to the model.
+ * With the Junie router alias, the IDE server's `execute_tool` is callable but not declared (see junie-compat.ts).
+ */
+function registerClientMcpServers(servers: McpServerSpec[], compat: JunieCompatOptions) {
 	return (pi: ExtensionAPI) => {
 		for (const s of servers) {
 			const name = s.name.replace(/[^A-Za-z0-9_-]/g, "_");
-			if (s.transport === "stdio") pi.registerMcpServer(name, { command: s.command, args: s.args, env: s.env, exposure: "direct" });
-			else pi.registerMcpServer(name, { type: "http", url: s.url, headers: s.headers, exposure: "direct" });
+			const toolExposure = s.name === IDE_SERVER ? ideServerToolExposure(compat) : undefined;
+			const exposure = { exposure: "direct" as const, ...(toolExposure ? { toolExposure } : {}) };
+			if (s.transport === "stdio") pi.registerMcpServer(name, { command: s.command, args: s.args, env: s.env, ...exposure });
+			else pi.registerMcpServer(name, { type: "http", url: s.url, headers: s.headers, ...exposure });
 		}
 	};
 }

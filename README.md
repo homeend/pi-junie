@@ -23,6 +23,8 @@ Pi's models for the anthropic, openai and google slots. You can chat with the se
   - `pi-junie:wire`: raw JSON-RPC (`<<` in, `>>` out), secrets redacted. `PI_AIR_WIRE=0` turns it off; `PI_AIR_DEBUG=1` adds debug lines.
 
   Readable summary: `grep -v ':wire ' .pi-dev/pi-air.log`
+- Switches: `PI_AIR_TRUST_PROJECT=0` (no project skills), `PI_AIR_JUNIE_EXECUTE_TOOL=0` (IDE router keeps its
+  MCP name instead of Junie's `execute_tool`; see `src/pi/junie-compat.ts`).
 - Node binary: taken from `PATH`, otherwise the newest `~/.nvm` Node 24+. Override with `PI_AIR_NODE`.
 - Pi state for the bridge is kept apart from your `~/.pi/agent` (in `~/.pi/pi-junie/`), so your own Pi
   logins are never sent to AIR's proxy.

@@ -111,6 +111,8 @@ const backend = await PiBackend.create({
 	logger: log.child("pi"),
 	version: "0.1.0",
 	trustProject: process.env.PI_AIR_TRUST_PROJECT !== "0", // PI_AIR_TRUST_PROJECT=0: no project skills
+	// Junie compatibility: AIR's IDE router as `execute_tool` (PI_AIR_JUNIE_EXECUTE_TOOL=0 keeps the MCP name)
+	junieCompat: { executeToolAlias: process.env.PI_AIR_JUNIE_EXECUTE_TOOL !== "0" },
 });
 new AcpAgent(stdioTransport(), backend, { logger: log.child("acp") });
 log.info("ready");

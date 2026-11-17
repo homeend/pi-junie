@@ -134,6 +134,14 @@ group ids (`proxy:<slot>`), `_meta` shapes and stop reasons.
   `pi.registerMcpServer` (exposure `direct`) and loads Pi's MCP extension, which connects them on
   `session_start`. Their tools reach the model as `mcp__<server>__<tool>`. Tools the server marks
   `readOnlyHint` run without asking; the others go through the permission gate. SSE servers are skipped.
+- **AIR skill roots:** `additionalDirectories` (else `_meta.additionalRoots`) on new/resume/load; each root's
+  `.agents/skills` and `.junie/skills` are loaded as Pi skills (AIR's IDE skills such as `ij-debugger`).
+- **Junie compatibility profile** (`src/pi/junie-compat.ts`, explicit and switchable): AIR's IDE skills are
+  written for Junie, which shows the IDE router as `execute_tool` with its own wrapper description. With
+  `executeToolAlias` (default on, `PI_AIR_JUNIE_EXECUTE_TOOL=0` turns it off) Pi registers a tool named
+  `execute_tool` with Junie's description that forwards to `mcp__jetbrains_air_ide__execute_tool`; the MCP
+  router itself stays callable but is not declared (`toolExposure: codemode`). The forwarded call is approved
+  with its parent and gets no separate tool card.
 - **Tool events** (`src/pi/tools.ts`, ported from pi-acp, MIT) become neutral `ToolUpdate`s (title, kind,
   status, input, locations with the edit line, output text, edit/write diffs from a pre-execution snapshot).
   The driver turns the first update of an id into `tool_call` and later ones into `tool_call_update`.

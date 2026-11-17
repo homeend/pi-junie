@@ -55,7 +55,10 @@ export function toolTitle(name: string, args: unknown): string {
 			return typeof r.pattern === "string" ? `Find ${short(r.pattern, 60)}${path ? ` in ${path}` : ""}` : "Find files";
 		case "bash":
 			return typeof r.command === "string" ? `Run ${short(r.command.split("\n")[0])}` : "Run command";
+		case "execute_tool":
+			return typeof r.command === "string" ? `IDE: ${short(r.command)}` : "IDE";
 		default: {
+			if (name.endsWith("__execute_tool") && typeof r.command === "string") return `IDE: ${short(r.command)}`;
 			const mcp = /^mcp__(.+?)__(.+)$/.exec(name);
 			return mcp ? `${mcp[1]} · ${mcp[2]}` : name;
 		}
