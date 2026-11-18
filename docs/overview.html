@@ -1,0 +1,669 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pi-junie Overview</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Sans+Condensed:wght@600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a single reading column for a team walkthrough; wide tables and the diagram scroll inside their own boxes. */
+:root {
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --fg: #1b1f27;
+  --muted: #5a6273;
+  --line: #d9dde5;
+  --accent: #6b3fd4;      /* AIR / ACP side */
+  --accent-2: #0f8a7a;    /* Pi side */
+  --accent-soft: #efe9fc;
+  --accent-2-soft: #e3f4f1;
+  --code-bg: #eef0f4;
+  --font-display: "IBM Plex Sans Condensed", "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
+  --font-body: "IBM Plex Sans", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #12141a; --surface: #1a1d25; --fg: #e6e8ee; --muted: #9aa2b4; --line: #2c313d;
+    --accent: #a98bf5; --accent-2: #4fc7b5; --accent-soft: #2a2240; --accent-2-soft: #16312d; --code-bg: #232733;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #12141a; --surface: #1a1d25; --fg: #e6e8ee; --muted: #9aa2b4; --line: #2c313d;
+  --accent: #a98bf5; --accent-2: #4fc7b5; --accent-soft: #2a2240; --accent-2-soft: #16312d; --code-bg: #232733;
+  color-scheme: dark;
+}
+body { background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 16px; line-height: 1.6; }
+.page { max-width: 980px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 40px 72px; }
+header.hero { display: grid; gap: 10px; padding-block: 8px 28px; border-bottom: 1px solid var(--line); margin-bottom: 8px; }
+.eyebrow { font-family: var(--font-mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.eyebrow b { color: var(--accent); font-weight: 500; }
+.eyebrow i { color: var(--accent-2); font-style: normal; }
+h1 { font-family: var(--font-display); font-weight: 700; font-size: clamp(34px, 6vw, 52px); line-height: 1.05; margin: 0; text-wrap: balance; }
+.lede { color: var(--muted); max-width: 65ch; margin: 0; font-size: 17px; }
+h2 { font-family: var(--font-display); font-weight: 700; font-size: 28px; line-height: 1.2; margin: 48px 0 12px; padding-top: 20px; border-top: 1px solid var(--line); text-wrap: balance; }
+main > h2:first-child { border-top: 0; margin-top: 24px; padding-top: 0; }
+h3 { font-family: var(--font-display); font-weight: 600; font-size: 20px; margin: 28px 0 8px; text-wrap: balance; }
+p, ul, ol { max-width: 72ch; }
+li { margin-block: 4px; }
+li > ul, li > ol { margin-block: 4px; }
+strong { font-weight: 600; }
+a { color: var(--accent); }
+code { font-family: var(--font-mono); font-size: .86em; background: var(--code-bg); padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere; }
+.code-wrap { overflow-x: auto; background: var(--code-bg); border-radius: 6px; margin-block: 12px; }
+.code-wrap pre { margin: 0; padding: 14px 16px; }
+.code-wrap code { background: none; padding: 0; overflow-wrap: normal; font-size: 13.5px; }
+.table-wrap { overflow-x: auto; margin-block: 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 14.5px; line-height: 1.5; }
+th, td { text-align: left; vertical-align: top; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+th { font-weight: 600; font-size: 12.5px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); background: var(--bg); }
+tr:last-child td { border-bottom: 0; }
+td code { white-space: nowrap; }
+figure.diagram { margin: 20px 0 8px; }
+.diagram-scroll { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+.diagram svg { display: block; width: 100%; min-width: 640px; height: auto; font-family: var(--font-body); }
+figcaption { color: var(--muted); font-size: 14px; margin-top: 8px; }
+.box { stroke-width: 1.5; }
+.box.ext { fill: var(--surface); stroke: var(--muted); stroke-dasharray: 5 4; }
+.box.driver { fill: var(--accent-soft); stroke: var(--accent); }
+.box.core { fill: var(--surface); stroke: var(--fg); }
+.box.bridge { fill: var(--accent-2-soft); stroke: var(--accent-2); }
+.box.bridge-soft { fill: var(--accent-2-soft); stroke: var(--accent-2); stroke-dasharray: 4 3; }
+.box.pi { fill: var(--surface); stroke: var(--accent-2); }
+.process { fill: none; stroke: var(--line); stroke-width: 1.5; }
+.t-title { fill: var(--fg); font-family: var(--font-display); font-weight: 700; font-size: 17px; }
+.t-body { fill: var(--fg); font-size: 13px; }
+.t-note { fill: var(--muted); font-size: 12.5px; font-style: italic; }
+.t-label { fill: var(--muted); font-family: var(--font-mono); font-size: 11.5px; letter-spacing: .08em; }
+.t-edge { fill: var(--muted); font-family: var(--font-mono); font-size: 11.5px; }
+.t-small { font-size: 10.5px; }
+.edge { stroke: var(--muted); stroke-width: 1.5; }
+.arrowhead { fill: var(--muted); }
+@media (max-width: 600px) { body { font-size: 15px; } h2 { font-size: 24px; } }
+</style>
+</head>
+<body>
+<div class="page">
+<header class="hero">
+  <div class="eyebrow"><b>JetBrains AIR</b> × <i>pi coding agent</i> · ACP v1 bridge</div>
+  <h1>pi-junie: Pi in JetBrains AIR</h1>
+  <p class="lede">The approach, the original assumptions, what we found and how, what was built, and what to expect next.</p>
+</header>
+<main>
+<h2>1. Summary</h2>
+<p>AIR can now start <strong>Pi</strong> (the open-source pi coding agent) as an ACP agent, next to Junie. The user picks a model
+from AIR&#39;s JetBrains AI proxy, including Junie&#39;s <strong>Default group</strong> (Lite / Normal / Hard / Frontier) and the free
+<strong>Junie Lite</strong> model, and gets a full coding-agent session in AIR&#39;s UI:</p>
+<ul>
+<li>tool cards with permissions and Brave Mode</li>
+<li>a live terminal and questions to the user</li>
+<li>subagents as native child sessions</li>
+<li>the todo list in AIR&#39;s dock and plan mode with Junie&#39;s plan review</li>
+<li>web search and fetch, MCP servers, skills and slash commands</li>
+<li>steering, chat history, titles and usage</li>
+</ul>
+<p><strong>Pi itself is not modified.</strong> A bridge process embeds Pi&#39;s SDK and translates between Pi and ACP. AIR features that
+need agent behaviour Pi doesn&#39;t have come from existing Pi plugins, which the user installs with <code>pi install</code>.</p>
+<h2>2. Background: the pieces involved</h2>
+<ul>
+<li><strong>AIR</strong>: the JetBrains AI client in the IDE. It starts agents as separate processes, listed in
+<code>~/.jetbrains/acp.json</code>, and talks to them over stdio.</li>
+<li><strong>ACP</strong> (Agent Client Protocol): JSON-RPC between a client (AIR) and an agent (Junie, Pi). AIR extends it with
+JetBrains-specific <code>_meta</code> fields (<code>_meta.jetbrains.air.*</code>) for things plain ACP has no shape for: plan cards, the
+Default model group, message phases, auth status and more.</li>
+<li><strong>Junie</strong>: JetBrains&#39; agent and the reference implementation. Every behaviour we needed was first observed in
+recorded Junie ↔ AIR traffic.</li>
+<li><strong>Pi</strong>: an open, extensible coding agent with an SDK (<code>@earendil-works/pi-coding-agent</code> 1.5.2), an extension API
+and an npm-based plugin ecosystem.</li>
+<li><strong>AIR&#39;s LLM proxy</strong>: AIR never hands credentials to an agent. It gives the agent local proxy URLs plus a proxy key,
+and injects the user&#39;s JetBrains AI (or BYOK) credentials upstream.</li>
+</ul>
+<h2>3. Original assumptions and what became of them</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>Assumption at the start</th>
+<th>Result</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td>Build a <strong>Pi extension</strong> that teaches Pi ACP.</td>
+<td>AIR starts an agent as its own process, while a Pi extension lives inside Pi&#39;s own terminal process. So the result is a <strong>standalone ACP agent that embeds Pi&#39;s SDK in-process</strong>. Pi&#39;s extension system is still used, for the bridge&#39;s own hooks (permission gate, <code>ask_user</code> tool) and for third-party plugins.</td>
+</tr>
+<tr>
+<td>2</td>
+<td>Use <strong>ACP v2</strong>.</td>
+<td>AIR and Junie talk <strong>v1</strong> in every recording, so we matched v1. All version-specific shapes sit in one codec module, so v2 can be added there.</td>
+</tr>
+<tr>
+<td>3</td>
+<td><strong>Bridge architecture</strong>, as in the Obsidian ACP client: ACP on one side, Pi on the other, nothing leaking across.</td>
+<td>Kept exactly, and enforced by an automated test (§4).</td>
+</tr>
+<tr>
+<td>4</td>
+<td>Develop against a <strong>simulator</strong> built from recorded Junie ↔ AIR traffic, to move fast and stay stable.</td>
+<td>Kept. Recordings are trimmed into fixtures and replayed through the agent. A fake AIR proxy plays the LLM, and stand-in plugins mimic real ones. 130 tests run in about 2 seconds.</td>
+</tr>
+<tr>
+<td>5</td>
+<td>Like Junie, offer a <strong>fixed set of provider slots</strong>, and let AIR configure each slot&#39;s models.</td>
+<td>Correct. AIR binds its proxy to each slot, and the agent publishes the models it can reach. We also adopted Junie&#39;s picker policy. Later we found the extra <code>ingrazzio</code> slot that Junie asks for (§7).</td>
+</tr>
+<tr>
+<td>6</td>
+<td>First milestone: list AIR&#39;s models and <strong>chat without tools</strong>.</td>
+<td>Reached first, then extended step by step into a full coding agent, one AIR feature per commit.</td>
+</tr>
+<tr>
+<td>7</td>
+<td>A <strong>compatibility layer</strong> mapping AIR features to Pi plugins in both directions: a feature is offered only if its plugins are installed, and installed plugins unlock features.</td>
+<td>Built. The investigation showed it matters less than expected: of 25 AIR features, only about 4 need a plugin, and the rest is presentation the bridge has to do anyway (§6).</td>
+</tr>
+<tr>
+<td>8</td>
+<td>Use AIR&#39;s <code>_meta</code> extension list as clues, not as a must-implement list.</td>
+<td>It served as the feature checklist. Recorded traffic and AIR&#39;s own source code settled every detail. Where they disagreed, AIR&#39;s code won, because that is what renders the UI.</td>
+</tr>
+</tbody></table></div>
+<h3>Prior art: why not reuse <code>pi-acp</code></h3>
+<p>An existing adapter, <strong>pi-acp</strong> (MIT, aimed at Zed), already exposes Pi over ACP. It runs Pi as a subprocess
+(<code>pi --mode rpc</code>) with the user&#39;s own Pi credentials. It knows nothing about AIR: no provider configuration, no AIR
+proxy, no <code>_meta</code>.</p>
+<p><strong>Decision:</strong> keep our in-process design and port pi-acp&#39;s translation logic (tool titles, edit diffs, terminal
+output, history replay) with attribution. Running Pi in-process is what lets the bridge register AIR&#39;s proxy as Pi&#39;s
+model providers. It also keeps ACP and Pi in separate layers, whereas pi-acp is one class mixing both.</p>
+<h2>4. Architecture: the bridge</h2>
+<figure class="diagram">
+<div class="diagram-scroll">
+<svg viewBox="0 0 900 610" role="img" aria-labelledby="dg-title" xmlns="http://www.w3.org/2000/svg">
+  <title id="dg-title">pi-junie bridge architecture: AIR talks ACP to the driver; the driver and the Pi bridge meet only through core; the bridge drives the in-process Pi SDK and its plugins, which call models through AIR's proxy.</title>
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" class="arrowhead"/>
+    </marker>
+  </defs>
+
+  <rect x="30" y="20" width="240" height="60" rx="8" class="box ext"/>
+  <text x="150" y="46" class="t-title" text-anchor="middle">JetBrains AIR</text>
+  <text x="150" y="66" class="t-body" text-anchor="middle">ACP client</text>
+
+  <rect x="10" y="118" width="880" height="384" rx="12" class="process"/>
+  <text x="30" y="142" class="t-label">PI-JUNIE PROCESS</text>
+
+  <rect x="30" y="160" width="240" height="132" rx="8" class="box driver"/>
+  <text x="150" y="188" class="t-title" text-anchor="middle">ACP driver</text>
+  <text x="150" y="212" class="t-body" text-anchor="middle">framing, wire types,</text>
+  <text x="150" y="230" class="t-body" text-anchor="middle">codec, method dispatch</text>
+  <text x="150" y="258" class="t-note" text-anchor="middle">knows ACP and AIR _meta,</text>
+  <text x="150" y="275" class="t-note" text-anchor="middle">nothing about Pi</text>
+
+  <rect x="345" y="160" width="210" height="132" rx="8" class="box core"/>
+  <text x="450" y="188" class="t-title" text-anchor="middle">core</text>
+  <text x="450" y="212" class="t-body" text-anchor="middle">neutral types and ports</text>
+  <text x="450" y="230" class="t-body" text-anchor="middle">bindings, model groups,</text>
+  <text x="450" y="248" class="t-body" text-anchor="middle">turn events, plans,</text>
+  <text x="450" y="266" class="t-body" text-anchor="middle">permission callbacks</text>
+
+  <rect x="630" y="160" width="240" height="132" rx="8" class="box bridge"/>
+  <text x="750" y="188" class="t-title" text-anchor="middle">Pi bridge</text>
+  <text x="750" y="212" class="t-body" text-anchor="middle">one Pi session per chat,</text>
+  <text x="750" y="230" class="t-body" text-anchor="middle">Pi events → turn events,</text>
+  <text x="750" y="248" class="t-body" text-anchor="middle">permission gate</text>
+  <text x="750" y="275" class="t-note" text-anchor="middle">knows Pi, nothing about ACP</text>
+
+  <rect x="330" y="410" width="240" height="66" rx="8" class="box bridge-soft"/>
+  <text x="450" y="436" class="t-title" text-anchor="middle">plugin adapters</text>
+  <text x="450" y="458" class="t-body" text-anchor="middle">subagents · todo · plan mode · web</text>
+
+  <rect x="630" y="410" width="240" height="66" rx="8" class="box pi"/>
+  <text x="750" y="436" class="t-title" text-anchor="middle">Pi SDK (in-process)</text>
+  <text x="750" y="458" class="t-body" text-anchor="middle">+ plugins from pi install</text>
+
+  <rect x="630" y="540" width="240" height="60" rx="8" class="box ext"/>
+  <text x="750" y="566" class="t-title" text-anchor="middle">AIR LLM proxy</text>
+  <text x="750" y="586" class="t-body" text-anchor="middle">JetBrains AI · BYOK</text>
+
+  <line x1="150" y1="82" x2="150" y2="158" class="edge" marker-start="url(#arr)" marker-end="url(#arr)"/>
+  <text x="162" y="112" class="t-edge">stdio · JSON-RPC (ACP v1)</text>
+
+  <line x1="272" y1="226" x2="343" y2="226" class="edge" marker-end="url(#arr)"/>
+  <text x="307" y="218" class="t-edge" text-anchor="middle">calls</text>
+
+  <line x1="628" y1="226" x2="557" y2="226" class="edge" marker-end="url(#arr)"/>
+  <text x="592" y="218" class="t-edge t-small" text-anchor="middle">implements</text>
+
+  <line x1="750" y1="294" x2="750" y2="408" class="edge" marker-start="url(#arr)" marker-end="url(#arr)"/>
+  <text x="762" y="356" class="t-edge">sessions, events</text>
+
+  <path d="M690,294 L690,330 L450,330 L450,408" class="edge" fill="none" marker-end="url(#arr)"/>
+  <text x="462" y="368" class="t-edge">plugin state → plans, cards</text>
+
+  <line x1="572" y1="443" x2="628" y2="443" class="edge" marker-start="url(#arr)" marker-end="url(#arr)"/>
+
+  <line x1="750" y1="478" x2="750" y2="538" class="edge" marker-end="url(#arr)"/>
+  <text x="738" y="524" class="t-edge" text-anchor="end">model requests via providers/set routes</text>
+</svg>
+</div>
+<figcaption>The driver and the Pi bridge never import each other; they meet only through core. A test enforces this.</figcaption>
+</figure>
+
+
+<ul>
+<li><strong>Dependency rules, checked by a test:</strong> core imports neither side, the driver never imports Pi, and the bridge
+never imports ACP. Only the entry point wires them together.</li>
+<li><strong>The driver</strong> turns ACP requests into core calls and core events into ACP <code>session/update</code>s. All of AIR&#39;s <code>_meta</code>
+knowledge lives here.</li>
+<li><strong>The bridge</strong> runs a Pi <code>AgentSession</code> per chat and turns Pi&#39;s event stream into neutral turn events.</li>
+<li><strong>Plugin adapters</strong>: one small module per supported Pi plugin. Each knows that plugin&#39;s tools, saved state and
+quirks, and maps them to neutral events.</li>
+<li><strong>No client assumptions:</strong> the client is whatever it says it is in ACP <code>initialize</code>. AIR-specific output is sent
+only when the client negotiated the matching capability, and model-facing text names the client as it introduced
+itself.</li>
+</ul>
+<h2>5. How AIR and an agent talk: the parts that shaped the design</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Step</th>
+<th>Direction</th>
+<th>Message</th>
+<th>What it carries</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td>AIR → agent</td>
+<td><code>initialize</code></td>
+<td>Protocol v1, client identity, AIR&#39;s capability list in <code>_meta</code>. The agent answers with its capabilities, including <code>providers</code>.</td>
+</tr>
+<tr>
+<td>2</td>
+<td>AIR → agent</td>
+<td><code>providers/list</code></td>
+<td>The agent returns its <strong>fixed provider slots</strong> (anthropic, openai, google, ingrazzio) and the API types each accepts.</td>
+</tr>
+<tr>
+<td>3</td>
+<td>AIR → agent</td>
+<td><code>providers/set</code></td>
+<td>Per slot: a local proxy URL (<code>http://127.0.0.1:&lt;port&gt;/jcp.acp.dynamic.&lt;id&gt;.&lt;provider&gt;</code>) and headers carrying the proxy key.</td>
+</tr>
+<tr>
+<td>4</td>
+<td>agent → proxy</td>
+<td>model discovery</td>
+<td>The agent asks the proxy which models the account may use, then publishes them.</td>
+</tr>
+<tr>
+<td>5</td>
+<td>AIR → agent</td>
+<td><code>session/new</code></td>
+<td>Working dir, MCP servers, skill roots. The answer holds the config options: mode, model (grouped), effort, Brave Mode.</td>
+</tr>
+<tr>
+<td>6</td>
+<td>AIR → agent</td>
+<td><code>session/prompt</code></td>
+<td>The user&#39;s message. The agent streams <code>session/update</code>s: text, thoughts, tool cards, plans, usage, title.</td>
+</tr>
+<tr>
+<td>7</td>
+<td>agent → AIR</td>
+<td><code>session/request_permission</code>, <code>elicitation/create</code></td>
+<td>Tool approvals, plan review, and questions to the user.</td>
+</tr>
+<tr>
+<td>8</td>
+<td>AIR → agent</td>
+<td><code>session/list</code>, <code>session/load</code>, <code>session/resume</code>, <code>session/cancel</code>, <code>session/set_config_option</code>, steering</td>
+<td>History, reopening chats, stopping a turn, settings changes, messages typed while the agent works.</td>
+</tr>
+</tbody></table></div>
+<p><strong>Calling models through AIR&#39;s proxy:</strong></p>
+<ul>
+<li>Each proxy route speaks the vendor&#39;s own protocol: Anthropic Messages, OpenAI Responses, Gemini, and Vertex. The
+only thing to get right is what the base URL already contains. For example, the OpenAI base already ends at <code>/v1</code>,
+and Vertex needs Junie&#39;s <code>/v1/projects/{p}/locations/{l}</code> path.</li>
+<li>The proxy authenticates the agent by the headers from <code>providers/set</code>. Pi&#39;s SDK insists on an API key, so the
+bridge registers a placeholder and strips it before any request leaves. The bridge never holds a real credential.</li>
+<li><strong>The model list is a policy, not a static list.</strong> Like Junie, the bridge first asks the account&#39;s catalog
+(<code>/models/user</code>), then the vendor listing. It intersects the result with the models Junie&#39;s picker offers, and with
+the models Pi can describe. The model option is re-sent whenever discovery changes it.</li>
+</ul>
+<h2>6. Mapping AIR features to Pi: core, plugin or bridge</h2>
+<p>Each feature in Junie&#39;s AIR contract was sorted by where the agent-side behaviour comes from:</p>
+<ul>
+<li><strong>Pi core</strong>: the SDK already does it, and the bridge maps it to ACP.</li>
+<li><strong>Pi plugin</strong>: an existing package from the Pi ecosystem does it, and the bridge adapts it.</li>
+<li><strong>Bridge</strong>: nothing in Pi fits, so pi-junie implements it.</li>
+</ul>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>AIR feature</th>
+<th>Source</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Initialize / client identity</td>
+<td>Bridge</td>
+<td>Done</td>
+</tr>
+<tr>
+<td>Auth status</td>
+<td>Bridge</td>
+<td>Done (JetBrains AI label)</td>
+</tr>
+<tr>
+<td>Provider model discovery and provider config</td>
+<td>Bridge (Pi model runtime)</td>
+<td>Done (all routes incl. Vertex and Ingrazzio)</td>
+</tr>
+<tr>
+<td>Default model group (Junie&#39;s mixes)</td>
+<td>Bridge (account feature flags)</td>
+<td>Done (Eco reported off)</td>
+</tr>
+<tr>
+<td>Session instructions</td>
+<td>Pi core</td>
+<td>Not yet (small)</td>
+</tr>
+<tr>
+<td>Additional skill roots</td>
+<td>Pi core</td>
+<td>Done</td>
+</tr>
+<tr>
+<td>Session list / load / resume</td>
+<td>Pi core + bridge store</td>
+<td>Done</td>
+</tr>
+<tr>
+<td>Session archive / rename / delete</td>
+<td>Bridge</td>
+<td>Not yet</td>
+</tr>
+<tr>
+<td>Session fork</td>
+<td>Pi core</td>
+<td>Not yet (small)</td>
+</tr>
+<tr>
+<td>Steering (typing while the agent works)</td>
+<td>Pi core</td>
+<td>Done</td>
+</tr>
+<tr>
+<td>Goal mode</td>
+<td>Pi plugin (<code>@narumitw/pi-goal</code> or <code>pi-codex-goal</code>)</td>
+<td>Postponed by choice</td>
+</tr>
+<tr>
+<td>Todo list (AIR&#39;s Todo dock)</td>
+<td><strong>Pi plugin</strong> <code>@juicesharp/rpiv-todo</code></td>
+<td>Done</td>
+</tr>
+<tr>
+<td>Plan mode and plan review</td>
+<td><strong>Pi plugin</strong> <code>@narumitw/pi-plan-mode</code></td>
+<td>Done (plan file link not yet)</td>
+</tr>
+<tr>
+<td>Permission requests</td>
+<td>Bridge (Pi has no permissions)</td>
+<td>Done</td>
+</tr>
+<tr>
+<td>Brave Mode (Safe / Auto / Brave)</td>
+<td>Bridge</td>
+<td>Done (Auto = rule-based read-only shell commands)</td>
+</tr>
+<tr>
+<td>Elicitation forms (questions)</td>
+<td>Bridge (Junie&#39;s <code>ask_user</code> tool)</td>
+<td>Done</td>
+</tr>
+<tr>
+<td>Commands and skills</td>
+<td>Pi core</td>
+<td>Done</td>
+</tr>
+<tr>
+<td>Native subagent sessions</td>
+<td><strong>Pi plugin</strong> <code>@tintinweb/pi-subagents</code></td>
+<td>Done (foreground, parallel, chosen models)</td>
+</tr>
+<tr>
+<td>Terminal output</td>
+<td>Bridge (bash as a live terminal)</td>
+<td>Done</td>
+</tr>
+<tr>
+<td>Message phases (working vs answer)</td>
+<td>Bridge</td>
+<td>Done</td>
+</tr>
+<tr>
+<td>Skill and MCP tool presentation</td>
+<td>Bridge</td>
+<td>Done (incl. the IDE tool router)</td>
+</tr>
+<tr>
+<td>Context compaction</td>
+<td>Pi core</td>
+<td>Partly (<code>/compact</code>; automatic compaction not shown)</td>
+</tr>
+<tr>
+<td>Typed session failures</td>
+<td>Bridge</td>
+<td>Done</td>
+</tr>
+<tr>
+<td>Changed-file reports</td>
+<td>Bridge</td>
+<td>Not yet</td>
+</tr>
+<tr>
+<td>Prompt suggestions</td>
+<td>Bridge</td>
+<td>Not yet (only terminal-UI plugins exist)</td>
+</tr>
+<tr>
+<td>Usage and cost</td>
+<td>Pi core</td>
+<td>Done</td>
+</tr>
+<tr>
+<td>Web search and fetch (not an AIR contract item)</td>
+<td><strong>Pi plugin</strong> <code>pi-web-access</code></td>
+<td>Done</td>
+</tr>
+</tbody></table></div>
+<p><strong>Takeaway:</strong> plugins matter for <em>agent behaviour</em> (subagents, plans, todos, web access, goals). Most AIR features are
+<em>presentation</em> of things Pi already does, and that is bridge work in any case.</p>
+<h3>How the plugins are adapted</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Plugin</th>
+<th>What the bridge does with it</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>@tintinweb/pi-subagents</code> 0.26</td>
+<td>Adopts each child Pi session, mirrors it to AIR&#39;s native child session, and sends the child&#39;s tool calls through the parent&#39;s permission gate.</td>
+</tr>
+<tr>
+<td><code>@juicesharp/rpiv-todo</code> 2.15</td>
+<td>Each <code>todo</code> result becomes Junie&#39;s <code>plan_update</code> items (shown in AIR&#39;s Todo dock) instead of a tool card, and is replayed when a chat is reopened.</td>
+</tr>
+<tr>
+<td><code>@narumitw/pi-plan-mode</code> 0.60</td>
+<td>Junie&#39;s <code>mode</code> option and AIR&#39;s <code>/plan</code> toggle drive the plugin&#39;s commands. The finished plan becomes a Markdown plan card. Junie&#39;s review (implement / revise / stop) goes through a permission request, and implementing continues in the same turn.</td>
+</tr>
+<tr>
+<td><code>pi-web-access</code> 0.48</td>
+<td>Its four tools are always on (its loader is left out) and shown as <code>search</code>/<code>fetch</code> cards. Searching runs without asking; fetching asks in Safe mode. A background option that would start runs on its own is turned off.</td>
+</tr>
+</tbody></table></div>
+<p><strong>Plugins checked and set aside:</strong> goal mode (postponed); token and cost dashboards, diff widgets and
+prompt-suggestion plugins (they need Pi&#39;s terminal UI, which an ACP session lacks).</p>
+<h3>How a plugin is checked, every time</h3>
+<ol>
+<li>Download it (<code>npm pack</code>) into a temporary directory and read the source. Downloaded code is treated as untrusted
+and installed without running its scripts. The questions:<ul>
+<li>Which tools does it register, and what do their results contain?</li>
+<li>What state does it save?</li>
+<li>What config and keys does it need?</li>
+<li>What network or file side effects does it have?</li>
+</ul>
+</li>
+<li>Work out how it behaves without Pi&#39;s terminal UI, since bridge sessions have none.</li>
+<li>Write a small stand-in with the same contract for fast tests, plus an optional test against the real package.</li>
+<li>Find the matching shape in AIR&#39;s source code, map the plugin&#39;s state to it, then test in AIR.</li>
+</ol>
+<p>The bridge detects plugins where <code>pi install npm:&lt;name&gt;</code> puts them and loads them into its sessions. A new chat&#39;s
+welcome message lists each supported plugin as available (with its version) or not, with the install command.</p>
+<h2>7. What the investigation uncovered</h2>
+<p>Facts that changed the design. Each was found by reading recordings, AIR&#39;s or Junie&#39;s source, or our own logs.</p>
+<p><strong>The <code>ingrazzio</code> slot</strong></p>
+<ul>
+<li>Junie lists one more provider slot than the vendors, and AIR answers it with a route to JetBrains&#39; Ingrazzio API.</li>
+<li>Junie in AIR sends all its model traffic through that route, and reads the account&#39;s <strong>feature flags</strong> there
+(<code>GET &lt;route&gt;/api/feature-flags/ga</code>).</li>
+<li>pi-junie now asks for the slot too. AIR grants it and the flags load, which made two features possible:<ul>
+<li><strong>Junie&#39;s Default model group.</strong> The <code>JUNIE_MIXES</code> flag defines Lite / Normal / Hard / Frontier, each a model,
+an effort and an Eco flag (currently: Junie Lite; GPT-6.1 Terra high; Claude Opus 5.5 high; Claude Fable 5.2
+high), with Normal recommended.<ul>
+<li>The bridge sends these levels with AIR&#39;s <code>defaultGroup</code> meta, so AIR shows the same Default slider as for
+Junie.</li>
+<li>New chats start on the recommended level. Picking a model or effort by hand switches to a manual choice.</li>
+</ul>
+</li>
+<li><strong>Junie Lite.</strong> Qwen3.6 27B on JetBrains&#39; own server, called the way Junie calls it: OpenAI chat completions on
+Ingrazzio&#39;s vLLM path, with Ingrazzio&#39;s routing and free-license headers. It costs nothing.</li>
+</ul>
+</li>
+<li><strong>Eco</strong>, which Junie enables for three levels, means: the level&#39;s model plans, and a cheaper model from the
+<code>ECO_MODE_IMPLEMENTATION</code> flag (currently GPT-6 Luna) implements. Pi has no such split, so for now Eco is shown
+as off.</li>
+</ul>
+<p><strong>AIR UI rules you can&#39;t see in the protocol</strong></p>
+<ul>
+<li>AIR finds its plan toggle through the <code>/plan</code> command&#39;s <code>commandAction</code> meta, and turns <code>/plan</code> into a settings
+change. Text typed after <code>/plan</code> therefore never reaches the agent.</li>
+<li>The Todo dock counts only completed items, keys rows by position, and doesn&#39;t open by itself.</li>
+<li>A plan review is attached to a plan card only when the review carries exactly the card&#39;s Markdown.</li>
+<li>When a chat opens, AIR re-applies the user&#39;s saved model, effort and Brave Mode. It warns about any setting the
+agent didn&#39;t apply, for example an effort on a model that has no effort control.</li>
+</ul>
+<p><strong>Where Junie&#39;s extras come from</strong></p>
+<ul>
+<li>Junie&#39;s YouTrack and GitHub MCP servers come from Junie&#39;s own config (<code>~/.junie/mcp/mcp.json</code>), not from AIR.</li>
+<li>AIR passes the user&#39;s own MCP servers (<code>~/.jetbrains/mcp/mcp.json</code>) to an agent only if that agent&#39;s <code>acp.json</code>
+entry allows it (<code>use_custom_mcp</code>). Otherwise an agent gets only AIR&#39;s IDE server.</li>
+</ul>
+<p><strong>Plugin and Pi quirks the bridge absorbs</strong></p>
+<ul>
+<li>Plugin commands start agent runs without waiting for them, so the bridge waits for those runs itself.</li>
+<li>Pi&#39;s tool allowlist hides plugin tools unless they are listed explicitly.</li>
+<li>A web plugin option starts a new run after a background fetch, possibly after the turn has ended. The bridge
+switches that option off.</li>
+</ul>
+<h2>8. How development worked</h2>
+<p><strong>The loop for each feature:</strong></p>
+<ol>
+<li>Read the recorded Junie ↔ AIR traffic and the AIR code that handles it.</li>
+<li>Write a replay or fake-proxy test.</li>
+<li>Implement it in the driver and/or the bridge.</li>
+<li>Run the full test suite and the type check, then commit.</li>
+<li>The user tests the commit in AIR and reports with screenshots and log excerpts.</li>
+<li>Fix from the agent&#39;s log, which records every ACP request, model call and tool call, with secrets redacted.</li>
+</ol>
+<p><strong>Practices:</strong></p>
+<ul>
+<li><strong>Research before code.</strong> For each plugin or AIR feature, findings and a proposal came first, and the user decided
+the open questions: which plan-mode plugin, the permission policy for web tools, Eco off for now.</li>
+<li><strong>Ground truth over documentation.</strong> Recorded traffic and AIR&#39;s code decided every detail.</li>
+<li><strong>Safety:</strong> the recordings contain keys, so they are never committed. Downloaded plugin code is read before use,
+and nothing is pushed without the user.</li>
+</ul>
+<p><strong>Size:</strong> about 50 commits over two days; about 5,000 lines of source and 2,800 lines of tests (130 tests plus one
+optional test against a real plugin).</p>
+<h2>9. Where it stands</h2>
+<p><strong>Working and checked in AIR:</strong></p>
+<ul>
+<li>Model picker: discovery through AIR&#39;s proxy, the Default group, Junie Lite.</li>
+<li>Chat with thoughts and images.</li>
+<li>Tool cards with permissions and Brave Mode; bash as a live terminal.</li>
+<li>MCP servers, including AIR&#39;s IDE tools; skills and slash commands.</li>
+<li>Questions to the user, steering.</li>
+<li>Subagents, the Todo dock, plan mode with review, web search and fetch.</li>
+<li>Chat list, reopening and replaying chats, titles, usage and cost, typed failures.</li>
+</ul>
+<p><strong>Known gaps:</strong></p>
+<ul>
+<li>Eco is shown as off.</li>
+<li><strong>Not yet done:</strong> plan file links, goal mode, changed-file reports, prompt suggestions, session fork, archive and
+rename, automatic compaction events.</li>
+<li>In plan mode, the plan-mode plugin blocks MCP and web tools until its <code>defaultPlanTools</code> setting lists them.</li>
+<li><strong>YouTrack and GitHub MCP:</strong> they need to be added to AIR&#39;s MCP config, with custom servers allowed for pi-junie in
+<code>acp.json</code>.</li>
+<li><strong>Packaging:</strong> runs from a git clone with Node 22.19+ (macOS and Linux launcher). An install script and updated
+setup notes are still to do.</li>
+</ul>
+<p><strong>Trying it today:</strong></p>
+<ol>
+<li>Clone the repo and run <code>npm ci</code>.</li>
+<li>Register <code>&quot;pi-junie&quot;: {&quot;command&quot;: &quot;&lt;clone&gt;/bin/pi-air&quot;, &quot;args&quot;: [], &quot;env&quot;: {}}</code> in <code>~/.jetbrains/acp.json</code>.</li>
+<li>Pick it in AIR.</li>
+<li>Optionally install the plugins with <code>pi install npm:&lt;name&gt;</code>.</li>
+</ol>
+<h2>10. What can be gained next, and what to expect</h2>
+<p><strong>Near-term, each a small, contained step:</strong></p>
+<ul>
+<li><strong>Real Eco:</strong> the level&#39;s model plans and the cheaper Eco model implements through a subagent. This makes Normal,
+Hard and Frontier cheaper, the way Junie&#39;s are.</li>
+<li><strong>Web search through Ingrazzio,</strong> as Junie does, instead of the plugin&#39;s default third-party search service.</li>
+<li><strong>Plan file links, changed-file reports, session fork,</strong> and the plan-mode tool allowlist.</li>
+<li><strong>An install script and setup notes,</strong> so colleagues can get running in minutes.</li>
+</ul>
+<p><strong>Longer-term value:</strong></p>
+<ul>
+<li><strong>A second, open agent in AIR with AIR&#39;s full UI.</strong> Pi&#39;s plugin ecosystem and fast model support, while users keep
+AIR&#39;s picker, cards, plans and subagents.</li>
+<li><strong>A reusable way to bring any ACP agent into AIR.</strong> The driver, the core interfaces and the knowledge of AIR&#39;s
+<code>_meta</code> are agent-neutral, so another agent needs a new bridge, not a new driver.</li>
+<li><strong>A tested, executable description of AIR&#39;s agent contract,</strong> useful when that contract changes and for the move
+to ACP v2.</li>
+</ul>
+<p><strong>Realistic expectations and risks:</strong></p>
+<ul>
+<li><strong>UI parity with Junie is achievable, and mostly done.</strong> Answer quality depends on Pi and the chosen model, not
+on the bridge.</li>
+<li><strong>Internal JetBrains contracts can change without notice.</strong> The Ingrazzio route, the feature-flag format, the
+free-license headers and AIR&#39;s <code>_meta</code> keys are internal and mirrored from Junie.<ul>
+<li>Most are versioned, and the bridge falls back to plain behaviour when something is missing.</li>
+<li>Use beyond the company should be agreed with the AIR and Junie teams.</li>
+</ul>
+</li>
+<li><strong>Third-party plugins evolve.</strong> The bridge relies on each plugin&#39;s contract (tool names, result shape, saved
+state). Real-plugin tests catch breaking changes, but plugin updates should be tried before rolling them out.</li>
+<li><strong>Maintenance follows Pi SDK and AIR releases.</strong> The replay tests and the agent log make each upgrade cheap to
+verify.</li>
+</ul>
+
+</main>
+</div>
+
+</body>
+</html>
