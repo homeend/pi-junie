@@ -66,16 +66,16 @@ model providers. It also keeps ACP and Pi in separate layers, whereas pi-acp is 
 
 ```mermaid
 flowchart TB
-    AIR["<b>JetBrains AIR</b><br/>(ACP client)"]
-    Proxy["<b>AIR LLM proxy</b><br/>JetBrains AI / BYOK"]
+    AIR["JetBrains AIR<br/>(ACP client)"]
+    Proxy["AIR LLM proxy<br/>JetBrains AI / BYOK"]
 
     subgraph Agent["pi-junie process"]
         direction TB
-        Driver["<b>ACP driver</b><br/>framing, wire types, codec, method dispatch<br/><i>knows ACP and AIR _meta, nothing about Pi</i>"]
-        Core["<b>core</b><br/>neutral types and ports: provider bindings, model groups,<br/>turn events (text, thoughts, tools, plans, questions),<br/>permission and question callbacks, backend/session interfaces"]
-        Bridge["<b>Pi bridge</b><br/>one Pi session per chat, model runtime on AIR's proxy,<br/>Pi events → turn events, permission gate<br/><i>knows Pi, nothing about ACP</i>"]
-        Adapters["<b>plugin adapters</b><br/>subagents · todo · plan mode · web access"]
-        Pi["<b>Pi SDK</b> (in-process)<br/>+ plugins installed with pi install"]
+        Driver["ACP driver<br/>framing, wire types, codec, method dispatch<br/>knows ACP and AIR _meta, nothing about Pi"]
+        Core["core<br/>neutral types and ports: provider bindings, model groups,<br/>turn events (text, thoughts, tools, plans, questions),<br/>permission and question callbacks, backend/session interfaces"]
+        Bridge["Pi bridge<br/>one Pi session per chat, model runtime on AIR's proxy,<br/>Pi events → turn events, permission gate<br/>knows Pi, nothing about ACP"]
+        Adapters["plugin adapters<br/>subagents · todo · plan mode · web access"]
+        Pi["Pi SDK (in-process)<br/>+ plugins installed with pi install"]
     end
 
     AIR <-->|"stdio, JSON-RPC (ACP v1)"| Driver
