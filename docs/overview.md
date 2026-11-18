@@ -64,17 +64,27 @@ model providers. It also keeps ACP and Pi in separate layers, whereas pi-acp is 
 
 ## 4. Architecture: the bridge
 
-```
-AIR ── stdio, JSON-RPC (ACP v1) ──►  ACP driver   framing, wire types, codec, method dispatch.
-                                        │         Knows ACP and AIR's _meta. Knows nothing about Pi.
-                                        ▼
-                                     core          neutral types and ports: provider bindings, model groups,
-                                        ▲          turn events (text, thoughts, tools, plans, questions),
-                                        │          permission and question callbacks, backend/session interfaces.
-                                        │
-                                     Pi bridge     one Pi session per chat, Pi's model runtime wired to AIR's proxy,
-                                                   Pi events -> turn events, permission gate, plugin adapters.
-                                                   Knows Pi. Knows nothing about ACP.
+```mermaid
+flowchart TB
+    AIR["<b>JetBrains AIR</b><br/>(ACP client)"]
+    Proxy["<b>AIR LLM proxy</b><br/>JetBrains AI / BYOK"]
+
+    subgraph Agent["pi-junie process"]
+        direction TB
+        Driver["<b>ACP driver</b><br/>framing, wire types, codec, method dispatch<br/><i>knows ACP and AIR _meta, nothing about Pi</i>"]
+        Core["<b>core</b><br/>neutral types and ports: provider bindings, model groups,<br/>turn events (text, thoughts, tools, plans, questions),<br/>permission and question callbacks, backend/session interfaces"]
+        Bridge["<b>Pi bridge</b><br/>one Pi session per chat, model runtime on AIR's proxy,<br/>Pi events → turn events, permission gate<br/><i>knows Pi, nothing about ACP</i>"]
+        Adapters["<b>plugin adapters</b><br/>subagents · todo · plan mode · web access"]
+        Pi["<b>Pi SDK</b> (in-process)<br/>+ plugins installed with pi install"]
+    end
+
+    AIR <-->|"stdio, JSON-RPC (ACP v1)"| Driver
+    Driver -->|"core calls"| Core
+    Bridge -->|"implements ports, emits turn events"| Core
+    Bridge --- Adapters
+    Bridge <--> Pi
+    Adapters <--> Pi
+    Pi -->|"model requests via providers/set routes"| Proxy
 ```
 
 - **Dependency rules, checked by a test:** core imports neither side, the driver never imports Pi, and the bridge
