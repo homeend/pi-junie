@@ -80,3 +80,21 @@ describe("Eco mode", () => {
 		expect(eco(options)?.currentValue).toBe(true);
 	});
 });
+
+describe("Eco without Junie Cost", () => {
+	it("offers no Eco switch or marker when Junie Cost is not loaded", async () => {
+		const backend = await PiBackend.create({ stateDir: mkdtempSync(join(tmpdir(), "pi-junie-test-")) });
+		const wire = new MemoryWire();
+		new AcpAgent(wire.agentTransport, backend);
+		let id = 0;
+		const call = (method: string, params: Obj = {}) => wire.send({ jsonrpc: "2.0", id: ++id, method, params }, 30000) as Promise<Obj>;
+		await call("initialize", { protocolVersion: 1, clientInfo: { name: "client" }, clientCapabilities: {} });
+		await call("providers/set", { providerId: "anthropic", apiType: "anthropic", baseUrl: `${proxy.url}/a`, headers: {} });
+		await backend.modelsSettled(5000);
+		const { result } = await call("session/new", { cwd: mkdtempSync(join(tmpdir(), "pi-junie-proj-")), mcpServers: [] });
+		await call("session/set_config_option", { sessionId: result.sessionId, configId: "model", value: "pi:anthropic/claude-opus-5-5" });
+		const options = (await call("session/set_config_option", { sessionId: result.sessionId, configId: "effort", value: "high" })).result.configOptions;
+		expect(eco(options)).toBeUndefined();
+		expect(JSON.stringify(options)).not.toContain('"eco":"toggle"');
+	});
+});

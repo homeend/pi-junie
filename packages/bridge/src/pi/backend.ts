@@ -42,7 +42,7 @@ import { type MixCatalog, parseMixCatalog } from "./mixes.ts";
 import { isReadOnlyCommand } from "./safe-commands.ts";
 import { FETCH_CONTENT_TOOL, WEB_READ_TOOLS, withoutBackgroundFetch } from "./web-access.ts";
 import { AGENT_TOOL, installChildSessionHook, markBridgeSession, SubagentRelay, subagentModelsNote, withChildHost } from "./subagents.ts";
-import { bundledPlugin, type DetectedPlugin, detectPlugins, has, pluginTools, pluginWelcomeLines, SUBAGENT_TOOLS, SUBAGENTS_PLUGIN, TODO_PLUGIN, TODO_TOOLS } from "./plugins.ts";
+import { bundledPlugin, type DetectedPlugin, detectPlugins, JUNIE_COST_PLUGIN, has, pluginTools, pluginWelcomeLines, SUBAGENT_TOOLS, SUBAGENTS_PLUGIN, TODO_PLUGIN, TODO_TOOLS } from "./plugins.ts";
 import { discoverModels, type ListedModel, listingIdMatches } from "./discovery.ts";
 
 function ideRouterNote(name: string): string {
@@ -435,7 +435,8 @@ export class PiBackend implements AgentBackend {
 
 	/** The efforts at which a model accepts Eco mode (Junie's ecoModeEfforts), undefined when it has no Eco mode. */
 	ecoLevels(ref: ModelRef | undefined): readonly string[] | undefined {
-		if (!ref || ref.slotId.startsWith("custom:")) return undefined;
+		// Eco plans with Junie Cost's planner: without it (PI_AIR_JUNIE_COST=0) no model offers Eco.
+		if (!ref || ref.slotId.startsWith("custom:") || !this.plugins.some((p) => p.name === JUNIE_COST_PLUGIN)) return undefined;
 		return ECO_MODELS.find((e) => listingIdMatches(ref.modelId, e.id))?.thinkingLevels;
 	}
 
