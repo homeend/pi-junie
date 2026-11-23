@@ -1,6 +1,7 @@
 # pi-junie: Pi as an ACP agent for JetBrains AIR
 
-Status: draft, 2026-11-17
+Status: living spec, last updated 2026-11-23. Sections 1 and 6 record the original first milestone; everything
+else describes the current code.
 
 ## 1. Goal
 
@@ -11,6 +12,9 @@ first milestone is:
 2. AIR configures its LLM proxy through `providers/list`, `providers/set` and `providers/disable`.
 3. AIR's model picker shows the models Pi offers for the providers AIR has set.
 4. The user can chat with the selected model in a plain conversation, with no tools.
+
+That milestone is done. The bridge has since become a full coding agent (tools, permissions, sessions, plugins,
+plans, subagents, web access, the Default model group); §3.2 and §3.3 describe it.
 
 ACP stays behind a driver. Pi stays behind a bridge. Neither leaks into the other.
 
@@ -45,7 +49,8 @@ curated model list per slot.
 `ingrazzio`, JetBrains' own API). When AIR binds it, the bridge reads the account's feature
 flags through that route, `GET <baseUrl>/api/feature-flags/ga` with the binding's headers, as Junie does
 (`RemoteFeatureFlags.kt`). The flags include `JUNIE_MIXES` (Junie's Default model group: Lite/Normal/Hard/Frontier as
-model + effort + Eco) and `ECO_MODE_IMPLEMENTATION`. For now the bridge only loads and logs them.
+model + effort + Eco) and `ECO_MODE_IMPLEMENTATION`. The bridge logs them and builds the Default group from
+`JUNIE_MIXES` (below); `ECO_MODE_IMPLEMENTATION` is logged only (no Eco in Pi).
 It also offers **Junie Lite** (group "JetBrains AI") there, called like Junie does: Qwen3.6 27B
 (`Qwen/Qwen3.6-27B-FP8`) as OpenAI chat completions at `<baseUrl>/llm/vllm/v1/chat/completions`, with Ingrazzio's
 routing headers `X-LLM-Model: jbai`, `X-Keep-Path: true` and the free license (`X-Forced-License-Free: true`,
@@ -106,27 +111,32 @@ This is the same split the Obsidian plugin uses: `acp/` confines the protocol, a
 ```ts
 interface AgentBackend {
   info(): AgentIdentity;
-  providerSlots(): ProviderSlot[];                  // fixed list (anthropic, openai, google)
+  providerSlots(): ProviderSlot[];                  // fixed list (anthropic, openai, google, ingrazzio)
   bindProvider(b: ProviderBinding): void;           // from providers/set
   unbindProvider(providerId: string): void;         // from providers/disable
   availableModels(): ModelGroup[];                  // only bound slots
+  modelMixes(): ModelMix[];                         // the Default group's runnable levels
   openSession(req: { cwd: string }): Promise<BackendSession>;
 }
 interface BackendSession {
   id: string;
   currentModel(): ModelRef | undefined;
   selectModel(ref: ModelRef): Promise<void>;
+  currentMix(): string | undefined;                 // Default group level, while its model and effort hold
+  selectMix(id: string): Promise<void>;
   prompt(text: string, sink: TurnSink, signal: AbortSignal): Promise<TurnResult>;
   close(): Promise<void>;
 }
 ```
 
-The driver owns everything ACP-specific: config option ids, the model value encoding (`pi:<slot>/<modelId>`),
+The real ports (`src/core/ports.ts`) also cover effort, modes, steering, permissions, questions, session
+list/load and titles. The driver owns everything ACP-specific: config option ids, the model value encoding (`pi:<slot>/<modelId>`),
 group ids (`proxy:<slot>`), `_meta` shapes and stop reasons.
 
 ### 3.2 Pi bridge
 
-- Default model: `anthropic/claude-sonnet-5-5` when available, otherwise the first available.
+- Default model for a new chat: the recommended Default group level when the ingrazzio slot is bound and the level
+  is runnable, else `anthropic/claude-sonnet-5-5` when available, otherwise the first available.
 - **Models come from proxy discovery** (`src/pi/discovery.ts`, same algorithm as Junie, see
   `docs/junie-proxy-triage.md` §4.1): the account catalog (`/models/user`), else the vendor listing, narrowed by
   `_meta.jetbrains.air.selectedModels`, limited to **Junie's picker policy** (its non-deprecated `ModelOption`
@@ -135,8 +145,8 @@ group ids (`proxy:<slot>`), `_meta` shapes and stop reasons.
   knows, e.g. gemini-4-hydrogen/carbon like gemini-4-argon) is offered as a copy of that Pi model with Junie's
   prices, and still logged as `[models-todo]` until Pi knows it. A failed discovery offers no models (no fallback). `session/new` waits up to 10 s for discovery;
   later results arrive as `config_option_update`.
-- Fixed slots, like Junie's: `anthropic` (apiType `anthropic`), `openai` (`openai`) and `google`
-  (`google`/`vertex`, experimental).
+- Fixed slots, like Junie's: `anthropic` (apiType `anthropic`), `openai` (`openai`), `google`
+  (`google`/`vertex`) and `ingrazzio` (`ingrazzio`, see §2).
 - `bindProvider` registers a **separate** Pi provider `air-<slot>` with `baseUrl` and `headers` from AIR,
   a placeholder API key, and the curated models copied from Pi's built-in catalog. It never overrides the
   user's real `anthropic`/`openai` providers, so the user's own credentials are never sent to the AIR proxy.
@@ -144,8 +154,8 @@ group ids (`proxy:<slot>`), `_meta` shapes and stop reasons.
   tools `read grep find ls edit write bash`, the project's context files (`AGENTS.md`/`CLAUDE.md` in the
   working directory and its parents) and skills (`.agents/skills`, `.pi/skills`, `~/.agents/skills`; the
   project counts as trusted unless `PI_AIR_TRUST_PROJECT=0`), and Pi's default auto-compaction. No
-  extensions, prompt templates, or the user's own `~/.pi/agent` settings, instructions and skills (isolated
-  `agentDir`). Each session logs the context files and skills it loaded.
+  extensions besides the bridge's own and the detected plugins (§3.3), no prompt templates, and none of the user's
+  own `~/.pi/agent` settings, instructions and skills (isolated `agentDir`). Each session logs the context files and skills it loaded.
 - **Permissions:** an inline Pi extension handles `tool_call`. Read-only tools (`read grep find ls`) run;
   `edit write bash` ask the user through the core `PermissionAsk` port, which the driver maps to
   `session/request_permission` (Allow once / Allow for this chat / Reject). A rejection or cancellation
@@ -164,6 +174,10 @@ group ids (`proxy:<slot>`), `_meta` shapes and stop reasons.
   `execute_tool` with Junie's description that forwards to `mcp__jetbrains_air_ide__execute_tool`; the MCP
   router itself stays callable but is not declared (`toolExposure: codemode`). The forwarded call is approved
   with its parent and gets no separate tool card.
+- **Config options** on session/new, resume and load: `mode` (Default / Plan, with the plan-mode plugin), `model`
+  (Default group first, then one group per bound slot), `effort` (Junie's `thought_level` select with the selected
+  model's Pi thinking levels, `off` left out, recommended `medium`; absent for models without reasoning) and
+  `brave_mode`. Each change answers with the full option list.
 - **Commands:** after `session/new` / resume / load the driver sends `available_commands_update` with the
   session's `CommandInfo`s: `new` (AIR `commandAction: openNewSession`), `compact` (free-text instructions),
   and every loaded skill as `$<skill>` with AIR's `_meta.jetbrains.air {kind: "skill", skillPath}`. A prompt
@@ -226,17 +240,20 @@ that unlock each one:
   in the `initialize` result, plus a diagnostic list of features that are unavailable and why.
 - Two directions: installed extensions decide what is advertised, and features AIR asks for that can't be
   met are reported as missing requirements.
-- For now every entry is `planned`, so nothing is advertised. The module exists so features can be turned
-  on one entry at a time.
+- Only `nativeSubagentSessions` is `available` (advertised when `@tintinweb/pi-subagents` is installed); the other
+  entries are `planned`. Features that need no capability string (plans, plan review, Brave Mode, web access, the
+  Default group) are not in the registry.
 - Installed plugins come from `src/pi/plugins.ts`: the user installs a known Pi package with Pi itself
   (`pi install npm:@tintinweb/pi-subagents`); the bridge finds it where `pi install` puts it
   (`<pi agent dir>/npm/node_modules/<name>`, `~/.pi/agent` or `$PI_CODING_AGENT_DIR`), reports name + version,
   and loads it into every session by path (`additionalExtensionPaths`; other on-disk extensions stay off).
   `PI_AIR_PLUGINS=0` skips plugins.
 - Welcome: a new chat (session/new only, not resume/load) opens with one `agent_message_chunk` from the agent,
-  sent after the response: the Pi version and whether subagents are available (with the install command when
-  not). It is not part of the Pi transcript, so it is not replayed. `PI_AIR_WELCOME=0` turns it off. The
+  sent after the response: the Pi version and, for each known plugin (subagents, todo list, plan mode, web access),
+  whether it is available (with the install command when not). It is not part of the Pi transcript, so it is not replayed. `PI_AIR_WELCOME=0` turns it off. The
   startup log also says `subagents: available` / `subagents: not available`.
+- Known plugins (`KNOWN_PLUGINS`): `@tintinweb/pi-subagents`, `@juicesharp/rpiv-todo`, `@narumitw/pi-plan-mode`,
+  `pi-web-access`. Sessions enable only their listed tools (Pi's tool allowlist).
 - Subagents (`@tintinweb/pi-subagents`, chosen because its children are in-process Pi sessions on the
   bridge's model runtime, reachable as live `AgentSession`s): sessions get its `Agent`, `get_subagent_result`
   and `steer_subagent` tools (they run without asking; the children's own tools are gated).
@@ -319,10 +336,11 @@ that unlock each one:
 `bin/pi-air` (bash) runs `node src/main.ts`. It's registered in `~/.jetbrains/acp.json`:
 
 ```json
-"pi-junie-dev": { "command": "<repo>/bin/pi-air", "args": [], "env": {} }
+"pi-junie": { "command": "<repo>/bin/pi-air", "args": [], "env": {} }
 ```
 
-`PI_AIR_LOG=<file>` writes a wire log (both directions) for debugging and for future fixtures.
+The log goes to `.pi-dev/pi-air.log` (`PI_AIR_LOG=<file>` overrides it): the wire in both directions, secrets
+redacted, plus diagnostics. It is the source for debugging and for future fixtures.
 
 ## 6. Milestones
 
@@ -331,9 +349,13 @@ that unlock each one:
 3. Pi bridge: provider binding and curated models; the model list comes from Pi's catalog.
 4. Prompting: plain chat through the AIR proxy, streaming, cancel, model switch.
 5. Launcher, the acp.json entry, and a live check in AIR.
-6. Next: more fixtures, v2 codec, compat entries (subagents etc.), `session/list` persistence.
+6. Done since: tools and permissions, sessions (list, load, resume), effort, commands and skills, client MCP
+   servers, steering, failures, phases, plugins (subagents, todo list, plan mode, web access), the ingrazzio slot
+   with Junie Lite and the Default group.
+7. Next (not started): real Eco, plan file links, plan-mode `defaultPlanTools`, goal mode, changed-file reports,
+   session fork / archive / rename, session instructions, ACP v2 codec.
 
 ## 7. Out of scope for now
 
-File/terminal client capabilities, auth methods,
- plans and goal mode, subagents, `_providers/models`, ACP v2 steering (`session/prompt` during a turn).
+File/terminal client capabilities (AIR sends `fs:false`, `terminal:false`), auth methods, `_providers/models`,
+ACP v2 steering (`session/prompt` during a turn), background subagents.

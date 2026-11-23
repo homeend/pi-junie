@@ -17,7 +17,7 @@ AIR.
 |---|---|---|
 | Initialize / client identity | Bridge (ACP driver) | Done |
 | Auth status | Bridge | Done (`_auth/status_update`, JetBrains AI label) |
-| Provider model discovery + provider config | Bridge (Pi core model runtime) | Done (proxy discovery, all providers incl. Vertex) |
+| Provider model discovery + provider config | Bridge (Pi core model runtime) | Done (proxy discovery, all providers incl. Vertex and Ingrazzio; Junie's Default group and Junie Lite, Eco reported off) |
 | Session instructions | Pi core (`appendSystemPrompt`) | Not yet; trivial |
 | Additional skill roots | Pi core (`additionalSkillPaths`) | Done |
 | Session index / list / load / resume | Pi core (`SessionManager`) + bridge store | Done (list, load, resume, loadReplayEnd) |

@@ -18,7 +18,7 @@ right is what the `baseUrl` from `providers/set` already contains. Junie uses `C
 | `vertex` | `base/v1/projects/{project}/locations/{location}/publishers/google/models/{model}:generateContent` | Vertex AI | vendor. Project and location come from `_meta.vertex`, else the placeholder `default-project`/`default-location` |
 | `xai` | `base/responses` | xAI | vendor |
 | `qwen` | `base/chat/completions` | vLLM / OpenAI-compatible | vendor |
-| `ingrazzio` | complete Ingrazzio path | — | **JB only** |
+| `ingrazzio` | complete Ingrazzio path | — | **JB only**. pi-junie uses it for feature flags (`base/api/feature-flags/ga`) and Junie Lite (`base/llm/vllm/v1/chat/completions`), see `docs/spec.md` §2 |
 
 AIR confirms it (`AirLlmGatewayRoutes`): "Anthropic SDKs append `/v1/messages` to the base. OpenAI SDKs expect a
 base that ends in `/v1`. Vertex SDKs append their versioned paths." BYOK OpenAI maps the proxy base to
@@ -106,10 +106,10 @@ Runs per binding (apiType + baseUrl + headers), again whenever bindings change, 
    binding contributes no discovered list (Junie then falls back to its static gating).
 5. When several bindings exist, a model id is claimed by the first binding (OpenAI first).
 
-## 5. Other things Pi is missing, compared with the Junie wire
+## 5. Other things Pi was missing, compared with the Junie wire (all done since)
 
 - `session/resume` (+ `sessionCapabilities.resume`): AIR restarts the agent on every proxy identity change
-  (auth source switch, BYOK) and resumes the chat. Without it: "This agent cannot resume the saved session".
+  (auth source switch, BYOK) and resumes the chat. Without it: "This agent cannot resume the saved session". Done.
 - `_auth/status_update {authStatus: {kind: "api_key", label, detail: "Proxy"}}` after binding/session events:
-  this is what AIR's auth status shows. Optional.
-- `loadSession`, `session/list` with real sessions: not required for resume.
+  this is what AIR's auth status shows. Done.
+- `loadSession`, `session/list` with real sessions: not required for resume. Done.

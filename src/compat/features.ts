@@ -28,7 +28,7 @@ export interface FeatureResolution {
 	unavailable: { feature: string; reason: string }[];
 }
 
-/** Known AIR features. Everything is "planned" for now — nothing is advertised yet. */
+/** Known AIR features with a capability string. Only subagent sessions are "available"; the rest are "planned". */
 export const AIR_FEATURE_RULES: FeatureRule[] = [
 	{ feature: "nativeSubagentSessions", description: "Child sessions for subagents", requires: [{ plugin: "@tintinweb/pi-subagents", minVersion: "0.26.0" }], status: "available" },
 	{ feature: "customInstructions", description: "Session instructions from AIR on session/new", requires: [], status: "planned" },

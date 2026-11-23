@@ -1,5 +1,9 @@
 # Gap analysis: a normal chat in AIR
 
+> Snapshot from 2026-11-17, written before tools existed. The "then" column and sections 3 to 5 describe that
+> day; the "Now" column shows the state on 2026-11-23. Every item in section 3 has been done since. Current behaviour
+> is in `spec.md`, current feature status in `air-pi-feature-map.md`.
+
 Inputs:
 - the ACP v1 schema (`@agentclientprotocol/sdk` 2.7.0, `dist/v1/schema`)
 - the Junie <-> AIR wire (fixtures, `~/.junie/logs/junie-acp-*.log`)
@@ -27,31 +31,31 @@ needs a `pi` subprocess and the user's Pi configuration.
 
 ## 2. ACP surface: what we have, what's missing
 
-| ACP item | Spec | Junie | pi-acp | pi-junie now | Needed for a normal chat? |
-|---|---|---|---|---|---|
-| `initialize` | base | ✓ | ✓ | ✓ | — |
-| `session/new` | base | ✓ | ✓ | ✓ | — |
-| `session/prompt` text | base | ✓ | ✓ | ✓ | — |
-| prompt images / embedded resources | base (capabilities) | image ✓ | ✓ | resources as text, **no images** | P1 |
-| `session/cancel` | base | ✓ | ✓ | ✓ | — |
-| `agent_message_chunk` / `agent_thought_chunk` | base | ✓ | ✓ | ✓ (thoughts never emitted, thinking is `off`) | P1 thinking level |
-| `usage_update` | base | ✓ | ✓ | ✓ | — |
-| `session_info_update` **title** | base | ✓ after first turn | ✓ | **✗** (AIR shows an untitled chat) | **P0** |
-| `config_option_update` model | base | ✓ | ✓ | ✓ | — |
-| reasoning **effort** config option | base | ✓ (`effort`) | as `mode` | ✗ | P1 |
-| `session/set_config_option` | base | ✓ | ✓ | model only, unknown ids return -32602 | — |
-| `session/resume` | unstable | ✓ | — | ✓ (new) | — |
-| `session/load` + replay (`user_message_chunk`, ...) | base (`loadSession`) | ✓ | ✓ | ✗ | P1: reopen from history after an IDE restart |
-| `session/list` with real sessions | unstable | ✓ (+ AIR meta) | ✓ | returns `[]` | P1: history panel |
-| `session/close`, `session/delete` | unstable | ✓ | — | close ✓ | P2 |
-| `available_commands_update` (slash commands) | base | ✓ | ✓ | ✓ (new, compact, $skills) | — |
-| `_session/steering` (typing while the agent works) | AIR/Junie v1 | ✓ | — | ✓ (Pi `steer()`) | — |
-| `tool_call` / `tool_call_update` | base | ✓ | ✓ | ✗ (no tools) | **P0 for a coding chat**, not for Q&A |
-| `session/request_permission` | base (client) | ✓ | for extension UI | ✗ | with tools |
-| `plan` | base | ✓ | — | ✗ | P2 |
-| `fs/*`, `terminal/*` client delegation | base (client) | ✗ (client says false) | ✗ | ✗ | not needed: AIR sends `fs:false, terminal:false` |
-| MCP servers from `session/new` | base | ✓ | stored only | ignored | P2 (AIR's `jetbrains_air_ide` MCP) |
-| `authMethods` / `_auth/status_update` | base / AIR | ✓ | terminal auth | status ✓ (Junie's IDE-proxy label `JetBrains AI · IDE`), no auth methods | — |
+| ACP item | Spec | Junie | pi-acp | pi-junie then | Needed for a normal chat? | Now (11-23) |
+|---|---|---|---|---|---| --- |
+| `initialize` | base | ✓ | ✓ | ✓ | — | ✓ |
+| `session/new` | base | ✓ | ✓ | ✓ | — | ✓ |
+| `session/prompt` text | base | ✓ | ✓ | ✓ | — | ✓ |
+| prompt images / embedded resources | base (capabilities) | image ✓ | ✓ | resources as text, **no images** | P1 | ✓ images and resources |
+| `session/cancel` | base | ✓ | ✓ | ✓ | — | ✓ |
+| `agent_message_chunk` / `agent_thought_chunk` | base | ✓ | ✓ | ✓ (thoughts never emitted, thinking is `off`) | P1 thinking level | ✓ (thoughts with effort) |
+| `usage_update` | base | ✓ | ✓ | ✓ | — | ✓ |
+| `session_info_update` **title** | base | ✓ after first turn | ✓ | **✗** (AIR shows an untitled chat) | **P0** | ✓ |
+| `config_option_update` model | base | ✓ | ✓ | ✓ | — | ✓ |
+| reasoning **effort** config option | base | ✓ (`effort`) | as `mode` | ✗ | P1 | ✓ (Pi thinking levels) |
+| `session/set_config_option` | base | ✓ | ✓ | model only, unknown ids return -32602 | — | model, effort, mode, brave_mode, Default group levels |
+| `session/resume` | unstable | ✓ | — | ✓ (new) | — | ✓ |
+| `session/load` + replay (`user_message_chunk`, ...) | base (`loadSession`) | ✓ | ✓ | ✗ | P1: reopen from history after an IDE restart | ✓ |
+| `session/list` with real sessions | unstable | ✓ (+ AIR meta) | ✓ | returns `[]` | P1: history panel | ✓ |
+| `session/close`, `session/delete` | unstable | ✓ | — | close ✓ | P2 | close ✓, delete ✗ |
+| `available_commands_update` (slash commands) | base | ✓ | ✓ | ✓ (new, compact, $skills) | — | ✓ (+ plan, $skills) |
+| `_session/steering` (typing while the agent works) | AIR/Junie v1 | ✓ | — | ✓ (Pi `steer()`) | — | ✓ |
+| `tool_call` / `tool_call_update` | base | ✓ | ✓ | ✗ (no tools) | **P0 for a coding chat**, not for Q&A | ✓ |
+| `session/request_permission` | base (client) | ✓ | for extension UI | ✗ | with tools | ✓ |
+| `plan` | base | ✓ | — | ✗ | P2 | ✓ (todo plugin, plan mode) |
+| `fs/*`, `terminal/*` client delegation | base (client) | ✗ (client says false) | ✗ | ✗ | not needed: AIR sends `fs:false, terminal:false` | not needed |
+| MCP servers from `session/new` | base | ✓ | stored only | ignored | P2 (AIR's `jetbrains_air_ide` MCP) | ✓ (stdio and HTTP) |
+| `authMethods` / `_auth/status_update` | base / AIR | ✓ | terminal auth | status ✓ (Junie's IDE-proxy label `JetBrains AI · IDE`), no auth methods | — | status ✓ |
 
 ## 3. What "normal conversation" needs, in order
 
