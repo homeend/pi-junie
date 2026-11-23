@@ -1,22 +1,19 @@
 #!/usr/bin/env bash
-# From an idea to a task in Cezar's queue, in one place.
+# Helper of the new-feature skill (.agents/skills/new-feature). The skill talks to the user and writes the
+# spec; this script does the parts that need another model or Cezar. You can also run it yourself.
 #
-#   scripts/feature                    list the specs; pick one, or start a new feature
-#   scripts/feature new ["<item>"]     write a spec, have a second model audit it, then decide
-#   scripts/feature list               list the specs and where each one stands
-#   scripts/feature review <spec>      audit an existing spec again (and let its author revise it)
-#   scripts/feature open <spec>        open a spec in your editor
-#   scripts/feature queue <spec>       approve: commit the spec on main and send it to Cezar
-#   scripts/feature reject <spec>      mark a spec rejected (the file stays)
+#   scripts/feature list                          the specs and where each one stands
+#   scripts/feature audit <spec> --writer <id>    one audit of the spec by a model from another family
+#   scripts/feature queue <spec>                  approve: commit the spec on main and send it to Cezar
+#   scripts/feature reject <spec>                 mark a spec rejected (the file stays)
 #
-# Options (each one answers a question the script would otherwise ask):
-#   --model <id>      model that writes the spec          --reviewer <id>   model that audits it
-#   --rounds <n>      audit rounds at most (default 3)    --no-editor       do not open the editor
-#   --then <action>   after the audit: queue | leave | reject (skips the menu)
+# <spec> is a path, a file name, or the number from the list.
+# --writer <id>    model id of whoever wrote the spec (e.g. claude-opus-5-5, gpt-6.1-sol); the reviewer is
+#                  picked from another model family by the rules in .ai/review-matrix
+# --reviewer <id>  use this reviewer instead
 #
-# The writer and the reviewer run as headless Pi on JetBrains AI (scripts/pi-jbai).
-# The reviewer comes from another model family: .ai/review-matrix.
-# Tracked: the spec. Not tracked: audits and replies, in .ai/runs/<spec name>/.
+# The reviewer runs as headless Pi on JetBrains AI (scripts/pi-jbai) and changes nothing.
+# Tracked: the spec. Not tracked: audits and the writer's replies, in .ai/runs/<spec name>/.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
@@ -30,28 +27,15 @@ RUNS=".ai/runs"
 MATRIX=".ai/review-matrix"
 WORKFLOW="feature-from-spec"
 CEZ_URL="${CEZ_API_URL:-http://127.0.0.1:4321}"
-PI_TIMEOUT="${PI_TIMEOUT:-1800}"            # seconds for one headless Pi turn
-DEFAULT_MODEL="${FEATURE_MODEL:-jetbrains-ai/claude-opus-5-5}"
-WRITER_TOOLS="read,grep,find,ls,write"      # no shell: the writer may only create and rewrite the spec
+PI_TIMEOUT="${PI_TIMEOUT:-1800}"            # seconds for one audit
 REVIEWER_TOOLS="read,grep,find,ls,bash"
+MAX_AUDITS=3
 
-OPT_MODEL="" OPT_REVIEWER="" OPT_ROUNDS=3 OPT_THEN="" OPT_EDITOR=1
+OPT_WRITER="" OPT_REVIEWER=""
 
 say()  { printf '%s\n' "$*"; }
 warn() { printf 'feature: %s\n' "$*" >&2; }
 die()  { warn "$*"; exit 1; }
-
-# ---------------------------------------------------------------- asking the user
-
-have_tty() { [[ -r /dev/tty && -w /dev/tty ]] && (: </dev/tty) 2>/dev/null; }
-
-ask() { # question [default] -> answer on stdout
-  local q="$1" def="${2:-}" a=""
-  have_tty || { [[ -n "$def" ]] && { printf '%s' "$def"; return; }; die "no terminal to ask: $q (use the options, see --help)"; }
-  if [[ -n "$def" ]]; then printf '%s [%s]: ' "$q" "$def" >/dev/tty; else printf '%s: ' "$q" >/dev/tty; fi
-  IFS= read -r a </dev/tty || true
-  printf '%s' "${a:-$def}"
-}
 
 # ---------------------------------------------------------------- models
 
@@ -63,65 +47,31 @@ load_models() {
   [[ -n "$MODELS" ]] || die "Pi listed no models; check the key file (scripts/dev.sh check)"
 }
 
-model_exists() { load_models; grep -qxF -- "$1" <<<"$MODELS"; }
-model_id()     { printf '%s' "${1#*/}"; }                 # jetbrains-ai/gpt-6.1-sol -> gpt-6.1-sol
-provider_of()  { printf '%s' "${1%%/*}"; }
+model_id() { printf '%s' "${1#*/}"; }                     # jetbrains-ai/gpt-6.1-sol -> gpt-6.1-sol
 
 family_of() {
   case "$(model_id "$1")" in
-    claude-*) echo anthropic ;; gpt-*|o[0-9]*) echo openai ;; gemini-*) echo google ;;
-    grok-*) echo xai ;; *) echo other ;;
+    claude*|*opus*|*sonnet*|*haiku*|*fable*) echo anthropic ;;
+    gpt*|o[0-9]*|*codex*) echo openai ;; gemini*) echo google ;; grok*) echo xai ;; *) echo other ;;
   esac
 }
 
-resolve_model() { # number, full name, or bare id -> full name; empty if unknown
+resolve_model() { # full name or bare id -> full name as Pi lists it; empty if Pi does not offer it
   local in="$1"
   load_models
-  if [[ "$in" =~ ^[0-9]+$ ]]; then sed -n "${in}p" <<<"$MODELS"; return; fi
-  if model_exists "$in"; then printf '%s' "$in"; return; fi
+  if grep -qxF -- "$in" <<<"$MODELS"; then printf '%s' "$in"; return; fi
   awk -v id="$in" '{ m = $0; sub(/^[^\/]*\//, "", m) } m == id { print; exit }' <<<"$MODELS"
 }
 
-pick_model() { # question default -> full model name
-  local q="$1" def="$2" a m
-  load_models
-  if have_tty; then nl -w3 -s'  ' <<<"$MODELS" | pr -2 -t -w 100 >/dev/tty; fi
-  while :; do
-    a="$(ask "$q (number or name)" "$def")"
-    m="$(resolve_model "$a")"
-    [[ -n "$m" ]] && { printf '%s' "$m"; return; }
-    say "  no such model: $a" >/dev/tty
-  done
-}
-
-opposite_of() { # author model -> reviewer model from the matrix, empty if the rule's model is not offered
-  local author="$1" id pat rev
-  id="$(model_id "$author")"
+opposite_of() { # writer's model id (need not be one Pi offers) -> reviewer, by the matrix
+  local id pat rev
+  id="$(model_id "$1")"
   [[ -f "$MATRIX" ]] || return 0
   while read -r pat rev _; do
     [[ -z "$pat" || "$pat" == \#* ]] && continue
     # shellcheck disable=SC2254
     case "$id" in $pat) resolve_model "$rev"; return ;; esac
   done <"$MATRIX"
-}
-
-choose_reviewer() { # author -> reviewer
-  local author="$1" sug rev
-  if [[ -n "$OPT_REVIEWER" ]]; then
-    rev="$(resolve_model "$OPT_REVIEWER")"; [[ -n "$rev" ]] || die "no such model: $OPT_REVIEWER"
-  else
-    sug="$(opposite_of "$author")"
-    [[ -n "$sug" ]] || warn "no usable rule in $MATRIX for $(model_id "$author")"
-    if have_tty && [[ -z "$OPT_THEN" ]]; then
-      rev="$(resolve_model "$(ask "Reviewer for $(model_id "$author") (Enter accepts, or number/name from the list)" "${sug:-}")")"
-      [[ -n "$rev" ]] || die "no such model"
-    else
-      rev="$sug"; [[ -n "$rev" ]] || die "give the reviewer with --reviewer"
-    fi
-  fi
-  [[ "$(family_of "$rev")" != "$(family_of "$author")" || "$(family_of "$rev")" == other ]] \
-    || warn "reviewer $(model_id "$rev") is from the same family as the writer"
-  printf '%s' "$rev"
 }
 
 # ---------------------------------------------------------------- spec files and their state
@@ -131,6 +81,7 @@ state_dir()  { printf '%s/%s' "$RUNS" "$(spec_name "$1")"; }
 state_get()  { local f; f="$(state_dir "$1")/state"; [[ -f "$f" ]] && sed -n "s/^$2=//p" "$f" | tail -1 || true; }
 state_set()  { local d; d="$(state_dir "$1")"; mkdir -p "$d"; printf '%s=%s\n' "$2" "$3" >>"$d/state"; }
 
+spec_files()  { [[ -d "$SPECS" ]] && find "$SPECS" -maxdepth 1 -name '*.md' | sort || true; }
 spec_title()  { sed -n 's/^# *//p' "$1" | head -1; }
 spec_status() { # the "Status:" line of a spec, lower case; "draft" if there is none
   local s
@@ -146,137 +97,88 @@ set_status() { # spec status
 }
 
 resolve_spec() { # path, file name, or number from the list -> path
-  local in="${1:-}" f
+  local in="${1:-}" f=""
   [[ -n "$in" ]] || die "which spec? give its path or its number from: scripts/feature list"
   if [[ "$in" =~ ^[0-9]+$ ]]; then f="$(spec_files | sed -n "${in}p")"
   elif [[ -f "$in" ]]; then f="$in"
   elif [[ -f "$SPECS/$in" ]]; then f="$SPECS/$in"
-  elif [[ -f "$SPECS/$in.md" ]]; then f="$SPECS/$in.md"
-  else f=""; fi
+  elif [[ -f "$SPECS/$in.md" ]]; then f="$SPECS/$in.md"; fi
   [[ -n "$f" && -f "$f" ]] || die "spec not found: $in"
   realpath --relative-to="$ROOT" "$f"
 }
 
-spec_files() { [[ -d "$SPECS" ]] && find "$SPECS" -maxdepth 1 -name '*.md' | sort || true; }
+# ---------------------------------------------------------------- commands
 
-changes_outside_specs() { git status --porcelain --untracked-files=all | grep -v -E "^.. \"?$SPECS/" || true; }
-
-# ---------------------------------------------------------------- headless Pi turns
-
-pi_turn() { # model tools skill prompt outfile
-  local model="$1" tools="$2" skill="$3" prompt="$4" out="$5" rc=0
-  [[ -f ".agents/skills/$skill/SKILL.md" ]] || die "skill $skill is missing; run: scripts/dev.sh setup (or: scripts/dev.sh worktree)"
-  mkdir -p "$(dirname "$out")"
-  # stdin from /dev/null: with an open, non-terminal stdin `pi --print` waits for it to end.
-  timeout "$PI_TIMEOUT" "$PI" --print --no-session --model "$model" --tools "$tools" \
-    --skill ".agents/skills/$skill" "$prompt" </dev/null >"$out" 2>"$out.log" || rc=$?
-  if [[ $rc -ne 0 ]]; then warn "Pi failed or ran over ${PI_TIMEOUT}s (exit $rc), see $out.log"; return 1; fi
-  [[ -s "$out" ]] || { warn "Pi gave an empty answer, see $out.log"; return 1; }
-  rm -f "$out.log"
+cmd_list() {
+  local f i=0 v run n
+  [[ -n "$(spec_files)" ]] || { say "No specs in $SPECS yet."; return; }
+  printf '%3s  %-9s  %-34s  %s\n' "#" "status" "audit" "spec"
+  while IFS= read -r f; do
+    i=$((i + 1)); v="$(state_get "$f" verdict)"; run="$(state_get "$f" run)"; n="$(state_get "$f" audits)"
+    printf '%3d  %-9s  %-34s  %s\n' "$i" "$(spec_status "$f")" "${run:+queued, }${v:-not audited}${n:+ (audit $n)}" "$f"
+    printf '%52s%s\n' "" "$(spec_title "$f")"
+  done < <(spec_files)
 }
 
-# The writer may only touch the spec. Anything else that changed is reported and stops the run.
-writer_turn() { # model prompt outfile
-  local before after
-  before="$(changes_outside_specs)"
-  pi_turn "$1" "$WRITER_TOOLS" new-feature "$2" "$3" || return 1
-  after="$(changes_outside_specs)"
-  if [[ "$before" != "$after" ]]; then
-    warn "the writer changed files outside $SPECS:"
-    diff <(printf '%s\n' "$before") <(printf '%s\n' "$after") | sed -n 's/^> /  /p' >&2
-    warn "if those changes are yours, go on with: scripts/feature review <spec>"
-    return 3
-  fi
-}
-
-write_spec() { # item model -> path of the new spec on stdout
-  local item="$1" model="$2" before after new tmp rc=0
-  mkdir -p "$SPECS" "$RUNS"
-  before="$(spec_files)"
-  tmp="$RUNS/.new-$$.md"
-  say "Writing the spec with $(model_id "$model") ..." >&2
-  writer_turn "$model" "Use the new-feature skill for this item:
-
-$item
-
-You run unattended, so nobody can answer questions. Where the skill tells you to ask the user, decide what the
-repository lets you decide and put the rest under an \"Open questions\" heading in the spec. If something can only be
-settled by the user (for example a recording of AIR with Junie), make it the first task of the spec.
-Today is $(date +%F). Write exactly one new file under $SPECS/, named as the skill says, with the line \"Status: draft\" right under the
-title. Change no other file and write no code. Answer with a short summary of the spec." "$tmp" || rc=$?
-  after="$(spec_files)"
-  new="$(comm -13 <(printf '%s\n' "$before") <(printf '%s\n' "$after") | sed '/^$/d')"
-  if [[ $rc -ne 0 ]]; then
-    [[ -n "$new" ]] && warn "a spec was written before the run stopped: $new"
-    rm -f "$tmp"; return 1
-  fi
-  if [[ "$(wc -l <<<"$new")" -ne 1 || -z "$new" ]]; then
-    warn "expected one new spec in $SPECS, found: ${new:-none}. The writer's answer: $tmp"
-    return 1
-  fi
-  mkdir -p "$(state_dir "$new")"
-  mv "$tmp" "$(state_dir "$new")/writer.0.md"
-  printf '%s\n' "$item" >"$(state_dir "$new")/item.txt"
-  state_set "$new" writer "$model"
-  printf '%s' "${new#./}"
-}
-
-# Up to $OPT_ROUNDS rounds: the reviewer audits; unless it approves, the writer revises.
-review_loop() { # spec writer reviewer
-  local spec="$1" writer="$2" reviewer="$3" dir n verdict="" audit reply prev="" start earlier
+cmd_audit() {
+  local spec dir n reviewer audit earlier="" verdict rc=0 before after
+  spec="$(resolve_spec "${1:-}")" || exit 1
   dir="$(state_dir "$spec")"; mkdir -p "$dir"
-  start="$(( $(state_get "$spec" audits || echo 0) + 0 ))"
+  n="$(( $(state_get "$spec" audits) + 1 ))"
+  (( n <= MAX_AUDITS )) || die "$spec has had $MAX_AUDITS audits; the user decides from here (remove $dir to start over)"
+  [[ -f ".agents/skills/om-pre-implement-spec/SKILL.md" ]] || die "skill om-pre-implement-spec is missing; run: scripts/dev.sh setup"
+
+  if [[ -n "$OPT_REVIEWER" ]]; then
+    reviewer="$(resolve_model "$OPT_REVIEWER")"; [[ -n "$reviewer" ]] || die "Pi does not offer the model $OPT_REVIEWER"
+  else
+    [[ -n "$OPT_WRITER" ]] || OPT_WRITER="$(state_get "$spec" writer)"
+    [[ -n "$OPT_WRITER" ]] || die "say who wrote the spec: --writer <model id> (the reviewer is picked from another family)"
+    reviewer="$(opposite_of "$OPT_WRITER")"
+    [[ -n "$reviewer" ]] || die "no usable rule in $MATRIX for $(model_id "$OPT_WRITER"); name one with --reviewer"
+    [[ "$(family_of "$reviewer")" != "$(family_of "$OPT_WRITER")" ]] \
+      || warn "reviewer $(model_id "$reviewer") is from the same family as the writer $(model_id "$OPT_WRITER")"
+    state_set "$spec" writer "$OPT_WRITER"
+  fi
   state_set "$spec" reviewer "$reviewer"
-  for (( n = 1; n <= OPT_ROUNDS; n++ )); do
-    audit="$dir/audit.$((start + n)).md"
-    earlier=""
-    if [[ -n "$prev" ]]; then
-      earlier="This spec was revised after an earlier audit. The earlier audit is at $prev and the reply of the
-writer to it is at $dir/writer.$((start + n - 1)).md. Check whether its findings are resolved, and raise something new
-only if it would make the implementation go wrong.
+
+  if (( n > 1 )); then
+    earlier="This spec was revised after an earlier audit, which is at $dir/audit.$((n - 1)).md."
+    [[ -f "$dir/reply.$((n - 1)).md" ]] && earlier+=" The reply of the writer to it is at $dir/reply.$((n - 1)).md."
+    earlier+=" Check whether its findings are resolved, and raise something new only if it would make the
+implementation go wrong.
 "
-    fi
-    say "Round $n of $OPT_ROUNDS: $(model_id "$reviewer") audits the spec ..."
-    pi_turn "$reviewer" "$REVIEWER_TOOLS" om-pre-implement-spec "Use the om-pre-implement-spec skill on the spec at $spec.
+  fi
+
+  audit="$dir/audit.$n.md"
+  say "Audit $n of $MAX_AUDITS: $(model_id "$reviewer") reads $spec (a few minutes) ..."
+  before="$(git status --porcelain --untracked-files=all)"
+  # stdin from /dev/null: with an open, non-terminal stdin `pi --print` waits for it to end.
+  timeout "$PI_TIMEOUT" "$PI" --print --no-session --model "$reviewer" --tools "$REVIEWER_TOOLS" \
+    --skill ".agents/skills/om-pre-implement-spec" "Use the om-pre-implement-spec skill on the spec at $spec.
 Report only: change, commit and stash nothing.
-${earlier}An open question that only the user can settle (for example a recording that has to be made) does not block approval
-when the spec lists it and makes it the first task.
+${earlier}The writer works with the user in a chat. Start a finding with NEEDS USER: when only the user can settle it
+(a decision about scope or behaviour, a recording that has to be made, access you do not have).
+An open question does not block approval when the spec lists it and makes it the first task.
 Give the full report as your answer. End it with exactly one last line, either
 VERDICT: APPROVED   (the spec can be implemented as written)
 or
-VERDICT: CHANGES    (the spec has to change first)" "$audit" || { state_set "$spec" verdict "audit failed"; return 1; }
-    state_set "$spec" audits "$((start + n))"
-    verdict="$(tail -n 5 "$audit" | grep -oE 'VERDICT: *(APPROVED|CHANGES)' | tail -1 | sed 's/VERDICT: *//' || true)"
-    if [[ -z "$verdict" ]]; then verdict="CHANGES"; say "  no clear verdict line; taken as CHANGES"; fi
-    say "  verdict: $verdict   ($audit)"
-    state_set "$spec" verdict "$verdict"
-    [[ "$verdict" == "APPROVED" ]] && break
-    reply="$dir/writer.$((start + n)).md"
-    say "  $(model_id "$writer") revises the spec ..."
-    writer_turn "$writer" "A second model audited the spec at $spec. Its audit is at $audit.
-Revise the spec: fix what the audit is right about. Where you disagree, leave the spec as it is and say why.
-You run unattended: ask nothing; what only the user can settle goes under \"Open questions\".
-Rewrite only $spec (the whole file, keeping its \"Status:\" line) and change nothing else. Write no code.
-Answer with one line per finding: what you changed, or why you did not." "$reply" \
-      || { state_set "$spec" verdict "revision failed"; return 1; }
-    prev="$audit"
-    if (( n == OPT_ROUNDS )); then
-      state_set "$spec" verdict "CHANGES (last revision not audited)"
-      say "  $OPT_ROUNDS rounds done without approval; the last revision was not audited again."
-    fi
-  done
-}
+VERDICT: CHANGES    (the spec has to change first)" </dev/null >"$audit" 2>"$audit.log" || rc=$?
+  if [[ $rc -ne 0 || ! -s "$audit" ]]; then
+    rm -f "$audit"; die "the audit failed or ran over ${PI_TIMEOUT}s (exit $rc), see $audit.log"
+  fi
+  rm -f "$audit.log"
+  after="$(git status --porcelain --untracked-files=all)"
+  [[ "$before" == "$after" ]] || warn "files changed while the audit ran (the reviewer is told to change nothing): check git status"
 
-last_audit() { local n; n="$(state_get "$1" audits)"; [[ -n "$n" ]] && printf '%s/audit.%s.md' "$(state_dir "$1")" "$n" || true; }
-
-# ---------------------------------------------------------------- what the user does with a spec
-
-open_in_editor() {
-  local ed="${VISUAL:-${EDITOR:-}}"
-  [[ -n "$ed" ]] || for ed in nano vim vi; do command -v "$ed" >/dev/null && break; done
-  have_tty || { warn "no terminal for an editor; the file is $1"; return 0; }
-  # shellcheck disable=SC2086
-  $ed "$@" </dev/tty >/dev/tty || warn "editor exited with an error"
+  verdict="$(tail -n 5 "$audit" | grep -oE 'VERDICT: *(APPROVED|CHANGES)' | tail -1 | sed 's/VERDICT: *//' || true)"
+  if [[ -z "$verdict" ]]; then verdict="CHANGES"; warn "no clear verdict line in the audit; taken as CHANGES"; fi
+  state_set "$spec" audits "$n"
+  state_set "$spec" verdict "$verdict"
+  say "Reviewer: $reviewer"
+  say "Audit:    $audit"
+  say "Needs the user: $(grep -c 'NEEDS USER:' "$audit" || true) finding(s)"
+  [[ "$verdict" == CHANGES ]] && say "Reply:    write what you changed, finding by finding, to $dir/reply.$n.md before the next audit"
+  say "VERDICT: $verdict"
 }
 
 cezar_serves_this_repo() {
@@ -325,134 +227,22 @@ cmd_reject() {
   say "$spec is marked rejected. The file stays; nothing was committed."
 }
 
-cmd_open() { local spec; spec="$(resolve_spec "${1:-}")" || exit 1; open_in_editor "$spec"; }
-
-cmd_review() {
-  local spec writer reviewer
-  spec="$(resolve_spec "${1:-}")" || exit 1
-  load_models
-  writer="${OPT_MODEL:-$(state_get "$spec" writer)}"
-  if [[ -n "$writer" ]]; then writer="$(resolve_model "$writer")"; fi
-  [[ -n "$writer" ]] || writer="$(pick_model "Model that revises the spec" "$DEFAULT_MODEL")" || exit 1
-  reviewer="$(choose_reviewer "$writer")" || exit 1
-  say "Spec:     $spec"
-  say "Writer:   $writer"
-  say "Reviewer: $reviewer"
-  review_loop "$spec" "$writer" "$reviewer" || warn "the audit did not finish; the spec is as the last finished step left it"
-  after_review "$spec"
-}
-
-show_spec() { # one summary block
-  local spec="$1" v run a
-  v="$(state_get "$spec" verdict)"; run="$(state_get "$spec" run)"; a="$(last_audit "$spec")"
-  say ""
-  say "Spec:    $spec"
-  say "Title:   $(spec_title "$spec")"
-  [[ -n "$run" ]] && run=", in the Cezar queue (task $run)"
-  say "Status:  $(spec_status "$spec")$run"
-  say "Audit:   ${v:-not audited}${a:+   $a}"
-}
-
-spec_menu() { # spec
-  local spec="$1" a
-  while :; do
-    show_spec "$spec"
-    say "  o  open the spec in the editor        a  open the last audit"
-    say "  r  audit it again (up to $OPT_ROUNDS rounds)       q  approve: commit on main and send to Cezar"
-    say "  x  reject it (the file stays)         l  leave it as it is"
-    a="$(ask "Choice" l)"
-    case "$a" in
-      o) open_in_editor "$spec" ;;
-      a) a="$(last_audit "$spec")"; if [[ -n "$a" && -f "$a" ]]; then open_in_editor "$a"; else say "no audit yet"; fi ;;
-      r) ( cmd_review "$spec" ) || true; return ;;
-      q) ( cmd_queue "$spec" ) || true; return ;;
-      x) ( cmd_reject "$spec" ) || true; return ;;
-      l|"") return ;;
-      *) say "unknown choice: $a" ;;
-    esac
-  done
-}
-
-after_review() { # spec
-  local spec="$1"
-  case "$OPT_THEN" in
-    queue)  show_spec "$spec"; cmd_queue "$spec" ;;
-    reject) show_spec "$spec"; cmd_reject "$spec" ;;
-    leave)  show_spec "$spec" ;;
-    "")     if have_tty; then
-              [[ $OPT_EDITOR -eq 1 ]] && open_in_editor "$spec"
-              spec_menu "$spec"
-            else show_spec "$spec"; fi ;;
-    *)      die "--then takes queue, leave or reject" ;;
-  esac
-}
-
-cmd_new() {
-  local item="${1:-}" writer reviewer spec
-  [[ -n "$item" ]] || item="$(ask "Describe the feature (one line; name a file to read if there is one)")"
-  [[ -n "$item" ]] || die "nothing to do without a description"
-  load_models
-  if [[ -n "$OPT_MODEL" ]]; then writer="$(resolve_model "$OPT_MODEL")"; [[ -n "$writer" ]] || die "no such model: $OPT_MODEL"
-  else writer="$(pick_model "Model that writes the spec" "$DEFAULT_MODEL")" || exit 1; fi
-  reviewer="$(choose_reviewer "$writer")" || exit 1
-  say "Writer:   $writer"
-  say "Reviewer: $reviewer"
-  spec="$(write_spec "$item" "$writer")" || die "no spec was written"
-  say "Spec written: $spec"
-  review_loop "$spec" "$writer" "$reviewer" || warn "the audit did not finish; the spec is as the last finished step left it"
-  after_review "$spec"
-}
-
-cmd_list() {
-  local f i=0 v run
-  [[ -n "$(spec_files)" ]] || { say "No specs in $SPECS yet."; return; }
-  printf '%3s  %-9s  %-34s  %s\n' "#" "status" "audit" "spec"
-  while IFS= read -r f; do
-    i=$((i + 1)); v="$(state_get "$f" verdict)"; run="$(state_get "$f" run)"
-    printf '%3d  %-9s  %-34s  %s\n' "$i" "$(spec_status "$f")" "${run:+queued, }${v:-not audited}" "$(basename "$f")"
-    printf '%52s%s\n' "" "$(spec_title "$f")"
-  done < <(spec_files)
-}
-
-cmd_menu() {
-  local a s
-  have_tty || { cmd_list; return; }
-  while :; do
-    say ""; cmd_list
-    a="$(ask "Number of a spec, n for a new feature, Enter to leave" "")"
-    case "$a" in
-      "") return ;;
-      n) ( cmd_new "" ) || true ;;
-      *[!0-9]*) say "unknown choice: $a" ;;
-      *) if s="$(resolve_spec "$a")"; then spec_menu "$s"; fi ;;
-    esac
-  done
-}
-
 # ---------------------------------------------------------------- arguments
 
 ARGS=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --model)     OPT_MODEL="${2:?--model needs a value}"; shift 2 ;;
+    --writer)    OPT_WRITER="${2:?--writer needs a value}"; shift 2 ;;
     --reviewer)  OPT_REVIEWER="${2:?--reviewer needs a value}"; shift 2 ;;
-    --rounds)    OPT_ROUNDS="${2:?--rounds needs a value}"; shift 2 ;;
-    --then)      OPT_THEN="${2:?--then needs a value}"; shift 2 ;;
-    --no-editor) OPT_EDITOR=0; shift ;;
     -h|--help)   sed -n '2,/^set -euo/{/^set -euo/d;s/^# \{0,1\}//;p}' "${BASH_SOURCE[0]}"; exit 0 ;;
     *)           ARGS+=("$1"); shift ;;
   esac
 done
-[[ "$OPT_ROUNDS" =~ ^[1-9]$ ]] || die "--rounds takes a number from 1 to 9"
-case "$OPT_THEN" in ""|queue|leave|reject) ;; *) die "--then takes queue, leave or reject" ;; esac
 command -v jq >/dev/null || die "jq is needed"
 
-case "${ARGS[0]:-menu}" in
-  menu)   cmd_menu ;;
-  new)    cmd_new "${ARGS[*]:1}" ;;
+case "${ARGS[0]:-list}" in
   list)   cmd_list ;;
-  review) cmd_review "${ARGS[1]:-}" ;;
-  open)   cmd_open "${ARGS[1]:-}" ;;
+  audit)  cmd_audit "${ARGS[1]:-}" ;;
   queue)  cmd_queue "${ARGS[1]:-}" ;;
   reject) cmd_reject "${ARGS[1]:-}" ;;
   *)      die "unknown command: ${ARGS[0]} (see --help)" ;;

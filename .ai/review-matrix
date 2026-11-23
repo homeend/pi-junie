@@ -1,11 +1,12 @@
 # Which model reviews a spec written by which model: the reviewer comes from another model family.
 # One rule per line: <pattern for the author's model id> <reviewer's model id>. First match wins.
-# Patterns are shell globs. scripts/feature shows its choice and lets you change it.
+# Patterns are shell globs; a bare family name (claude, gpt, gemini, grok) matches too.
+# Override one audit with: scripts/feature audit <spec> --reviewer <id>
 claude-haiku*    gpt-6-luna
-claude-*         gpt-6.1-sol
-gpt-*-luna       claude-sonnet-5-5
-gpt-*            claude-opus-5-5
-gemini-*flash*   gpt-6-luna
-gemini-*         gpt-6.1-sol
-grok-*           gpt-6.1-sol
+claude*          gpt-6.1-sol
+gpt*luna         claude-sonnet-5-5
+gpt*             claude-opus-5-5
+gemini*flash*   gpt-6-luna
+gemini*          gpt-6.1-sol
+grok*            gpt-6.1-sol
 *                gpt-6.1-sol

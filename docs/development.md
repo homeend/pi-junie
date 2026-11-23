@@ -43,48 +43,41 @@ prints the exact line for your machine:
 
 ## The flow for one feature
 
-```bash
-scripts/feature           # list the specs, or start a new feature
-```
+Start the `new-feature` skill in an agent, in the main checkout on `main`:
 
-One script takes a feature from an idea to a task in Cezar's queue. You decide three times: approve the spec, try
-the result in AIR, say "merge".
+- Claude Code: `/new-feature <what you want>`
+- Pi (`scripts/pi-jbai`, or your own `pi`): `/skill:new-feature <what you want>`
 
-| # | Step | You | Done for you |
+The model you chose in that agent writes the spec. Without text, the skill lists the specs in `.ai/specs/` and asks
+whether to continue one or start something new.
+
+| # | Step | You | The agent |
 | --- | --- | --- | --- |
-| 1 | Start | `scripts/feature new "<item>"`, pick the model that writes the spec | The reviewer is chosen from another model family (`.ai/review-matrix`); you can change it |
-| 2 | Spec | Nothing | The writer (headless Pi, `new-feature` skill) writes `.ai/specs/<date>-<title>.md` |
-| 3 | Audit | Nothing | Up to three rounds: the reviewer audits the spec against the code, the writer revises, until the reviewer approves |
-| 4 | Decide | Read the spec in your editor, then: approve, audit again, reject, or leave it | Approve commits the spec on `main` and sends it to Cezar |
-| 5 | Implement, check, review | Nothing | Cezar: worktree, implementation (Claude), `npm run check`, `npm test`, a review with fixes, then Opus and Sol each review through Pi and only report |
+| 1 | Start | Call the skill | Names the type of change, reads that type's checklist and the code |
+| 2 | Questions | Answer them | Asks what the repository cannot answer, then writes `.ai/specs/<date>-<title>.md` |
+| 3 | Audit | Answer what the reviewer leaves to you | Up to three audits by a model from another family (`.ai/review-matrix`); after each, it asks you the findings only you can settle and revises the spec |
+| 4 | Approve | Say start, change something, or stop | Shows the spec, the last verdict and the open questions |
+| 5 | Implement, check, review | Nothing | Commits the spec on `main` and creates the Cezar task: worktree, implementation (Claude), `npm run check`, `npm test`, a review with fixes, then Opus and Sol each review through Pi and only report |
 | 6 | Test in AIR | Try it in a new chat with `pi-junie-dev` | `scripts/dev.sh air-test <worktree>` points the test entry at the worktree |
 | 7 | Merge | Say "merge" | The branch is synced with `main` in its worktree, the checks are rerun, then merged |
-
-The writer runs unattended and cannot ask you anything. What it cannot settle from the repository goes under
-"Open questions" in the spec; what only you can do (for example a recording of AIR with Junie) becomes the spec's
-first task. Read those before you approve.
 
 The four types of change and what each requires are in `.agents/skills/new-feature/references/`: a bridge change,
 an adopted Pi plugin (checked first with the `plugin-check` skill), an own plugin package, a change to a copied
 package.
 
-### The script
+### The helper script
+
+The skill calls `scripts/feature` for the parts that need another model or Cezar. You can run it yourself:
 
 ```bash
-scripts/feature                   # the list; pick a spec by number, or n for a new feature
-scripts/feature new "<item>"      # steps 1 to 4
-scripts/feature review <spec>     # audit an existing spec again
-scripts/feature queue <spec>      # approve it: commit on main, send to Cezar
-scripts/feature reject <spec>     # mark it rejected; the file stays
+scripts/feature list                          # the specs and where each one stands
+scripts/feature audit <spec> --writer <id>    # one audit by a model from another family than <id>
+scripts/feature queue <spec>                  # approve: commit the spec on main, send it to Cezar
+scripts/feature reject <spec>                 # mark it rejected; the file stays
 ```
 
-`<spec>` is a path, a file name, or the number from the list. For a run without questions:
-`scripts/feature new "<item>" --model <id> --reviewer <id> --rounds 3 --then queue` (`--then` also takes `leave` and
-`reject`). The audits and the writer's replies are in `.ai/runs/<spec name>/` (not tracked). A spec's state is its
-`Status:` line: draft, approved or rejected.
-
-The same skill works in a chat if you want to answer the questions yourself: `/new-feature <item>` in Claude Code,
-`/skill:new-feature <item>` in Pi. The spec then shows up in `scripts/feature` like any other.
+`<spec>` is a path, a file name, or the number from the list. Audits and the writer's replies are in
+`.ai/runs/<spec name>/` (not tracked). A spec's state is its `Status:` line: draft, approved or rejected.
 
 ### Cezar
 
@@ -123,7 +116,7 @@ One build is under test at a time. A chat that is already open keeps the old bui
 | `.ai/cezar/` | Cezar's project config and the workflow | yes |
 | `.agents/skills/new-feature`, `plugin-check`, `air-test-handoff` | This repository's own skills | yes |
 | `skills-lock.json` | Which upstream skills, at which commit | yes |
-| `scripts/feature`, `.ai/review-matrix` | The feature script; which model reviews which | yes |
+| `scripts/feature`, `.ai/review-matrix` | Helper of the `new-feature` skill (audit, queue); which model reviews which | yes |
 | `scripts/dev.sh`, `scripts/pi-jbai` | Setup and the commands above; Pi on JetBrains AI | yes |
 | `.ai/runs/` | Audits and writer replies per spec | no |
 | `.ai/reviews/` | Audit and review reports | no |
@@ -137,8 +130,8 @@ One build is under test at a time. A chat that is already open keeps the old bui
 
 ## Not tried yet
 
-See section 11 of [agentic-process.html](agentic-process.html). In short: setup, worktree preparation, the feature
-script (spec, audit rounds, approve and queue) and the headless second review have been run. Cezar has only run the
+See section 11 of [agentic-process.html](agentic-process.html). In short: setup, worktree preparation, the audit
+and queue commands of `scripts/feature` and the headless second review have been run. Cezar has only run the
 workflow with mock agents; a real feature has not gone through it.
 
 The flow needs these files on `main`: task worktrees start from `main`.
