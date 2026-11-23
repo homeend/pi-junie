@@ -21,15 +21,35 @@ It installs into git-ignored folders of this checkout:
 | Your own review skills (`agent-cross-review` and its siblings), if you have them | links to `~/.claude/skills` | yours |
 | Links so Claude Code sees the same skills as Pi | `.claude/skills/` | |
 | Cezar, the local task runner, and the skills installer | `.dev-tools/` | `scripts/dev-tools/package-lock.json` |
+| The development agent: a copy of pi-junie to work with | `.dev-tools/pi-junie/` | a fixed commit; you move it |
+| Its Pi folder with its plugins (subagents, todo, plan mode, web access) | `.dev-tools/pi-agent/` | `scripts/dev-tools/pi-plugins.txt` |
 
-Nothing is installed outside the repository; headless Pi keeps its state in `~/.pi/pi-junie-dev`, and `air-test`
-keeps one link in `~/.local/state/pi-junie/`. Needs Node 22.19+, git, jq and curl;
+Nothing is installed outside the repository, and your normal Pi folder (`~/.pi/agent`) is never read or written;
+`air-test` keeps one link in `~/.local/state/pi-junie/`. Needs Node 22.19+, git, jq and curl;
 Claude Code for Cezar's implementation step. The README's "Developing" section has the steps from an empty
 machine.
 
 Every npm package comes at a locked version: the repository's through `package-lock.json`, the tools' through
 `scripts/dev-tools/package-lock.json`. Both are installed with `npm ci`, so a new release of some dependency
 reaches you only when someone updates a lockfile and commits it.
+
+### The development agent
+
+You work on pi-junie with pi-junie, but not with the copy you are changing. There are three, kept apart:
+
+| | What it is | Where | Changes when |
+| --- | --- | --- | --- |
+| The development agent | pi-junie's Pi with all its packages and plugins; what `scripts/pi-jbai` runs, interactive and headless (audits, reviews, Cezar's Pi steps) | `.dev-tools/pi-junie/` and `.dev-tools/pi-agent/` | you run `scripts/dev.sh agent update` |
+| The build under test | the worktree of the feature being tried in AIR (`pi-junie-dev` entry) | a task worktree | `scripts/dev.sh air-test <worktree>` |
+| Your installed agent | what you use in AIR every day (`pi-junie` entry) and your normal Pi | wherever you installed it; `~/.pi/agent` | you update it |
+
+The development agent loads Pi and pi-junie's own packages (`packages/*`) from its copy of the repository, and
+third-party plugins from its own Pi folder, at the versions in `scripts/dev-tools/pi-plugins.txt`. A change on
+`main` or in a worktree does not reach it, so a broken change cannot break the tool you fix it with. After a
+feature is merged and you trust it, `scripts/dev.sh agent update` moves the copy to the current `main` (or to a
+commit you name), and from then on you work with the new feature. `scripts/dev.sh agent` shows where it stands
+and prints an AIR entry (`pi-junie-stable`) for using the same agent in AIR. `scripts/pi-jbai --bare` is plain Pi
+with only the JetBrains AI provider, for when the development agent itself is broken.
 
 **JetBrains AI key for headless Pi** (spec audits, second reviews, Cezar's Pi steps). Put a Junie API key from
 <https://junie.jetbrains.com/cli> into a file outside the repository:
@@ -51,7 +71,7 @@ prints the exact line for your machine:
 Start the `new-feature` skill in an agent, in the main checkout on `main`:
 
 - Claude Code: `/new-feature <what you want>`
-- Pi (`scripts/pi-jbai`, or your own `pi`): `/skill:new-feature <what you want>`
+- Pi: `scripts/pi-jbai` (the development agent), then `/skill:new-feature <what you want>`
 
 The model you chose in that agent writes the spec. Without text, the skill lists the specs in `.ai/specs/` and asks
 whether to continue one or start something new.
@@ -94,7 +114,7 @@ scripts/dev.sh cezar                    # cockpit at http://127.0.0.1:4321; keep
 `scripts/feature queue` creates a task with the workflow **feature-from-spec** and the spec's path as its text.
 Cezar makes the worktree and runs `.ai/cezar/workflows/feature-from-spec.yaml`: prepare the worktree
 (`scripts/dev.sh worktree`), then step 5 above, stopping at its review gate. Its Pi steps run `scripts/pi-jbai`:
-plain Pi on JetBrains AI. Without a running Cezar, `queue` commits the approved spec and tells you how to send it
+the development agent. Without a running Cezar, `queue` commits the approved spec and tells you how to send it
 later.
 
 Try Cezar without spending anything: `CEZ_DRY_RUN=1 scripts/dev.sh cezar` uses mock agents.
@@ -122,8 +142,8 @@ One build is under test at a time. A chat that is already open keeps the old bui
 | `.agents/skills/new-feature`, `plugin-check`, `air-test-handoff` | This repository's own skills | yes |
 | `skills-lock.json` | Which upstream skills, at which commit | yes |
 | `scripts/feature`, `.ai/review-matrix` | Helper of the `new-feature` skill (audit, queue); which model reviews which | yes |
-| `scripts/dev.sh`, `scripts/pi-jbai` | Setup and the commands above; Pi on JetBrains AI | yes |
-| `scripts/dev-tools/` | Versions of Cezar and the skills installer, with their lockfile | yes |
+| `scripts/dev.sh`, `scripts/pi-jbai` | Setup and the commands above; the development agent | yes |
+| `scripts/dev-tools/` | Versions of Cezar and the skills installer, with their lockfile; the development agent's plugin list | yes |
 | `.ai/runs/` | Audits and writer replies per spec | no |
 | `.ai/reviews/` | Audit and review reports | no |
 | `.agents/skills/om-*`, `.claude/skills/`, `.dev-tools/` | Installed by `scripts/dev.sh setup` | no |
@@ -132,6 +152,8 @@ One build is under test at a time. A chat that is already open keeps the old bui
 
 - **Upstream skills:** `DO_NOT_TRACK=1 .dev-tools/node_modules/.bin/skills update -p`, review the diff of `skills-lock.json`, and set
   the same commit as `ref` in `.ai/cezar/config.json`.
+- **The development agent:** `scripts/dev.sh agent update` for the code; for a plugin, change its version in
+  `scripts/dev-tools/pi-plugins.txt` and run `scripts/dev.sh setup`.
 - **Cezar or the skills installer:** change the version in `scripts/dev-tools/package.json`, run
   `npm install --package-lock-only` in that folder, review the diff of its `package-lock.json`, commit both, then
   run `scripts/dev.sh setup`.

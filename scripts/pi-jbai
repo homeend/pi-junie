@@ -1,23 +1,49 @@
 #!/usr/bin/env bash
-# Plain Pi (not the bridge) with JetBrains AI as its provider, for headless developer use:
-# reviews, spec audits, and Cezar steps with `runner: pi` (scripts/dev.sh sets CEZ_PI_BIN to this file).
+# The development agent: pi-junie's Pi, used to work ON pi-junie. Interactive, or headless for
+# audits, reviews and Cezar steps with `runner: pi` (scripts/dev.sh sets CEZ_PI_BIN to this file).
 #
+#   scripts/pi-jbai                                         interactive; pick a model with /model
 #   scripts/pi-jbai --print --model jetbrains-ai/claude-opus-5-5 "say ok"
+#   scripts/pi-jbai --bare ...                              plain Pi with only the JetBrains AI provider
 #
-# Uses the MAIN checkout's Pi and packages/jetbrains-ai, also when called from a task worktree,
-# so a branch under review cannot change the reviewer.
-# Key:   JUNIE_API_KEY from $PI_JUNIE_ENV (default ~/.config/pi-junie/env), read here and nowhere else.
-#        Without the file, Pi uses a JetBrains login saved by `/login` in this agent dir.
-# State: $PI_CODING_AGENT_DIR (default ~/.pi/pi-junie-dev), apart from your own Pi and from the bridge's.
+# It is a separate installation, so that changing pi-junie cannot break the tool you change it with:
+#   code     .dev-tools/pi-junie/   a copy of this repository at a fixed commit, with its own node_modules;
+#                                   Pi and pi-junie's own packages (packages/*) are loaded from there
+#   state    .dev-tools/pi-agent/   its own Pi folder: plugins (scripts/dev-tools/pi-plugins.txt), settings,
+#                                   sessions. Your normal Pi folder (~/.pi/agent) is never read or written.
+# Both live in the MAIN checkout, also when this is called from a task worktree.
+# `scripts/dev.sh agent update` moves the copy to the current main, when you decide main is good.
+#
+# Key: JUNIE_API_KEY from $PI_JUNIE_ENV (default ~/.config/pi-junie/env), read here and nowhere else.
+#      Without the file, Pi uses a JetBrains login saved by `/login` in the development agent.
 set -euo pipefail
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 MAIN="$(dirname "$(git -C "$HERE" rev-parse --path-format=absolute --git-common-dir)")"
-PI="$MAIN/node_modules/.bin/pi"
-[[ -x "$PI" ]] || { echo "pi-jbai: $PI not found; run scripts/dev.sh setup in $MAIN" >&2; exit 1; }
 
 ENV_FILE="${PI_JUNIE_ENV:-$HOME/.config/pi-junie/env}"
 if [[ -r "$ENV_FILE" ]]; then set -a; . "$ENV_FILE"; set +a; fi
-export PI_CODING_AGENT_DIR="${PI_CODING_AGENT_DIR:-$HOME/.pi/pi-junie-dev}"
+
+if [[ "${1:-}" == "--bare" ]]; then
+  shift
+  PI="$MAIN/node_modules/.bin/pi"
+  [[ -x "$PI" ]] || { echo "pi-jbai: $PI not found; run scripts/dev.sh setup in $MAIN" >&2; exit 1; }
+  export PI_CODING_AGENT_DIR="$MAIN/.dev-tools/pi-agent-bare"
+  mkdir -p "$PI_CODING_AGENT_DIR"
+  exec "$PI" -e "$MAIN/packages/jetbrains-ai" "$@"
+fi
+
+AGENT="$MAIN/.dev-tools/pi-junie"
+PI="$AGENT/node_modules/.bin/pi"
+[[ -x "$PI" ]] || { echo "pi-jbai: the development agent is not installed; run scripts/dev.sh setup in $MAIN" >&2; exit 1; }
+export PI_CODING_AGENT_DIR="$MAIN/.dev-tools/pi-agent"
 mkdir -p "$PI_CODING_AGENT_DIR"
 
-exec "$PI" -e "$MAIN/packages/jetbrains-ai" "$@"
+# pi-junie's own Pi packages, from the copy. The bridge package is the ACP side and is not a Pi extension.
+EXT=()
+for pkg in "$AGENT"/packages/*/; do
+  [[ "$(jq -r '.pi.extensions // empty | length' "$pkg/package.json" 2>/dev/null)" -gt 0 ]] 2>/dev/null && EXT+=(-e "${pkg%/}")
+done
+# This repository's own skills and settings are trusted (Pi would otherwise ask, and cannot ask when headless).
+TRUST=(--approve)
+for a in "$@"; do [[ "$a" == "--no-approve" || "$a" == "-na" ]] && TRUST=(); done
+exec "$PI" "${EXT[@]}" "${TRUST[@]}" "$@"

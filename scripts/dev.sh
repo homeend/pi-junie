@@ -4,6 +4,7 @@
 #
 #   scripts/dev.sh setup                install everything below; safe to run again
 #   scripts/dev.sh check                report what is installed; changes nothing
+#   scripts/dev.sh agent [update [ref]] the development agent (what scripts/pi-jbai runs): show it, or move it to main / a commit
 #   scripts/dev.sh worktree [dir]       prepare a task worktree (dependencies + skills); default: current dir
 #   scripts/dev.sh cezar [args]         start Cezar's local cockpit (http://127.0.0.1:4321), or run a cezar command
 #   scripts/dev.sh audit <spec>         spec audit by a second model, headless Pi (default: Sol)
@@ -16,8 +17,10 @@
 #                              .agents/skills/agent-* links to your own review skills in ~/.claude/skills, if present
 #                              .claude/skills/       links, so Claude Code sees the same skills as Pi
 #                              .dev-tools/           Cezar and the skills installer, locked in scripts/dev-tools/
+#                              .dev-tools/pi-junie/  the development agent: a copy of this repository at a fixed commit
+#                              .dev-tools/pi-agent/  its Pi folder, with the plugins in scripts/dev-tools/pi-plugins.txt
 #   outside the repo           nothing. Tools started later write their own state:
-#                              ~/.cezar (Cezar), ~/.pi/pi-junie-dev (headless Pi), ~/.local/state/pi-junie (air-test link)
+#                              ~/.cezar (Cezar), ~/.local/state/pi-junie (air-test link)
 # Network: npm registry and github.com/open-mercato/skills. Telemetry of both tools is switched off here.
 #
 # Settings: PI_JUNIE_ENV (key file, default ~/.config/pi-junie/env), PI_REVIEW_MODELS, PI_AUDIT_MODEL.
@@ -87,6 +90,9 @@ cmd_check() {
     [[ -f "$MAIN/.agents/skills/$s/SKILL.md" ]] && ok "skill $s (yours)" || note "skill $s not in ~/.claude/skills: cross-review inside AIR is unavailable"
   done
   [[ -x "$MAIN/.dev-tools/node_modules/.bin/cezar" ]] && ok "Cezar $(jq -r .version "$MAIN/.dev-tools/node_modules/@open-mercato/cezar/package.json")" || miss "Cezar: scripts/dev.sh setup"
+  if [[ -x "$MAIN/.dev-tools/pi-junie/node_modules/.bin/pi" ]]; then
+    ok "development agent at $(git -C "$MAIN/.dev-tools/pi-junie" log -1 --format=%h 2>/dev/null) (scripts/dev.sh agent)"
+  else miss "development agent: scripts/dev.sh setup"; fi
   if [[ -r "$ENV_FILE" ]] && grep -q '^JUNIE_API_KEY=.' "$ENV_FILE"; then ok "JetBrains AI key file $ENV_FILE"
   else note "no JUNIE_API_KEY in $ENV_FILE: headless Pi (audit, review, Cezar's Pi steps) needs it or a saved /login"; fi
   [[ -L "$STATE_DIR/under-test" ]] && note "under test in AIR: $(readlink "$STATE_DIR/under-test")"
@@ -100,11 +106,11 @@ cmd_setup() {
   for t in git jq npm curl; do command -v "$t" >/dev/null 2>&1 || die "$t is required"; done
   cd "$MAIN"
 
-  say "1/4 dependencies"
+  say "1/5 dependencies"
   [[ -x node_modules/.bin/pi ]] || npm ci --no-audit --no-fund --loglevel=error >/dev/null
 
   # Cezar and the skills installer, with every dependency at the version in scripts/dev-tools/package-lock.json.
-  say "2/4 developer tools into .dev-tools/ (locked in scripts/dev-tools/)"
+  say "2/5 developer tools into .dev-tools/ (locked in scripts/dev-tools/)"
   if ! cmp -s scripts/dev-tools/package-lock.json .dev-tools/package-lock.json || [[ ! -x .dev-tools/node_modules/.bin/skills ]]; then
     mkdir -p .dev-tools
     rm -f .dev-tools/package-lock.json
@@ -115,7 +121,7 @@ cmd_setup() {
       || { rm -f .dev-tools/package-lock.json; die "installing the developer tools failed"; }
   fi
 
-  say "3/4 upstream skills (commit pinned in skills-lock.json)"
+  say "3/5 upstream skills (commit pinned in skills-lock.json)"
   local need=0 s
   for s in $(jq -r '.skills | keys[]' skills-lock.json); do [[ -f ".agents/skills/$s/SKILL.md" ]] || need=1; done
   if [[ "$need" == 1 ]]; then
@@ -130,11 +136,86 @@ cmd_setup() {
     rm -f "$log"
   fi
 
-  say "4/4 skill links"
+  say "4/5 skill links"
   link_own_review_skills "$MAIN"
   link_claude_skills "$MAIN"
+
+  say "5/5 development agent (.dev-tools/pi-junie, .dev-tools/pi-agent)"
+  [[ -d "$DEV_AGENT/.git" ]] || agent_checkout "$(git rev-parse HEAD)"
+  agent_plugins
   say
   cmd_check
+}
+
+# ---- the development agent: a copy of pi-junie at a fixed commit, with its own Pi folder (see scripts/pi-jbai)
+
+DEV_AGENT="$MAIN/.dev-tools/pi-junie"
+DEV_AGENT_DIR="$MAIN/.dev-tools/pi-agent"
+PLUGIN_LIST="$MAIN/scripts/dev-tools/pi-plugins.txt"
+
+agent_checkout() { # commit
+  local commit="$1"
+  if [[ ! -d "$DEV_AGENT/.git" ]]; then
+    mkdir -p "$MAIN/.dev-tools"
+    git clone -q --no-checkout "$MAIN" "$DEV_AGENT"
+  else
+    git -C "$DEV_AGENT" fetch -q origin
+  fi
+  git -C "$DEV_AGENT" checkout -q --detach "$commit"
+  (cd "$DEV_AGENT" && npm ci --no-audit --no-fund --loglevel=error >/dev/null) || die "installing the development agent failed"
+}
+
+agent_plugin_version() { # package name -> installed version in the development agent, or nothing
+  jq -r '.version // empty' "$DEV_AGENT_DIR/npm/node_modules/$1/package.json" 2>/dev/null || true
+}
+
+agent_plugins() {
+  local line name want log
+  [[ -f "$PLUGIN_LIST" ]] || return 0
+  mkdir -p "$DEV_AGENT_DIR"
+  while read -r line; do
+    [[ -z "$line" || "$line" == \#* ]] && continue
+    name="${line#npm:}"; want="${name##*@}"; name="${name%@*}"
+    [[ "$(agent_plugin_version "$name")" == "$want" ]] && continue
+    say "  installing $name $want"
+    log="$(mktemp)"
+    PI_CODING_AGENT_DIR="$DEV_AGENT_DIR" "$DEV_AGENT/node_modules/.bin/pi" install "$line" </dev/null >"$log" 2>&1 \
+      || { cat "$log" >&2; rm -f "$log"; die "installing $line failed"; }
+    rm -f "$log"
+  done <"$PLUGIN_LIST"
+}
+
+cmd_agent() {
+  [[ "$HERE" == "$MAIN" ]] || die "run this in the main checkout ($MAIN)"
+  case "${1:-status}" in
+    status)
+      [[ -d "$DEV_AGENT/.git" ]] || die "the development agent is not installed; run: scripts/dev.sh setup"
+      say "Development agent (what scripts/pi-jbai runs):"
+      say "  code     $DEV_AGENT"
+      say "           at $(git -C "$DEV_AGENT" log -1 --format='%h %s' | cut -c1-90)"
+      say "           main is $(git -C "$MAIN" rev-list --count "$(git -C "$DEV_AGENT" rev-parse HEAD)..main" 2>/dev/null || echo '?') commit(s) ahead of it"
+      say "  Pi       $("$DEV_AGENT/node_modules/.bin/pi" --version 2>/dev/null)"
+      say "  state    $DEV_AGENT_DIR"
+      local line name
+      while read -r line; do
+        [[ -z "$line" || "$line" == \#* ]] && continue
+        name="${line#npm:}"; name="${name%@*}"
+        say "  plugin   $name $(agent_plugin_version "$name" | sed 's/^$/NOT INSTALLED/')"
+      done <"$PLUGIN_LIST"
+      say
+      say "To use it in AIR as well (an entry in ~/.jetbrains/acp.json, next to \"pi-junie\"):"
+      say "  \"pi-junie-stable\": { \"command\": \"$DEV_AGENT/bin/pi-air\", \"args\": [], \"env\": { \"PI_CODING_AGENT_DIR\": \"$DEV_AGENT_DIR\" } }"
+      ;;
+    update)
+      local ref="${2:-main}" commit
+      commit="$(git -C "$MAIN" rev-parse --verify -q "$ref^{commit}")" || die "no such commit: $ref"
+      say "Moving the development agent to $(git -C "$MAIN" log -1 --format='%h %s' "$commit" | cut -c1-90)"
+      agent_checkout "$commit"
+      agent_plugins
+      say "Done. Running sessions keep the old code until restarted."
+      ;;
+    *) die "usage: scripts/dev.sh agent [status | update [commit]]" ;;
+  esac
 }
 
 cmd_worktree() {
@@ -225,6 +306,7 @@ cmd_air_test() {
 case "${1:-help}" in
   setup)    shift; cmd_setup "$@" ;;
   check)    cmd_check ;;
+  agent)    shift; cmd_agent "$@" ;;
   worktree) shift; cmd_worktree "$@" ;;
   cezar)    shift; cmd_cezar "$@" ;;
   audit)    shift; cmd_audit "$@" ;;

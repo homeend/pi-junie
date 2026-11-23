@@ -92,8 +92,9 @@ To work on pi-junie with the agent process (specs, audits, Cezar), from a fresh 
 1. **Tools on the machine:** Node 22.19 or newer with npm (for example `nvm install 24`), git, jq, curl and bash.
    On Windows, use WSL: the scripts are bash and have only been run there. Claude Code is needed for Cezar's
    implementation step.
-2. **Set up:** `scripts/dev.sh setup`. It installs the dependencies, the skills, Cezar and the links for Claude
-   Code and Pi into git-ignored folders of the checkout, all at locked versions. `scripts/dev.sh check` shows
+2. **Set up:** `scripts/dev.sh setup`. It installs the dependencies, the skills, Cezar, the links for Claude
+   Code and Pi, and the development agent (a separate copy of pi-junie with its plugins, to work with) into
+   git-ignored folders of the checkout, all at fixed versions. `scripts/dev.sh check` shows
    what is there without changing anything.
 3. **JetBrains AI key:** put `JUNIE_API_KEY=<key>` (from <https://junie.jetbrains.com/cli>) into
    `~/.config/pi-junie/env`, mode 600.

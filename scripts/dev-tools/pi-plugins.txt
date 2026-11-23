@@ -1,0 +1,7 @@
+# Pi plugins of the development agent (.dev-tools/pi-agent/), one "npm:<name>@<version>" per line.
+# The same plugins the bridge knows (packages/bridge/src/pi/plugins.ts), at fixed versions.
+# scripts/dev.sh setup installs them with `pi install`; change a version here and run setup again.
+npm:@tintinweb/pi-subagents@0.26.0
+npm:@juicesharp/rpiv-todo@2.15.0
+npm:@narumitw/pi-plan-mode@0.60.1
+npm:pi-web-access@0.48.0
