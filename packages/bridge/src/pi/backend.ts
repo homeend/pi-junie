@@ -21,8 +21,10 @@ import { type Logger, silentLogger } from "../core/log.ts";
 import type { AgentBackend, BackendSession, PermissionAsk, PlanReviewAsk, QuestionAsk, SessionContext, TurnSink } from "../core/ports.ts";
 import type { ApprovalMode, CommandInfo, HistoryItem, PlanUpdate, McpServerSpec, ModelChoice, ModelGroup, ModelMix, ModelRef, PromptInput, ProviderBinding, ProviderSlotState, SessionSummary, SteerResult, TurnResult } from "../core/types.ts";
 import type { JunieCredentials, JunieModelChoice } from "pi-junie-config/credentials";
+import { profileModelId, profileProvider } from "pi-junie-config/profile-provider";
+import type { JunieProfile } from "pi-junie-config/profiles";
 import { jetbrainsAiProvider } from "pi-junie-jetbrains-ai";
-import { bridgeProviderId, DEFAULT_MODEL, JETBRAINS_AI_GROUP, joinBaseUrl, keyAuthHeaders, SLOTS, type SlotDefinition, VENDOR_ROUTES, vertexBaseUrl } from "./catalog.ts";
+import { bridgeProviderId, CUSTOM_MODELS_GROUP, DEFAULT_MODEL, JETBRAINS_AI_GROUP, joinBaseUrl, keyAuthHeaders, SLOTS, type SlotDefinition, VENDOR_ROUTES, vertexBaseUrl } from "./catalog.ts";
 import { openPiTranscript, type SessionMeta, SessionStore } from "./session-store.ts";
 import { BRIDGE_TOOLS, READ_ONLY_TOOLS, toolKind, toolLocations, toolResultText, toolTitle } from "./tools.ts";
 import { IDE_ROUTER_TOOL, IDE_SERVER, ideRouterName, ideServerToolExposure, JUNIE_COMPAT_DEFAULTS, type JunieCompatOptions, junieExecuteToolAlias } from "./junie-compat.ts";
@@ -72,7 +74,7 @@ export interface PiBackendOptions {
 	 * Junie's configuration from the environment (packages/junie-config): keys bind models without a client, the
 	 * model choice is the default of new sessions. `vendorBaseUrls` replaces a vendor's public API (tests).
 	 */
-	junie?: { credentials?: JunieCredentials; model?: JunieModelChoice; vendorBaseUrls?: Record<string, string> };
+	junie?: { credentials?: JunieCredentials; model?: JunieModelChoice; profiles?: JunieProfile[]; vendorBaseUrls?: Record<string, string> };
 	/** Plugins that ship with the bridge: package directories loaded into every session (e.g. packages/junie-cost). */
 	bundledPlugins?: string[];
 	/** Junie compatibility profile (see junie-compat.ts). */
@@ -94,6 +96,8 @@ export class PiBackend implements AgentBackend {
 	/** The JetBrains AI group is registered (JUNIE_API_KEY). */
 	private jetbrainsAi = false;
 	private junieModel: JunieModelChoice = {};
+	/** Junie's custom model profiles: slot `custom:<id>` -> its provider and default thinking level. */
+	private profiles = new Map<string, { providerId: string; defaultLevel?: string }>();
 	private readonly fetchImpl?: typeof fetch;
 	private readonly discoveryTimeoutMs?: number;
 	private generation = 0;
@@ -135,6 +139,7 @@ export class PiBackend implements AgentBackend {
 		this.showWelcome = options.welcome ?? false;
 		this.junieModel = options.junie?.model ?? {};
 		if (options.junie?.credentials) this.useJunieCredentials(options.junie.credentials, options.junie.vendorBaseUrls ?? {});
+		for (const profile of options.junie?.profiles ?? []) this.useJunieProfile(profile);
 		const subagents = this.plugins.some((p) => p.name === SUBAGENTS_PLUGIN);
 		this.log.info(`subagents: ${subagents ? "available" : "not available"}`);
 	}
@@ -203,6 +208,18 @@ export class PiBackend implements AgentBackend {
 			this.bindProvider({ slotId: vendor, apiType: route.apiType, baseUrl: vendorBaseUrls[vendor] ?? route.baseUrl, headers: {}, apiKey });
 		}
 		for (const env of credentials.unsupported) this.log.warn(`Junie key: ${env} is set but not supported yet; ignored`);
+	}
+
+	/** A Junie custom model profile as its own provider (packages/junie-config/src/profile-provider.ts). */
+	private useJunieProfile(profile: JunieProfile): void {
+		const provider = profileProvider(profile, PLACEHOLDER_API_KEY);
+		this.runtime.registerProvider(provider.providerId, provider.config);
+		this.profiles.set(profileModelId(profile.profileId), { providerId: provider.providerId, defaultLevel: provider.defaultLevel });
+		const m = profile.primary;
+		this.log.info(
+			`Junie profile ${profile.profileId} (${profile.path}): ${m.apiType} ${m.id} at ${provider.config.baseUrl}${m.apiKey ? " key=<set>" : ""}` +
+				`${m.efforts ? ` efforts=[${m.efforts.join(", ")}]` : ""}${profile.faster.id !== m.id ? ` (fasterModel ${profile.faster.id} not used)` : ""}`,
+		);
 	}
 
 	bindProvider(binding: ProviderBinding): void {
@@ -367,14 +384,20 @@ export class PiBackend implements AgentBackend {
 			...(this.ingrazzio ? [INGRAZZIO_SLOT] : []),
 			...(this.jetbrainsAi ? [JETBRAINS_AI_GROUP] : []),
 		];
-		return slots.map((s) => ({
-			slotId: s.id,
-			name: s.displayName,
-			models: this.runtime
-				.getModels()
-				.filter((m) => m.provider === bridgeProviderId(s.id))
-				.map((m): ModelChoice => ({ slotId: s.id, modelId: m.id, name: m.name, contextWindow: m.contextWindow, reasoning: m.reasoning })),
-		}));
+		const custom: ModelGroup[] = this.profiles.size
+			? [{ slotId: CUSTOM_MODELS_GROUP.id, name: CUSTOM_MODELS_GROUP.displayName, models: [...this.profiles].flatMap(([slotId, p]) => this.runtime.getModels().filter((m) => m.provider === p.providerId).map((m): ModelChoice => ({ slotId, modelId: m.id, name: m.name, contextWindow: m.contextWindow, reasoning: m.reasoning }))) }]
+			: [];
+		return [
+			...slots.map((s) => ({
+				slotId: s.id,
+				name: s.displayName,
+				models: this.runtime
+					.getModels()
+					.filter((m) => m.provider === bridgeProviderId(s.id))
+					.map((m): ModelChoice => ({ slotId: s.id, modelId: m.id, name: m.name, contextWindow: m.contextWindow, reasoning: m.reasoning })),
+			})),
+			...custom,
+		];
 	}
 
 	/** The Default group: the catalog's levels whose model (and effort) this bridge can run now, in catalog order. */
@@ -397,6 +420,11 @@ export class PiBackend implements AgentBackend {
 	/** A model by Junie's setting id (the mixes catalog's `modelId`). */
 	private modelForSetting(settingId: string): ModelRef | undefined {
 		if (settingId === JUNIE_LITE.settingId) return this.ingrazzio ? { slotId: INGRAZZIO_SLOT.id, modelId: JUNIE_LITE.id } : undefined;
+		const profile = this.profiles.get(settingId); // a custom model profile, `custom:<profileId>`
+		if (profile) {
+			const model = this.runtime.getModels().find((m) => m.provider === profile.providerId);
+			return model ? { slotId: settingId, modelId: model.id } : undefined;
+		}
 		for (const group of this.availableModels()) {
 			const found = group.models.find((m) => listingIdMatches(m.modelId, settingId));
 			if (found) return { slotId: found.slotId, modelId: found.modelId };
@@ -426,7 +454,8 @@ export class PiBackend implements AgentBackend {
 		const configured = this.configuredModel();
 		if (configured) {
 			// Junie's JUNIE_MODEL / JUNIE_EFFORT (or PRIMARY_MODEL*): the run's model, chosen by configuration.
-			Object.assign(meta, { model: configured, ...(this.junieModel.effort && this.junieModel.effort !== "none" ? { effort: this.junieModel.effort } : {}) });
+			const effort = this.configuredEffort(configured);
+			Object.assign(meta, { model: configured, ...(effort ? { effort } : {}) });
 		} else {
 			// Like Junie, a new chat starts on the recommended Default level when there is one.
 			const recommended = this.modelMixes().find((m) => m.recommended);
@@ -499,6 +528,18 @@ export class PiBackend implements AgentBackend {
 	resolveModel(ref: ModelRef | undefined): Model<Api> | undefined {
 		if (!ref) return undefined;
 		return this.runtime.getModel(bridgeProviderId(ref.slotId), ref.modelId);
+	}
+
+	/**
+	 * The effort Junie's configuration names, as the model's Pi level: JUNIE_EFFORT, a profile's own effort name mapped
+	 * through its thinking-level map; else a profile's defaultEffort. `none` means no effort setting.
+	 */
+	private configuredEffort(ref: ModelRef): string | undefined {
+		const wanted = this.junieModel.effort;
+		if (!wanted) return this.profiles.get(ref.slotId)?.defaultLevel;
+		if (wanted === "none") return undefined;
+		const map = this.resolveModel(ref)?.thinkingLevelMap as Record<string, string | null | undefined> | undefined;
+		return Object.entries(map ?? {}).find(([, v]) => v?.toLowerCase() === wanted)?.[0] ?? wanted;
 	}
 
 	/** The model Junie's configuration names (JUNIE_MODEL / PRIMARY_MODEL), when it is available. */

@@ -7,7 +7,9 @@
 	"exports": {
 		".": "./src/index.ts",
 		"./settings": "./src/settings.ts",
-		"./credentials": "./src/credentials.ts"
+		"./credentials": "./src/credentials.ts",
+		"./profiles": "./src/profiles.ts",
+		"./profile-provider": "./src/profile-provider.ts"
 	},
 	"pi": {
 		"extensions": ["./src/index.ts"]

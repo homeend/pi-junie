@@ -267,6 +267,11 @@ that unlock each one:
   - `JUNIE_MODEL` / `JUNIE_EFFORT` (else `PRIMARY_MODEL` / `PRIMARY_MODEL_REASONING_EFFORT`) are a new session's
     model and effort when the model is available (looked up like a Default level's model), before the
     recommended Default level.
+- Junie's custom model profiles (`junie.profiles`, loaded in main.ts from the process's `.junie/models` and
+  `$JUNIE_HOME/models`; load errors are logged per profile): each is a provider `junie-custom-<id>` with its primary
+  model, slot `custom:<id>` (Junie's model id), shown in the "Custom models" group. `JUNIE_MODEL=custom:<id>` selects
+  it; JUNIE_EFFORT may use the profile's own effort names; otherwise its `defaultEffort` applies. junie-config's
+  extension adds the profile's `extraBody` and `temperature` to each request (`before_provider_request`).
 - Built-in plugins: packages of this repository passed as `bundledPlugins` (main.ts) and loaded the same way. Today
   Junie Config (`packages/junie-config`: Junie's settings from the environment; inert without them, records them in
   the session as a `junie-config` custom entry and the startup log lists the ones set) and Junie Cost

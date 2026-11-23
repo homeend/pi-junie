@@ -54,7 +54,8 @@ for now. `PI_AIR_JUNIE_COST=0` leaves it out.
   `PI_AIR_WELCOME=0` (no welcome message), `PI_AIR_JUNIE_COST=0` (no Junie Cost).
 - Junie's keys, set in the `env` of the `acp.json` entry or the environment: `JUNIE_API_KEY` adds a JetBrains AI
   model group; `JUNIE_ANTHROPIC_API_KEY` / `JUNIE_OPENAI_API_KEY` / `JUNIE_GOOGLE_API_KEY` give that vendor's models
-  without AIR; `JUNIE_MODEL` / `JUNIE_EFFORT` pick new chats' model. See `packages/junie-config/README.md`.
+  without AIR; `JUNIE_MODEL` / `JUNIE_EFFORT` pick new chats' model. Junie's custom model profiles (`~/.junie/models/*.json`)
+  appear as "Custom models" (`JUNIE_MODEL=custom:<profile>`). See `packages/junie-config/README.md`.
 - Node binary: taken from `PATH`, otherwise the newest `~/.nvm` Node 24+. Override with `PI_AIR_NODE`.
 - Pi state for the bridge is kept apart from your `~/.pi/agent` (in `~/.pi/pi-junie/`), so your own Pi
   logins are never sent to AIR's proxy.

@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { appendFileSync } from "node:fs";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { junieCredentials, junieModelChoice } from "pi-junie-config/credentials";
+import { loadJunieProfiles, profileDirectories } from "pi-junie-config/profiles";
 import { describeJunieSettings, resolveJunieSettings } from "pi-junie-config/settings";
 import { AcpAgent } from "./acp/agent.ts";
 import type { JsonObject, Transport } from "./acp/jsonrpc.ts";
@@ -115,6 +116,9 @@ function stdioTransport(): Transport {
 log.info(`starting pid=${process.pid} node=${process.version} cwd=${process.cwd()} log=${LOG_FILE ?? "stderr"}`);
 const junieSettings = describeJunieSettings(resolveJunieSettings());
 if (junieSettings) log.info(`Junie settings from the environment: ${junieSettings}`);
+// Junie's custom model profiles: the process's project (.junie/models, for headless runs) and $JUNIE_HOME/models.
+const junieProfiles = loadJunieProfiles(profileDirectories(process.cwd()));
+for (const [id, error] of Object.entries(junieProfiles.errors)) log.error(`Junie profile ${id} not loaded: ${error}`);
 const backend = await PiBackend.create({
 	logger: log.child("pi"),
 	version: "0.1.0",
@@ -122,7 +126,7 @@ const backend = await PiBackend.create({
 	// Junie compatibility: AIR's IDE router as `execute_tool` (PI_AIR_JUNIE_EXECUTE_TOOL=0 keeps the MCP name)
 	junieCompat: { executeToolAlias: process.env.PI_AIR_JUNIE_EXECUTE_TOOL !== "0" },
 	// Junie's keys and model choice from the environment (JUNIE_API_KEY, JUNIE_<VENDOR>_API_KEY, JUNIE_MODEL, ...).
-	junie: { credentials: junieCredentials(), model: junieModelChoice() },
+	junie: { credentials: junieCredentials(), model: junieModelChoice(), profiles: junieProfiles.profiles },
 	// Built-in plugins from this repository's packages: Junie Config (Junie's settings from the environment; inert
 	// without them) and Junie Cost (PI_AIR_JUNIE_COST=0 leaves it out).
 	bundledPlugins: [

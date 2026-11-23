@@ -2,6 +2,7 @@
 // (discovery.ts); Pi's built-in catalog supplies the metadata (API quirks, reasoning, limits).
 
 import type { Api } from "@earendil-works/pi-ai";
+import { profileProviderId } from "pi-junie-config/profile-provider";
 
 export interface PickerModel {
 	id: string;
@@ -83,8 +84,17 @@ export const DEFAULT_MODEL = { slotId: "anthropic", modelId: "claude-sonnet-5-5"
 
 /** Name of the Pi provider that carries a client binding. Never one of Pi's own providers. */
 export function bridgeProviderId(slotId: string): string {
-	return slotId === JETBRAINS_AI_GROUP.id ? JETBRAINS_AI_GROUP.providerId : `air-${slotId}`;
+	if (slotId === JETBRAINS_AI_GROUP.id) return JETBRAINS_AI_GROUP.providerId;
+	if (slotId.startsWith(CUSTOM_PROFILE_PREFIX)) return profileProviderId(slotId.slice(CUSTOM_PROFILE_PREFIX.length));
+	return `air-${slotId}`;
 }
+
+/**
+ * Junie's custom model profiles (`$JUNIE_HOME/models/*.json`, packages/junie-config): each profile is its own slot
+ * `custom:<profileId>` (Junie's model id for it) with one model, shown together in the "Custom models" group.
+ */
+const CUSTOM_PROFILE_PREFIX = "custom:";
+export const CUSTOM_MODELS_GROUP = { id: "custom", displayName: "Custom models" };
 
 /**
  * JetBrains AI with a Junie API key (`JUNIE_API_KEY`): Junie's model catalog through Ingrazzio, from the copied
