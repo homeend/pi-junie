@@ -1,31 +1,21 @@
 {
-  "name": "pi-junie",
+  "name": "pi-junie-workspace",
   "private": true,
-  "version": "0.0.1",
-  "description": "Pi extension (in development)",
   "type": "module",
-  "keywords": [
-    "pi-package"
+  "description": "Pi as a JetBrains AIR agent (ACP bridge) and the Pi plugins it uses",
+  "workspaces": [
+    "packages/*"
   ],
-  "pi": {
-    "extensions": [
-      "./index.ts"
-    ]
-  },
   "scripts": {
-    "dev": "./scripts/dev.sh",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "check": "npm run check --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present"
   },
   "devDependencies": {
     "@types/node": "22.19.19",
-    "typebox": "1.4.7",
     "typescript": "5.9.3",
     "vitest": "^3.2.4"
   },
-  "dependencies": {
-    "@earendil-works/pi-agent-core": "1.5.2",
-    "@earendil-works/pi-ai": "1.5.2",
-    "@earendil-works/pi-coding-agent": "1.5.2"
+  "engines": {
+    "node": ">=22.19.0"
   }
 }

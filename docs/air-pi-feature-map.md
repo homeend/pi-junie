@@ -4,8 +4,8 @@ Every feature in Junie's AIR contract (`junie-agent/docs/acp-air-communication.m
 pi-junie gets the agent-side behaviour:
 
 - **Pi core**: the SDK already does it; the bridge only maps it to ACP.
-- **Pi plugin**: an existing pi package (`pi install npm:<name>`) does it; the bridge detects it (`src/pi/plugins.ts`),
-  loads it, and maps its state/events to ACP (`src/compat/features.ts` advertises the AIR capability only when present).
+- **Pi plugin**: an existing pi package (`pi install npm:<name>`) does it; the bridge detects it (`packages/bridge/src/pi/plugins.ts`),
+  loads it, and maps its state/events to ACP (`packages/bridge/src/compat/features.ts` advertises the AIR capability only when present).
 - **Bridge**: nothing in Pi or its ecosystem fits; coded in pi-junie.
 
 Plugin candidates were checked on npm on 2026-11-17 (version, weekly downloads). "Done" = implemented and checked in

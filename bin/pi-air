@@ -15,4 +15,4 @@ if [[ -z "$NODE" ]]; then
 fi
 [[ -x "$NODE" ]] || { echo "pi-air: node >= 22.19 not found; set PI_AIR_NODE" >&2; exit 1; }
 
-exec "$NODE" "$ROOT/src/main.ts" "$@"
+exec "$NODE" "$ROOT/packages/bridge/src/main.ts" "$@"

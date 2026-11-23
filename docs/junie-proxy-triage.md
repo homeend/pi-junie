@@ -18,7 +18,7 @@ right is what the `baseUrl` from `providers/set` already contains. Junie uses `C
 | `vertex` | `base/v1/projects/{project}/locations/{location}/publishers/google/models/{model}:generateContent` | Vertex AI | vendor. Project and location come from `_meta.vertex`, else the placeholder `default-project`/`default-location` |
 | `xai` | `base/responses` | xAI | vendor |
 | `qwen` | `base/chat/completions` | vLLM / OpenAI-compatible | vendor |
-| `ingrazzio` | complete Ingrazzio path | — | **JB only**. pi-junie uses it for feature flags (`base/api/feature-flags/ga`) and Junie Lite (`base/llm/vllm/v1/chat/completions`), see `docs/spec.md` §2 |
+| `ingrazzio` | complete Ingrazzio path | — | **JB only**. pi-junie uses it for feature flags (`base/api/feature-flags/ga`) and Junie Lite (`base/llm/vllm/v1/chat/completions`), see `packages/bridge/docs/spec.md` §2 |
 
 AIR confirms it (`AirLlmGatewayRoutes`): "Anthropic SDKs append `/v1/messages` to the base. OpenAI SDKs expect a
 base that ends in `/v1`. Vertex SDKs append their versioned paths." BYOK OpenAI maps the proxy base to
@@ -47,7 +47,7 @@ otherwise Chat Completions. The gpt-5.x/6.x models use Responses.
   only when the configured headers lack it **and** it has its own JBA token. Over ACP it normally sends none.
 - Pi's SDK clients need an API key, so the bridge registers the placeholder `air-proxy`. They would send it as
   `x-api-key` (Anthropic), `Authorization: Bearer` (OpenAI) or `x-goog-api-key` (Google/Vertex); all four routes
-  worked with it in AIR. Like Junie, we now send none: `withoutPlaceholderAuth` (`src/pi/proxy-auth.ts`, installed
+  worked with it in AIR. Like Junie, we now send none: `withoutPlaceholderAuth` (`packages/bridge/src/pi/proxy-auth.ts`, installed
   on the global fetch in `main.ts`) drops vendor auth headers whose value is the placeholder. Real keys pass.
 
 ## 3. `providers/set` parameters: JB extensions

@@ -1,7 +1,7 @@
 # pi-junie: Pi as an ACP agent for JetBrains AIR
 
 Status: living spec, last updated 2026-11-23. Sections 1 and 6 record the original first milestone; everything
-else describes the current code.
+else describes the current code. Paths are relative to `packages/bridge/`.
 
 ## 1. Goal
 

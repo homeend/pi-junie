@@ -25,7 +25,7 @@ user's own Pi credentials and models. Zed is its target client.
 
 **Reuse decision (recommended):** keep our architecture (in-process Pi SDK). Running Pi in-process is what lets
 the bridge register AIR's proxy providers, and keeps the ACP and Pi layers separate. Port pi-acp's
-*translation logic* (MIT, with attribution) into `src/pi` (Pi events -> core `TurnEvent`s) and `src/acp`
+*translation logic* (MIT, with attribution) into `packages/bridge/src/pi` (Pi events -> core `TurnEvent`s) and `packages/bridge/src/acp`
 (core events -> ACP updates). Don't fork pi-acp: it is one ACP+Pi class with no driver/bridge split, and it
 needs a `pi` subprocess and the user's Pi configuration.
 
@@ -91,13 +91,13 @@ like a normal chat:
 
 | pi-acp function | Purpose | Goes to |
 |---|---|---|
-| `handlePiEvent` (text/thinking/toolcall/tool_execution_*) | event -> update mapping | `src/pi` (-> TurnEvent) + `src/acp/codec.ts` |
-| `toToolKind`, `toToolCallLocations`, `getToolPath`, `findUniqueLineNumber` | tool presentation | `src/pi` (neutral) |
+| `handlePiEvent` (text/thinking/toolcall/tool_execution_*) | event -> update mapping | `packages/bridge/src/pi` (-> TurnEvent) + `packages/bridge/src/acp/codec.ts` |
+| `toToolKind`, `toToolCallLocations`, `getToolPath`, `findUniqueLineNumber` | tool presentation | `packages/bridge/src/pi` (neutral) |
 | `bashTerminalContent/OutputMeta`, `bashOutputDelta` | bash as terminal | codec (AIR also has `terminal_output_delta` meta) |
-| edit/write snapshot -> diff | diffs | `src/pi` |
-| `promptToPiMessage` | ACP prompt blocks -> Pi text + images | `src/acp/codec.ts` (+ images in core) |
-| `listPiSessions`, `pickTitleFromTail`, `scanSessionInfoNameFromFile` | session list and titles | `src/pi/session-store.ts` |
-| history replay in `session/load` | replay | `src/pi` + codec |
+| edit/write snapshot -> diff | diffs | `packages/bridge/src/pi` |
+| `promptToPiMessage` | ACP prompt blocks -> Pi text + images | `packages/bridge/src/acp/codec.ts` (+ images in core) |
+| `listPiSessions`, `pickTitleFromTail`, `scanSessionInfoNameFromFile` | session list and titles | `packages/bridge/src/pi/session-store.ts` |
+| history replay in `session/load` | replay | `packages/bridge/src/pi` + codec |
 | `loadSlashCommands`, `expandSlashCommand`, built-ins | slash commands | later |
 
 ## 5. Observed in the live log (2026-11-17 16:56)

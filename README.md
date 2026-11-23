@@ -1,10 +1,11 @@
 # pi-junie
 
-Pi as an ACP agent for JetBrains AIR, plus a small Pi extension dev setup.
+Pi as an ACP agent for JetBrains AIR, and the Pi plugins it uses. An npm workspace: each package lives in
+`packages/`, the root is not a Pi package.
 
 Docs:
 - [docs/overview.html](docs/overview.html): the whole approach in one page (open it in a browser)
-- [docs/spec.md](docs/spec.md): design and behaviour, kept current
+- [packages/bridge/docs/spec.md](packages/bridge/docs/spec.md): design and behaviour of the bridge, kept current
 - [docs/eval-parity-plan.md](docs/eval-parity-plan.md): plan to run pi-junie headless with Junie's eval configuration (proposal)
 - [docs/air-pi-feature-map.md](docs/air-pi-feature-map.md): each AIR feature, and whether Pi core, a Pi plugin or the bridge provides it
 - [docs/junie-proxy-triage.md](docs/junie-proxy-triage.md): how Junie calls LLMs through AIR's proxy
@@ -50,7 +51,7 @@ terminal.
 
   Readable summary: `grep -v ':wire ' .pi-dev/pi-air.log`
 - Switches: `PI_AIR_TRUST_PROJECT=0` (no project skills), `PI_AIR_JUNIE_EXECUTE_TOOL=0` (IDE router keeps its
-  MCP name instead of Junie's `execute_tool`; see `src/pi/junie-compat.ts`), `PI_AIR_PLUGINS=0` (no plugins),
+  MCP name instead of Junie's `execute_tool`; see `packages/bridge/src/pi/junie-compat.ts`), `PI_AIR_PLUGINS=0` (no plugins),
   `PI_AIR_WELCOME=0` (no welcome message).
 - Node binary: taken from `PATH`, otherwise the newest `~/.nvm` Node 24+. Override with `PI_AIR_NODE`.
 - Pi state for the bridge is kept apart from your `~/.pi/agent` (in `~/.pi/pi-junie/`), so your own Pi
@@ -59,36 +60,34 @@ terminal.
 ## Layout
 
 ```
-src/core/     neutral types + ports (no ACP, no Pi)
-src/acp/      ACP driver: JSON-RPC, v1 wire types, codec, method dispatch
-src/pi/       Pi bridge: provider slots, proxy discovery, Ingrazzio and the Default group, AgentSession per
-              ACP session, tools and permissions, plugin adapters
-src/compat/   AIR feature <-> Pi plugin requirement registry
-src/main.ts   composition root (stdio)
-bin/pi-air    launcher used by AIR
-test/         replay simulator + fixtures extracted from Junie <-> AIR recordings
+bin/pi-air                 launcher used by AIR (runs packages/bridge/src/main.ts)
+docs/                      docs about the whole project (overview, AIR feature map, proxy triage, plans)
+packages/bridge/           pi-junie, the ACP bridge (package "pi-junie")
+  src/core/                neutral types + ports (no ACP, no Pi)
+  src/acp/                 ACP driver: JSON-RPC, v1 wire types, codec, method dispatch
+  src/pi/                  Pi bridge: provider slots, proxy discovery, Ingrazzio and the Default group,
+                           AgentSession per ACP session, tools and permissions, plugin adapters
+  src/compat/              AIR feature <-> Pi plugin requirement registry
+  src/main.ts              composition root (stdio)
+  test/                    replay simulator + fixtures extracted from Junie <-> AIR recordings
+  scripts/                 fixture extraction
+  docs/spec.md             the bridge's spec
 ```
 
 ## Tests and the replay workflow
 
 ```bash
-npm test                 # vitest: driver, replay (fake backend), Pi bridge replay (fake proxy), boundaries
-npm run typecheck
+npm install --ignore-scripts
+npm run check            # types in all packages
+npm test                 # all packages; the bridge: driver, replay (fake backend), Pi bridge (fake proxy), boundaries
+npm test --workspace pi-junie   # one package
 ```
 
 New recording (a Junie `acp-messages.jsonl`) to a fixture (redacts headers, tokens and home paths):
 
 ```bash
-node scripts/extract-fixture.ts acp-examples/<session>/derived/acp-messages.jsonl <name> [--max-prompts N]
+node packages/bridge/scripts/extract-fixture.ts acp-examples/<session>/derived/acp-messages.jsonl <name> [--max-prompts N]
 ```
 
-Then add a test in `test/replay.test.ts` that replays it and asserts the behaviour.
+Then add a test in `packages/bridge/test/replay.test.ts` that replays it and asserts the behaviour.
 `acp-examples/` holds raw recordings and is git-ignored, because it contains keys.
-
-## Pi extension dev setup (separate)
-
-```bash
-./scripts/dev.sh [--clean] [--cwd dir] [--source] [-- pi args]   # pi with ./index.ts loaded, /reload to refresh
-```
-
-Edit `index.ts` and run `/reload` inside Pi. Extension API: `../pi/packages/coding-agent/docs/extensions.md`.
