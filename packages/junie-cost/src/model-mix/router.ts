@@ -55,12 +55,17 @@ const MAX_FAILED_TURNS = 3;
 export interface EcoTarget {
 	primary(): Model<Api> | undefined;
 	implementation(): Model<Api> | undefined;
+	/** The implementation model's thinking level; `high` when unset (Junie's default, R11). */
+	implementationLevel?(): ModelThinkingLevel | undefined;
 	/** Shown when the primary model is unavailable (R2). */
 	primaryLabel: string;
 }
 
-// Eco models a runner registered under ECO_PROVIDER, by id.
-const registered = new Map<string, EcoTarget>();
+// Eco models a runner registered under ECO_PROVIDER, by id. Kept on globalThis: the runner imports this module
+// through Node while Pi loads the extension through its own loader, which makes a second instance of this module.
+const REGISTRY = Symbol.for("pi-junie-cost.eco-targets");
+const registered: Map<string, EcoTarget> = ((globalThis as Record<symbol, unknown>)[REGISTRY] as Map<string, EcoTarget> | undefined)
+	?? ((globalThis as Record<symbol, unknown>)[REGISTRY] = new Map<string, EcoTarget>());
 
 /** Make `ECO_PROVIDER/<id>` an Eco model of `target` (see isEcoModel, ecoTargetFor). */
 export function registerEcoTarget(id: string, target: EcoTarget): void {
@@ -143,7 +148,7 @@ export function ecoRoute(target: EcoTarget, request: ModelRouteRequest): ModelRo
 	const implementation = target.implementation() ?? primary;
 	const model = request.reason === "direct" || implementationTurn(request.messages) ? implementation : primary;
 	// As in Junie, the implementation model works at high effort; the primary model keeps the selected level.
-	const thinkingLevel = model === primary ? request.thinkingLevel : "high";
+	const thinkingLevel = model === primary ? request.thinkingLevel : (target.implementationLevel?.() ?? "high");
 	// A continuation on the model of the previous response keeps that response's thinking level (R13).
 	if (request.reason === "continuation" && previous
 		&& previous.model.provider === model.provider && previous.model.id === model.id) {

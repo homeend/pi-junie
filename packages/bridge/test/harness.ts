@@ -175,6 +175,8 @@ export class FakeBackend implements AgentBackend {
 			},
 			currentMix: () => undefined,
 			selectMix: async () => {},
+			ecoMode: () => undefined,
+			selectEcoMode: async () => {},
 			planMode: () => undefined,
 			selectPlanMode: async () => {},
 			approvalMode: () => approval,

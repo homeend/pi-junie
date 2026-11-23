@@ -26,7 +26,7 @@ Junie's default applies. This is the same rule Junie follows.
 | Request options (`src/request-options.ts`): `PRIMARY_MODEL_TEMPERATURE`, `PRIMARY_MODEL_MAX_TOKENS`, `PRIMARY_MODEL_PARALLEL_TOOL_CALLS=false`, `PRIMARY_MODEL_PROMPT_CACHE_ENABLED=false`, each in the API's own field (Anthropic, OpenAI Responses/Completions, Google); a profile's temperature wins | done |
 | Settings with no counterpart in Pi (`PRIMARY_CRITIQUE`, `PRIMARY_MODEL_NUM_CHOICES`, `ALLOW_CALL_EXPERT`, `VERIFY_PROJECT`, `PRIMARY_HISTORY_PROCESSOR`, ...): recorded, and the bridge logs them as having no effect (`APPLIED_SETTINGS` lists what is applied) | done |
 | Retries and the rest of non-interactive mode (`JUNIE_EXECUTION_MODE`) | plan step 6, headless runner |
-| `MODEL_MIX_ENABLED` (Eco) | plan step 7 |
+| `MODEL_MIX_ENABLED` (Eco): `true` / `false` is the starting Eco choice for Eco-capable models without a remembered choice; Eco itself (planning on the selected model, implementing on the account's implementation model) is the bridge's, with junie-cost's planner and router | done |
 
 ## Tests
 

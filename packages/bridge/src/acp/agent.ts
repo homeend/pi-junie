@@ -36,6 +36,8 @@ import {
 	encodeTurnEvent,
 	BRAVE_CONFIG_ID,
 	decodeBraveValue,
+	decodeEcoValue,
+	ECO_CONFIG_ID,
 	MessageIds,
 	standaloneMessage,
 	encodeSessionFailure,
@@ -332,6 +334,10 @@ export class AcpAgent {
 			const plan = decodeModeValue(params.value);
 			if (plan === undefined) throw RpcError.invalidParams(`Unknown mode: ${String(params.value)}`);
 			await entry.backend.selectPlanMode(plan);
+		} else if (params.configId === ECO_CONFIG_ID) {
+			const on = decodeEcoValue(params.value);
+			if (on === undefined || entry.backend.ecoMode() === undefined) throw RpcError.invalidParams(`Eco mode is not available for the current model and effort`);
+			await entry.backend.selectEcoMode(on);
 		} else if (params.configId === BRAVE_CONFIG_ID) {
 			const mode = decodeBraveValue(params.value);
 			if (!mode) throw RpcError.invalidParams(`Unknown Brave Mode value: ${String(params.value)}`);
@@ -567,6 +573,7 @@ export class AcpAgent {
 			session.planMode(),
 			this.backend.modelMixes(),
 			session.currentMix(),
+			session.ecoMode(),
 		);
 	}
 

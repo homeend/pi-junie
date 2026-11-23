@@ -31,6 +31,8 @@ export { WEB_ACCESS_PLUGIN } from "./web-access.ts";
  * repository, a copy of junie-pi's `pi-extension-junie-cost` adapted for the bridge, loaded by path (see main.ts).
  */
 export const JUNIE_COST_PLUGIN = "pi-junie-cost";
+/** Junie Cost's Eco planning tools; its planner keeps them inactive unless the session's model is an Eco model. */
+export const ECO_PLANNING_TOOLS = ["create_plan", "report_plan"];
 
 const KNOWN_PLUGINS = [SUBAGENTS_PLUGIN, TODO_PLUGIN, PLAN_MODE_PLUGIN, WEB_ACCESS_PLUGIN];
 
@@ -44,6 +46,7 @@ export function pluginTools(detected: DetectedPlugin[]): string[] {
 		...(has(detected, TODO_PLUGIN) ? TODO_TOOLS : []),
 		...(has(detected, PLAN_MODE_PLUGIN) ? PLAN_MODE_TOOLS : []),
 		...(has(detected, WEB_ACCESS_PLUGIN) ? WEB_ACCESS_TOOLS : []),
+		...(has(detected, JUNIE_COST_PLUGIN) ? ECO_PLANNING_TOOLS : []),
 	];
 }
 

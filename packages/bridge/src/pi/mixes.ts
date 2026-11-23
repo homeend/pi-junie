@@ -2,8 +2,8 @@
 // effort, from the account's `JUNIE_MIXES` feature flag (read through the Ingrazzio route, see ingrazzio.ts). Shape as
 // Junie parses it (junie-agent JunieMixesCatalogCandidate.kt), schema version 1:
 //   {schemaVersion: 1, recommended: "normal", presets: [{id, label, description, selection: {modelId, effort, ecoMode}}]}
-// `modelId` is Junie's model setting id (e.g. "claude-opus-5-5", "junie-lite"). Pi has no Eco mode, so the bridge runs
-// a level on its model and effort only.
+// `modelId` is Junie's model setting id (e.g. "claude-opus-5-5", "junie-lite"); `ecoMode` runs the level in Eco mode
+// (Junie's Model Mix, junie-cost's planner and router in this repository).
 
 import type { Logger } from "../core/log.ts";
 
@@ -14,6 +14,8 @@ export interface MixPreset {
 	modelId: string;
 	/** Junie's effort id ("none" = no reasoning effort). */
 	effort: string;
+	/** The level runs in Eco mode. */
+	eco: boolean;
 }
 
 export interface MixCatalog {
@@ -35,7 +37,7 @@ export function parseMixCatalog(value: unknown, log?: Logger): MixCatalog | unde
 	}
 	const presets: MixPreset[] = [];
 	for (const raw of root.presets as unknown[]) {
-		const p = raw as { id?: unknown; label?: unknown; description?: unknown; selection?: { modelId?: unknown; effort?: unknown } };
+		const p = raw as { id?: unknown; label?: unknown; description?: unknown; selection?: { modelId?: unknown; effort?: unknown; ecoMode?: unknown } };
 		const id = str(p?.id);
 		const label = str(p?.label);
 		const modelId = str(p?.selection?.modelId);
@@ -44,7 +46,7 @@ export function parseMixCatalog(value: unknown, log?: Logger): MixCatalog | unde
 			log?.warn(`mixes: skipped a malformed preset ${JSON.stringify(raw)}`);
 			continue;
 		}
-		presets.push({ id, label, description: str(p.description) ?? "", modelId, effort });
+		presets.push({ id, label, description: str(p.description) ?? "", modelId, effort, eco: p.selection?.ecoMode === true });
 	}
 	const recommended = str(root.recommended);
 	return { presets, ...(recommended && presets.some((p) => p.id === recommended) ? { recommended } : {}) };

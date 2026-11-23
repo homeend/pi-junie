@@ -1,7 +1,7 @@
 // Pi bridge: implements the core AgentBackend port with Pi's SDK.
 // Knows Pi (ModelRuntime, AgentSession); knows nothing about ACP.
 
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { type Api, type AssistantMessage, isContextOverflow, type Model } from "@earendil-works/pi-ai";
@@ -21,6 +21,7 @@ import { type Logger, silentLogger } from "../core/log.ts";
 import type { AgentBackend, BackendSession, PermissionAsk, PlanReviewAsk, QuestionAsk, SessionContext, TurnSink } from "../core/ports.ts";
 import type { ApprovalMode, CommandInfo, HistoryItem, PlanUpdate, McpServerSpec, ModelChoice, ModelGroup, ModelMix, ModelRef, PromptInput, ProviderBinding, ProviderSlotState, SessionSummary, SteerResult, TurnResult } from "../core/types.ts";
 import type { JunieCredentials, JunieModelChoice } from "pi-junie-config/credentials";
+import { ECO_MODELS, ECO_PROVIDER, ecoRoute, IMPLEMENTATION_MODEL_IDS, registerEcoTarget } from "pi-junie-cost/router";
 import { profileModelId, profileProvider } from "pi-junie-config/profile-provider";
 import type { JunieProfile } from "pi-junie-config/profiles";
 import { jetbrainsAiProvider } from "pi-junie-jetbrains-ai";
@@ -35,7 +36,7 @@ import { type PhaseSplitterOptions, signaturePhase } from "./phases.ts";
 import { TranscriptStream } from "./transcript.ts";
 import { TODO_TOOL, todoPlan } from "./todo.ts";
 import { PLAN_COMPLETE_TOOL, PLAN_MODE_PLUGIN, PLAN_MODE_TOOLS, readPlanModeState, REVIEW_PLAN_ID, runPlanCommand } from "./plan-mode.ts";
-import { FLAG_JUNIE_MIXES, type FeatureFlags, INGRAZZIO_SLOT, ingrazzioProvider, JUNIE_LITE, loadFeatureFlags } from "./ingrazzio.ts";
+import { FLAG_ECO_MODE_IMPLEMENTATION, FLAG_JUNIE_MIXES, type FeatureFlags, INGRAZZIO_SLOT, ingrazzioProvider, JUNIE_LITE, loadFeatureFlags } from "./ingrazzio.ts";
 import { type MixCatalog, parseMixCatalog } from "./mixes.ts";
 import { isReadOnlyCommand } from "./safe-commands.ts";
 import { FETCH_CONTENT_TOOL, WEB_READ_TOOLS, withoutBackgroundFetch } from "./web-access.ts";
@@ -96,6 +97,11 @@ export class PiBackend implements AgentBackend {
 	/** The JetBrains AI group is registered (JUNIE_API_KEY). */
 	private jetbrainsAi = false;
 	private junieModel: JunieModelChoice = {};
+	/** Eco mode as last chosen per model (`slot/model` -> on), kept across sessions like Junie's acpEcoModePerModel. */
+	private ecoChoices: Record<string, boolean>;
+	private readonly ecoChoicesFile: string;
+	/** Eco models registered in the runtime, by id (`slot/model`). */
+	private readonly ecoRegistered = new Set<string>();
 	/** Junie's custom model profiles: slot `custom:<id>` -> its provider and default thinking level. */
 	private profiles = new Map<string, { providerId: string; defaultLevel?: string }>();
 	private readonly fetchImpl?: typeof fetch;
@@ -116,6 +122,12 @@ export class PiBackend implements AgentBackend {
 	private constructor(runtime: ModelRuntime, stateDir: string, options: PiBackendOptions) {
 		this.runtime = runtime;
 		this.store = new SessionStore(stateDir);
+		this.ecoChoicesFile = join(stateDir, "eco.json");
+		try {
+			this.ecoChoices = JSON.parse(readFileSync(this.ecoChoicesFile, "utf8")) as Record<string, boolean>;
+		} catch {
+			this.ecoChoices = {};
+		}
 		this.agentDir = join(stateDir, "agent");
 		this.log = options.logger ?? silentLogger;
 		this.version = options.version ?? "0.0.0";
@@ -393,8 +405,9 @@ export class PiBackend implements AgentBackend {
 				name: s.displayName,
 				models: this.runtime
 					.getModels()
-					.filter((m) => m.provider === bridgeProviderId(s.id))
-					.map((m): ModelChoice => ({ slotId: s.id, modelId: m.id, name: m.name, contextWindow: m.contextWindow, reasoning: m.reasoning })),
+					// junie-cost registers its own `jetbrains-ai/<id>-eco` models; the bridge offers Eco as a switch instead.
+					.filter((m) => m.provider === bridgeProviderId(s.id) && !(s.id === JETBRAINS_AI_GROUP.id && m.id.endsWith("-eco")))
+					.map((m): ModelChoice => ({ slotId: s.id, modelId: m.id, name: m.name, contextWindow: m.contextWindow, reasoning: m.reasoning, ...(this.ecoLevels({ slotId: s.id, modelId: m.id }) ? { eco: true } : {}) })),
 			})),
 			...custom,
 		];
@@ -412,9 +425,84 @@ export class PiBackend implements AgentBackend {
 			const levels = getSupportedThinkingLevels(model).filter((l) => l !== "off");
 			const effort = preset.effort === "none" ? undefined : preset.effort;
 			if (effort && !levels.includes(effort as (typeof levels)[number])) continue; // the model can't run the level's effort
-			out.push({ id: preset.id, label: preset.label, description: preset.description, model: ref, modelName: model.name, ...(effort ? { effort } : {}), recommended: preset.id === catalog.recommended });
+			const ecoLevels = this.ecoLevels(ref);
+			const eco = preset.eco && !!ecoLevels && !!effort && ecoLevels.includes(effort as (typeof ecoLevels)[number]);
+			out.push({ id: preset.id, label: preset.label, description: preset.description, model: ref, modelName: model.name, ...(effort ? { effort } : {}), recommended: preset.id === catalog.recommended, ...(eco ? { eco } : {}) });
 		}
 		return out;
+	}
+
+	/** The efforts at which a model accepts Eco mode (Junie's ecoModeEfforts), undefined when it has no Eco mode. */
+	ecoLevels(ref: ModelRef | undefined): readonly string[] | undefined {
+		if (!ref || ref.slotId.startsWith("custom:")) return undefined;
+		return ECO_MODELS.find((e) => listingIdMatches(ref.modelId, e.id))?.thinkingLevels;
+	}
+
+	/** Eco mode for a model without a choice in the session: the remembered choice, else MODEL_MIX_ENABLED, else off. */
+	ecoDefault(ref: ModelRef): boolean {
+		return this.ecoChoices[`${ref.slotId}/${ref.modelId}`] ?? this.junieModel.modelMix ?? false;
+	}
+
+	rememberEco(ref: ModelRef, on: boolean): void {
+		this.ecoChoices[`${ref.slotId}/${ref.modelId}`] = on;
+		try {
+			writeFileSync(this.ecoChoicesFile, JSON.stringify(this.ecoChoices, null, 2));
+		} catch (err) {
+			this.log.warn(`Eco choices not saved: ${(err as Error).message}`);
+		}
+	}
+
+	/**
+	 * The Eco model of `ref`: a virtual model (provider `eco`) that junie-cost's router sends to `ref` while the task
+	 * plans and to the implementation model (GPT-6 Luna, else Claude Haiku 5.5, from any provider) after the plan.
+	 */
+	ecoModel(ref: ModelRef): Model<Api> | undefined {
+		const primary = this.resolveModel(ref);
+		const levels = this.ecoLevels(ref);
+		if (!primary || !levels) return undefined;
+		const id = `${ref.slotId}/${ref.modelId}`;
+		if (!this.ecoRegistered.has(id)) {
+			const target = {
+				primary: () => this.resolveModel(ref),
+				implementation: () => this.ecoImplementation(),
+				implementationLevel: () => this.ecoImplementationFlag()?.effort as "high" | undefined,
+				primaryLabel: fmt(ref),
+			};
+			registerEcoTarget(id, target);
+			this.runtime.registerVirtualModel({
+				provider: ECO_PROVIDER,
+				id,
+				name: `${primary.name} (Eco)`,
+				thinkingLevels: [...levels] as (typeof ECO_MODELS)[number]["thinkingLevels"],
+				contextWindow: primary.contextWindow,
+				route: (request) => ecoRoute(target, request),
+			});
+			this.ecoRegistered.add(id);
+			this.log.info(`Eco model ${ECO_PROVIDER}/${id} registered (implementation model now: ${this.ecoImplementation()?.id ?? "none, the primary model implements"})`);
+		}
+		return this.runtime.getModel(ECO_PROVIDER, id);
+	}
+
+	/** The account's `ECO_MODE_IMPLEMENTATION` flag (`{modelId, effort}`, from Ingrazzio), as Junie reads it. */
+	private ecoImplementationFlag(): { modelId: string; effort: string } | undefined {
+		const flags = this.ingrazzio?.flags;
+		const value = flags?.kind === "loaded" ? (flags.values[FLAG_ECO_MODE_IMPLEMENTATION] as { modelId?: unknown; effort?: unknown } | undefined) : undefined;
+		return typeof value?.modelId === "string" && typeof value.effort === "string" ? { modelId: value.modelId, effort: value.effort } : undefined;
+	}
+
+	/**
+	 * Junie's implementation model: the account flag's model when a provider offers it, else the first of Junie's
+	 * preferred models any provider offers.
+	 */
+	private ecoImplementation(): Model<Api> | undefined {
+		const flagged = this.ecoImplementationFlag()?.modelId;
+		for (const id of [...(flagged ? [flagged] : []), ...IMPLEMENTATION_MODEL_IDS]) {
+			for (const group of this.availableModels()) {
+				const found = group.models.find((m) => listingIdMatches(m.modelId, id));
+				if (found) return this.resolveModel(found);
+			}
+		}
+		return undefined;
 	}
 
 	/** A model by Junie's setting id (the mixes catalog's `modelId`). */
@@ -505,6 +593,7 @@ export class PiBackend implements AgentBackend {
 			...(source.effort ? { effort: source.effort } : {}),
 			...(source.mix ? { mix: source.mix } : {}),
 			...(source.approvalMode ? { approvalMode: source.approvalMode } : {}),
+			...(source.eco !== undefined ? { eco: source.eco } : {}),
 			...(source.title ? { title: source.title } : {}),
 			...(source.lastPromptAt ? { lastPromptAt: source.lastPromptAt } : {}),
 			...(source.planMode !== undefined ? { planMode: false } : {}),
@@ -909,8 +998,35 @@ class PiSession implements BackendSession {
 		this.backend.log.info(`session ${this.id}: model ${fmt(this.model)} -> ${fmt(ref)}`);
 		this.model = ref;
 		this.meta.mix = undefined;
+		this.meta.eco = undefined; // like Junie: the Eco choice is per model, the new model's remembered one applies
 		this.persist();
 		await this.pi?.setModel(model);
+	}
+
+	/** See BackendSession.ecoMode: offered for an explicit model whose current effort accepts Eco. */
+	ecoMode(): boolean | undefined {
+		if (this.currentMix()) return undefined;
+		const ref = this.currentModel();
+		const levels = this.backend.ecoLevels(ref);
+		const effort = this.currentEffort();
+		if (!ref || !levels || !effort || !levels.includes(effort)) return undefined;
+		return this.meta.eco ?? this.backend.ecoDefault(ref);
+	}
+
+	async selectEcoMode(on: boolean): Promise<void> {
+		const ref = this.currentModel();
+		if (!ref) return;
+		this.backend.log.info(`session ${this.id}: Eco ${on ? "on" : "off"} for ${fmt(ref)}`);
+		this.meta.eco = on;
+		this.persist();
+		this.backend.rememberEco(ref, on);
+	}
+
+	/** Eco mode for the next request: a Default level's own, else the explicit model's switch. */
+	private ecoActive(): boolean {
+		const mix = this.currentMix();
+		if (mix) return this.backend.modelMixes().find((m) => m.id === mix)?.eco === true;
+		return this.ecoMode() === true;
 	}
 
 	/** The level in use while its model and effort are still the session's (the catalog may have moved it). */
@@ -1109,13 +1225,17 @@ class PiSession implements BackendSession {
 			this.model = ref;
 			this.persist();
 		}
+		// Eco mode: the session runs on the model's Eco model, which routes each request (junie-cost's router).
+		const eco = this.ecoActive() ? this.backend.ecoModel(ref) : undefined;
+		if (this.ecoActive() && !eco) log.warn(`session ${this.id}: Eco mode is on but ${fmt(ref)} has no Eco model; running without it`);
+		const piModel = eco ?? model;
 		if (!this.pi) {
 			// The form tool exists only when the client can show forms; it asks through the running turn's QuestionAsk.
 			const askUser = this.context.questionForms ? askUserTool(() => this.askUser) : undefined;
-			this.pi = await this.backend.createPiSession(this.id, this.cwd, model, this.thinkingLevel(), this.gate, this.context, askUser);
+			this.pi = await this.backend.createPiSession(this.id, this.cwd, piModel, this.thinkingLevel(), this.gate, this.context, askUser);
 		}
 		// Same model on a new route (a new providers/set, or a client binding replacing a Junie key) counts as a change.
-		else if (this.pi.model?.id !== model.id || this.pi.model?.provider !== model.provider || !sameRoute(this.pi.model, model)) await this.pi.setModel(model);
+		else if (this.pi.model?.id !== piModel.id || this.pi.model?.provider !== piModel.provider || !sameRoute(this.pi.model, piModel)) await this.pi.setModel(piModel);
 		if (this.pi.thinkingLevel !== this.thinkingLevel()) this.pi.setThinkingLevel(this.thinkingLevel());
 		const pi = this.pi;
 		await this.syncPlanMode(pi, sink);
@@ -1131,7 +1251,7 @@ class PiSession implements BackendSession {
 			images = [];
 		}
 		const started = Date.now();
-		log.info(`session ${this.id}: prompt start model=${fmt(ref)} effort=${pi.thinkingLevel} api=${model.api} baseUrl=${model.baseUrl} chars=${text.length} images=${images.length}`);
+		log.info(`session ${this.id}: prompt start model=${fmt(ref)}${eco ? ` eco=${eco.provider}/${eco.id}` : ""} effort=${pi.thinkingLevel} api=${model.api} baseUrl=${model.baseUrl} chars=${text.length} images=${images.length}`);
 
 		let last: AssistantMessage | undefined;
 		const total = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };

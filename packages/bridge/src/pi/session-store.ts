@@ -19,6 +19,8 @@ export interface SessionMeta {
 	mix?: string;
 	/** Brave Mode: safe / auto / brave. */
 	approvalMode?: ApprovalMode;
+	/** Eco mode as chosen in this session for its explicit model (else the remembered choice for the model). */
+	eco?: boolean;
 	/** Plan mode as the user last chose it (applied to the plan-mode plugin at the next prompt). */
 	planMode?: boolean;
 	lastPromptAt?: string;

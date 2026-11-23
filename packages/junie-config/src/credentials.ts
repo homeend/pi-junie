@@ -46,10 +46,13 @@ export interface JunieModelChoice {
 	model?: string;
 	/** Junie's effort id, lower case. */
 	effort?: string;
+	/** `MODEL_MIX_ENABLED`: Eco mode for models that accept it, unless a choice for the model was remembered. */
+	modelMix?: boolean;
 }
 
 export function junieModelChoice(env: Env = process.env): JunieModelChoice {
 	const model = value(env, "JUNIE_MODEL") ?? value(env, "PRIMARY_MODEL");
 	const effort = (value(env, "JUNIE_EFFORT") ?? value(env, "PRIMARY_MODEL_REASONING_EFFORT"))?.toLowerCase();
-	return { ...(model ? { model } : {}), ...(effort ? { effort } : {}) };
+	const mix = value(env, "MODEL_MIX_ENABLED")?.toLowerCase();
+	return { ...(model ? { model } : {}), ...(effort ? { effort } : {}), ...(mix ? { modelMix: mix === "true" } : {}) };
 }

@@ -63,6 +63,8 @@ export interface ModelChoice extends ModelRef {
 	description?: string;
 	contextWindow?: number;
 	reasoning?: boolean;
+	/** The model accepts Eco mode (Junie's Model Mix) at some effort. */
+	eco?: boolean;
 }
 
 /** A preset level of the Default model group (Junie's mixes): a model and an effort under one name. */
@@ -77,6 +79,8 @@ export interface ModelMix {
 	effort?: string;
 	/** The level new sessions start on. */
 	recommended: boolean;
+	/** The level runs in Eco mode (Junie's Model Mix). */
+	eco?: boolean;
 }
 
 export interface ModelGroup {

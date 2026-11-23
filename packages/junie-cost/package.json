@@ -6,7 +6,8 @@
 	"type": "module",
 	"exports": {
 		".": "./src/index.ts",
-		"./summarization-client": "./src/summarization-client.ts"
+		"./summarization-client": "./src/summarization-client.ts",
+		"./router": "./src/model-mix/router.ts"
 	},
 	"pi": {
 		"extensions": ["./src/index.ts"]

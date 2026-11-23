@@ -50,7 +50,7 @@ curated model list per slot.
 flags through that route, `GET <baseUrl>/api/feature-flags/ga` with the binding's headers, as Junie does
 (`RemoteFeatureFlags.kt`). The flags include `JUNIE_MIXES` (Junie's Default model group: Lite/Normal/Hard/Frontier as
 model + effort + Eco) and `ECO_MODE_IMPLEMENTATION`. The bridge logs them and builds the Default group from
-`JUNIE_MIXES` (below); `ECO_MODE_IMPLEMENTATION` is logged only (no Eco in Pi).
+`JUNIE_MIXES` (below); `ECO_MODE_IMPLEMENTATION` (`{modelId, effort}`) is Eco's implementation model (below).
 It also offers **Junie Lite** (group "JetBrains AI") there, called like Junie does: Qwen3.6 27B
 (`Qwen/Qwen3.6-27B-FP8`) as OpenAI chat completions at `<baseUrl>/llm/vllm/v1/chat/completions`, with Ingrazzio's
 routing headers `X-LLM-Model: jbai`, `X-Keep-Path: true` and the free license (`X-Forced-License-Free: true`,
@@ -60,11 +60,27 @@ offered without discovery (as in Junie).
 **Default group** (`src/pi/mixes.ts`). From `JUNIE_MIXES` (schema 1: `recommended` plus presets `{id, label,
 description, selection: {modelId, effort, ecoMode}}`) the bridge builds Junie's Default group: the first group of
 the `model` option, `{group: "default", name: "Default", _meta.jetbrains.air: {version: 1, defaultGroup:
-{description}}}`, with values `mix.<id>` carrying `_meta.jetbrains.air {eco: "off", modelDisplayName}`. A level is
+{description}}}`, with values `mix.<id>` carrying `_meta.jetbrains.air {eco: "on"|"off", modelDisplayName}`. A level is
 listed only when its model is reachable (Junie's setting id, matched like discovery; `junie-lite` = Junie Lite) and
 supports its effort. Picking a level sets its model and effort; a new chat starts on the recommended level; picking
-a model or an effort by hand makes the choice manual (`currentValue` becomes the model). Eco is always reported
-off: Pi has no Eco mode (Junie: the level's model plans, `ECO_MODE_IMPLEMENTATION`'s model implements).
+a model or an effort by hand makes the choice manual (`currentValue` becomes the model). A level is Eco when its
+preset says `ecoMode` and its model accepts Eco at its effort.
+
+**Eco mode** (Junie's Model Mix; planner and router from `packages/junie-cost`). The selected model plans with
+`create_plan` / `report_plan` (junie-cost's planner, read-only exploration), then the implementation model takes the
+rest of the task: the `ECO_MODE_IMPLEMENTATION` flag's model and effort when a provider offers it, else GPT-6 Luna,
+else Claude Haiku 5.5, at `high`, from any provider. The bridge registers a virtual model `eco/<slot>/<model>` per
+Eco-capable model (Junie's ecoModeEfforts list, `ECO_MODELS`) when first used; junie-cost's router routes each request
+from its conversation (the sessions share the runtime). Junie's ACP contract:
+- explicit Eco-capable models carry `_meta.jetbrains.air {version: 1, eco: "toggle"}` in the model option;
+- a boolean option `eco` (category `model_config`, `_meta.jetbrains.air {version: 1, kind: "eco"}`) is listed only
+  while an explicit model is selected and its current effort accepts Eco; setting it elsewhere is `-32602`;
+- the choice is remembered per model (`<stateDir>/eco.json`, like Junie's `acpEcoModePerModel`); a model without a
+  remembered choice starts with `MODEL_MIX_ENABLED` (true/false), else off (Junie starts with Eco on wherever
+  available; pi-junie keeps it off until chosen);
+- a Default level runs in Eco when the level says so;
+- the tool allowlist includes `create_plan` / `report_plan` with Junie Cost; its planner keeps them inactive unless the
+  session's model is an Eco model.
 
 ACP version: v1, matching the Junie examples. The codec keeps version-specific paths (v1
 `clientCapabilities`/`agentCapabilities`, v2 `capabilities`) in one place so v2 can be added later.

@@ -4,6 +4,8 @@ import { randomUUID } from "node:crypto";
 import type { ApprovalMode, ClientProfile, CommandInfo, HistoryItem, McpServerSpec, ModelGroup, ModelMix, ModelRef, PromptImage, PromptInput, ProviderBinding, PermissionDecision, PermissionRequest, PlanDecision, PlanReview, PlanUpdate, ProviderSlotState, SessionSummary, ToolUpdate, TurnEvent, TurnResult, MessagePhase, QuestionAnswers, QuestionForm, TurnFailure } from "../core/types.ts";
 import { RpcError } from "./jsonrpc.ts";
 import type {
+	BooleanConfigOption,
+	ConfigOption,
 	ContentBlock,
 	InitializeParams,
 	ProviderListEntry,
@@ -16,6 +18,28 @@ import type {
 export const MODEL_CONFIG_ID = "model";
 export const EFFORT_CONFIG_ID = "effort";
 export const BRAVE_CONFIG_ID = "brave_mode";
+/** Junie's Eco toggle (boolean, category model_config, AIR kind `eco`). */
+export const ECO_CONFIG_ID = "eco";
+
+function encodeEcoOption(on: boolean): BooleanConfigOption {
+	return {
+		type: "boolean",
+		id: ECO_CONFIG_ID,
+		name: "Eco",
+		description: "A strong model plans, a cheaper model implements the plan",
+		category: "model_config",
+		currentValue: on,
+		_meta: { jetbrains: { air: { version: 1, kind: "eco" } } },
+	};
+}
+
+/** An `eco` value: a boolean, or its string form. */
+export function decodeEcoValue(value: unknown): boolean | undefined {
+	if (typeof value === "boolean") return value;
+	if (value === "true" || value === "on") return true;
+	if (value === "false" || value === "off") return false;
+	return undefined;
+}
 
 /** Junie's Brave Mode values on the wire. */
 const BRAVE_VALUES: Record<ApprovalMode, string> = { auto: "brave-auto", brave: "on", safe: "off" };
@@ -113,7 +137,7 @@ function encodeDefaultGroup(mixes: ModelMix[]): SelectGroup {
 			value: `${MIX_VALUE_PREFIX}${m.id}`,
 			name: m.label,
 			description: m.description,
-			_meta: { jetbrains: { air: { version: 1, eco: "off", modelDisplayName: m.modelName } } },
+			_meta: { jetbrains: { air: { version: 1, eco: m.eco ? "on" : "off", modelDisplayName: m.modelName } } },
 		})),
 		_meta: { jetbrains: { air: { version: 1, defaultGroup: { description: "Uses recommended models." } } } },
 	};
@@ -293,13 +317,20 @@ export function encodeConfigOptions(
 	planMode?: boolean,
 	mixes: ModelMix[] = [],
 	currentMix?: string,
-): SelectConfigOption[] {
+	eco?: boolean,
+): ConfigOption[] {
 	const nonEmpty = groups.filter((g) => g.models.length > 0);
 	if (nonEmpty.length === 0) return [];
 	const providerGroups: SelectGroup[] = nonEmpty.map((g) => ({
 		group: `proxy:${g.slotId}`,
 		name: g.name,
-		options: g.models.map((m) => ({ value: encodeModelValue(m), name: m.name, description: m.description ?? "" })),
+		options: g.models.map((m) => ({
+			value: encodeModelValue(m),
+			name: m.name,
+			description: m.description ?? "",
+			// Junie: an explicit model that accepts Eco at some effort lets the user toggle it.
+			...(m.eco ? { _meta: { jetbrains: { air: { version: 1, eco: "toggle" } } } } : {}),
+		})),
 	}));
 	const fallback = nonEmpty[0].models[0];
 	const modelOption: SelectConfigOption[] = [
@@ -314,7 +345,13 @@ export function encodeConfigOptions(
 		},
 	];
 	// Like Junie, the mode option comes first.
-	return [...(planMode !== undefined ? [encodeModeOption(planMode)] : []), ...modelOption, ...encodeEffortOption(effort), ...(approval ? [encodeBraveOption(approval)] : [])];
+	return [
+		...(planMode !== undefined ? [encodeModeOption(planMode)] : []),
+		...modelOption,
+		...encodeEffortOption(effort),
+		...(eco !== undefined ? [encodeEcoOption(eco)] : []),
+		...(approval ? [encodeBraveOption(approval)] : []),
+	];
 }
 
 // --- prompt ---------------------------------------------------------------------------------

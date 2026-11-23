@@ -9,7 +9,9 @@
 >   planner's state, because pi-junie's sessions share one model runtime (an extension's virtual models live there,
 >   so the router saw only the session that registered last). Pairs are provider-neutral: a runner registers Eco
 >   models of its own providers under the `eco` provider (`registerEcoTarget`), with any primary and implementation
->   model. Tests: `test/router.test.ts`.
+>   model; the registry lives on `globalThis`, since the runner's import and Pi's extension loader make two instances
+>   of the module. An Eco target may name the implementation model's thinking level (the account's
+>   `ECO_MODE_IMPLEMENTATION` effort). Tests: `test/router.test.ts`.
 > - package name `pi-junie-cost`, private; the live integration tests (`test/*.integration.test.ts`, which need
 >   junie-pi's `jetbrains-ai` package and model quota) are not copied, the bridge tests it offline
 >   (`packages/bridge/test/junie-cost.test.ts`).

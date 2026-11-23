@@ -41,6 +41,12 @@ export interface BackendSession {
 	selectMix(id: string): Promise<void>;
 	/** How tool calls are approved in this session (Brave Mode). */
 	approvalMode(): ApprovalMode;
+	/**
+	 * Eco mode (Junie's Model Mix) of the explicitly selected model, or undefined when the choice is not offered:
+	 * a Default level is selected (it fixes Eco itself), or the model does not accept Eco at the current effort.
+	 */
+	ecoMode(): boolean | undefined;
+	selectEcoMode(on: boolean): Promise<void>;
 	selectApprovalMode(mode: ApprovalMode): Promise<void>;
 	/**
 	 * Plan mode (the agent only investigates and writes a plan for review): on/off, or undefined when this session has
