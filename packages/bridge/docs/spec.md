@@ -272,7 +272,9 @@ that unlock each one:
   (`pi install <path>`), among the agent dir's `settings.json` `packages` (paths relative to the agent dir, matched by
   package.json name); it reports name + version,
   and loads it into every session by path (`additionalExtensionPaths`; other on-disk extensions stay off).
-  `PI_AIR_PLUGINS=0` skips plugins.
+  `PI_AIR_PLUGINS=0` skips plugins. A package switched off in Pi itself (an entry with `extensions: []`, as
+  `pi config` and the plugin manager's `/plugins off` write it) is skipped too; the change applies when the agent
+  starts.
 - Junie's keys and model choice (`junie` option, read by `packages/junie-config/src/credentials.ts` in main.ts):
   - `JUNIE_API_KEY` registers the copied jetbrains-ai provider (`registerNativeProvider`, provider `jetbrains-ai`)
     as the model group `jetbrains-ai` ("JetBrains AI"); the provider reads the key from the environment.

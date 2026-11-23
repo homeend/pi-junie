@@ -86,9 +86,14 @@ export interface DetectedPlugin {
  * `settings.json` (`packages`, relative to the agent dir), matched by their package.json name.
  */
 export function detectPlugins(piAgentDir: string, log?: Logger): DetectedPlugin[] {
-	const local = localPackages(piAgentDir, log);
+	const { local, off } = settingsPackages(piAgentDir, log);
 	const found: DetectedPlugin[] = [];
 	for (const name of KNOWN_PLUGINS) {
+		// Switched off in Pi itself (`/plugins off`, `pi config`): the entry loads none of its extensions.
+		if (off.has(name)) {
+			log?.info(`plugin ${name} switched off in ${join(piAgentDir, "settings.json")}; not loaded`);
+			continue;
+		}
 		const npmPath = join(piAgentDir, "npm", "node_modules", name);
 		const path = existsSync(join(npmPath, "package.json")) ? npmPath : local.get(name);
 		if (!path) {
@@ -125,27 +130,40 @@ function readManifest(dir: string, log?: Logger): { name?: string; version?: str
 	}
 }
 
-/** Local package directories from the agent dir's settings.json, by package name. */
-function localPackages(piAgentDir: string, log?: Logger): Map<string, string> {
+/**
+ * From the agent dir's settings.json: local package directories by package name, and the names of the packages that
+ * are switched off (an entry with `extensions: []`, how `pi config` and the plugin manager's `/plugins off` mark it).
+ */
+function settingsPackages(piAgentDir: string, log?: Logger): { local: Map<string, string>; off: Set<string> } {
 	const out = new Map<string, string>();
+	const off = new Set<string>();
+	const result = { local: out, off };
 	const settingsFile = join(piAgentDir, "settings.json");
-	if (!existsSync(settingsFile)) return out;
+	if (!existsSync(settingsFile)) return result;
 	let packages: unknown;
 	try {
 		packages = (JSON.parse(readFileSync(settingsFile, "utf8")) as { packages?: unknown }).packages;
 	} catch (err) {
 		log?.warn(`plugins: unreadable ${settingsFile} (${(err as Error).message})`);
-		return out;
+		return result;
 	}
-	if (!Array.isArray(packages)) return out;
+	if (!Array.isArray(packages)) return result;
 	for (const entry of packages) {
 		// An entry is a source string or {source, ...filters}; npm: and git sources live elsewhere.
 		const source = typeof entry === "string" ? entry : (entry as { source?: unknown } | null)?.source;
-		if (typeof source !== "string" || /^(npm|git|https?|ssh):/.test(source) || source.startsWith("git@")) continue;
+		if (typeof source !== "string") continue;
+		const extensions = typeof entry === "object" && entry !== null ? (entry as { extensions?: unknown }).extensions : undefined;
+		const switchedOff = Array.isArray(extensions) && extensions.length === 0;
+		if (source.startsWith("npm:")) {
+			if (switchedOff) off.add(source.slice(4).replace(/(.)@[^/]*$/, "$1"));
+			continue;
+		}
+		if (/^(git|https?|ssh):/.test(source) || source.startsWith("git@")) continue;
 		const expanded = source === "~" || source.startsWith("~/") ? join(homedir(), source.slice(1)) : source;
 		const dir = isAbsolute(expanded) ? expanded : resolve(piAgentDir, expanded);
 		const name = readManifest(dir, log)?.name;
-		if (name && !out.has(name)) out.set(name, dir);
+		if (name && switchedOff) off.add(name);
+		else if (name && !out.has(name)) out.set(name, dir);
 	}
-	return out;
+	return result;
 }

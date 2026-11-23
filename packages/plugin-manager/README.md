@@ -14,6 +14,9 @@ installed) the way `pi config` does: off is the filter `{"source": "...", "exten
 package's extensions; on removes it again. Then Pi reloads, so the change applies to the running session at once and
 stays for the next ones. The package stays installed either way.
 
+pi-junie (the AIR bridge) honours the switch for the plugins it detects (subagents, todo list, plan mode, web
+access) when its agent starts. Its built-in Junie Cost and Junie Config are controlled in AIR's `acp.json` instead.
+
 The plugin manager lists itself but cannot switch itself off (that would remove `/plugins`); use `pi config` for it.
 
 Install: `pi install <pi-junie>/packages/plugin-manager`. Tests: `npm test --workspace pi-junie-plugin-manager`.

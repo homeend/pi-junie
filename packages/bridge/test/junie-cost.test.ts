@@ -32,6 +32,25 @@ describe("local plugin packages", () => {
 		expect(detectPlugins(agentDirWithPackages(["../nothing-here"]))).toEqual([]);
 	});
 
+	it("skips a plugin switched off in Pi (/plugins off, pi config): npm and local entries with extensions: []", () => {
+		const agentDir = mkdtempSync(join(tmpdir(), "pi-junie-piagent-"));
+		for (const name of ["@juicesharp/rpiv-todo", "@narumitw/pi-plan-mode"]) {
+			const dir = join(agentDir, "npm", "node_modules", name);
+			mkdirSync(dir, { recursive: true });
+			writeFileSync(join(dir, "package.json"), JSON.stringify({ name, version: "1.0.0" }));
+		}
+		const web = mkdtempSync(join(tmpdir(), "pi-junie-web-access-"));
+		writeFileSync(join(web, "package.json"), JSON.stringify({ name: WEB_ACCESS_PLUGIN, version: "0.1.0" }));
+		writeFileSync(
+			join(agentDir, "settings.json"),
+			JSON.stringify({ packages: [{ source: "npm:@juicesharp/rpiv-todo@1.0.0", extensions: [] }, "npm:@narumitw/pi-plan-mode", { source: web, extensions: [] }] }),
+		);
+		expect(detectPlugins(agentDir).map((p) => p.name)).toEqual(["@narumitw/pi-plan-mode"]);
+		// a filter that keeps some extensions (pi config's per-file `-path`) is not "off"
+		writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ packages: [{ source: "npm:@juicesharp/rpiv-todo", extensions: ["-src/x.ts"] }] }));
+		expect(detectPlugins(agentDir).map((p) => p.name)).toEqual(["@juicesharp/rpiv-todo", "@narumitw/pi-plan-mode"]);
+	});
+
 	it("tolerates a missing or broken settings.json", () => {
 		const agentDir = mkdtempSync(join(tmpdir(), "pi-junie-piagent-"));
 		expect(detectPlugins(agentDir)).toEqual([]);
