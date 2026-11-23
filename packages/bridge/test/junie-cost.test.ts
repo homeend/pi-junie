@@ -1,13 +1,13 @@
-// Junie Cost (pi-extension-junie-cost from the junie-pi repository) is not on npm: `pi install <path>` lists its
-// directory in the Pi agent dir's settings.json, where the bridge finds it. The end-to-end check runs against the
-// real package when it is there: set JUNIE_COST_DIR, or keep a checkout at ~/repos/jb/junie-pi.
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+// Plugins installed from a local path (`pi install <path>` lists the directory in the Pi agent dir's settings.json)
+// are found there; Junie Cost ships with the bridge (packages/junie-cost) and is loaded by path.
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
 import { AcpAgent } from "../src/acp/agent.ts";
 import { PiBackend } from "../src/pi/backend.ts";
-import { detectPlugins, JUNIE_COST_PLUGIN } from "../src/pi/plugins.ts";
+import { bundledPlugin, detectPlugins, JUNIE_COST_PLUGIN, WEB_ACCESS_PLUGIN } from "../src/pi/plugins.ts";
 import { type FakeRequest, startFakeProxy } from "./fake-proxy.ts";
 import { MemoryWire } from "./harness.ts";
 
@@ -19,16 +19,16 @@ function agentDirWithPackages(packages: unknown[]): string {
 	return agentDir;
 }
 
-describe("Junie Cost detection", () => {
+describe("local plugin packages", () => {
 	it("finds a local package that `pi install <path>` listed in settings.json, by its package name", () => {
-		const pkg = mkdtempSync(join(tmpdir(), "pi-junie-junie-cost-"));
-		writeFileSync(join(pkg, "package.json"), JSON.stringify({ name: JUNIE_COST_PLUGIN, version: "0.1.0", pi: { extensions: ["./index.ts"] } }));
+		const pkg = mkdtempSync(join(tmpdir(), "pi-junie-web-access-"));
+		writeFileSync(join(pkg, "package.json"), JSON.stringify({ name: WEB_ACCESS_PLUGIN, version: "0.1.0", pi: { extensions: ["./index.ts"] } }));
 		const other = mkdtempSync(join(tmpdir(), "pi-junie-other-"));
 		writeFileSync(join(other, "package.json"), JSON.stringify({ name: "something-else" }));
-		const agentDir = agentDirWithPackages(["npm:pi-web-access", other, { source: "../missing" }]);
 		// Pi stores the path relative to the agent dir
-		writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ packages: ["npm:pi-web-access", other, { source: "../missing" }, relative(agentDir, pkg)] }));
-		expect(detectPlugins(agentDir)).toEqual([{ name: JUNIE_COST_PLUGIN, version: "0.1.0", path: pkg }]);
+		const agentDir = mkdtempSync(join(tmpdir(), "pi-junie-piagent-"));
+		writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ packages: ["npm:@juicesharp/rpiv-todo", other, { source: "../missing" }, relative(agentDir, pkg)] }));
+		expect(detectPlugins(agentDir)).toEqual([{ name: WEB_ACCESS_PLUGIN, version: "0.1.0", path: pkg }]);
 		expect(detectPlugins(agentDirWithPackages(["../nothing-here"]))).toEqual([]);
 	});
 
@@ -41,9 +41,13 @@ describe("Junie Cost detection", () => {
 	});
 });
 
-const realDir = process.env.JUNIE_COST_DIR ?? join(homedir(), "repos/jb/junie-pi/packages/junie-cost");
+const junieCostDir = fileURLToPath(new URL("../../junie-cost", import.meta.url));
 
-describe.skipIf(!existsSync(join(realDir, "package.json")))("real Junie Cost in a bridge session", () => {
+describe("built-in Junie Cost in a bridge session", () => {
+	it("is described by its package.json", () => {
+		expect(bundledPlugin(junieCostDir)).toEqual({ name: JUNIE_COST_PLUGIN, version: "0.1.0", path: junieCostDir });
+	});
+
 	it("cuts long bash output for the model, summarizes it with the cheap model and keeps the full log", async () => {
 		const summaryPrompt = (req: FakeRequest) => JSON.stringify(req.body.system ?? "").includes("Summarize the result of a tool call");
 		const proxy = await startFakeProxy({
@@ -57,7 +61,7 @@ describe.skipIf(!existsSync(join(realDir, "package.json")))("real Junie Cost in 
 			},
 		});
 		afterAll(() => proxy.close());
-		const backend = await PiBackend.create({ stateDir: mkdtempSync(join(tmpdir(), "pi-junie-test-")), piAgentDir: agentDirWithPackages([realDir]) });
+		const backend = await PiBackend.create({ stateDir: mkdtempSync(join(tmpdir(), "pi-junie-test-")), bundledPlugins: [junieCostDir] });
 		const wire = new MemoryWire();
 		wire.clientHandler = (method) => (method === "session/request_permission" ? { outcome: { outcome: "selected", optionId: "allow_once" } } : {});
 		new AcpAgent(wire.agentTransport, backend);

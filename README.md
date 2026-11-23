@@ -33,14 +33,13 @@ pi install npm:@tintinweb/pi-subagents   # subagents as AIR child sessions
 pi install npm:@juicesharp/rpiv-todo     # todo list as AIR's plan / Todo dock
 pi install npm:@narumitw/pi-plan-mode    # plan mode with Junie's plan review
 pi install npm:pi-web-access             # web search and fetch
-pi install <junie-pi>/packages/junie-cost  # Junie's cost savings (not on npm: from a junie-pi checkout)
 ```
 
-Junie Cost (`pi-extension-junie-cost`) cuts long tool output (with a cheap-model summary of big `bash` output and
-the full log next to the session), thins old tool results when that beats re-caching the prompt, builds `/compact`
-summaries from a task journal, and fixes millisecond `bash` timeouts. Its Eco mode needs Pi's `jetbrains-ai`
-provider, which bridge sessions do not have, so it stays off. Note that `pi install` also turns it on for Pi in the
-terminal.
+Built in, no install: Junie Cost (`packages/junie-cost`, a copy of junie-pi's package). It cuts long tool output
+(with a cheap-model summary of big `bash` output and the full log next to the session), thins old tool results when
+that beats re-caching the prompt, builds `/compact` summaries from a task journal, and fixes millisecond `bash`
+timeouts. Its Eco mode still needs Pi's `jetbrains-ai` provider, which bridge sessions do not have, so it stays off
+for now. `PI_AIR_JUNIE_COST=0` leaves it out.
 
 - Log: `.pi-dev/pi-air.log` (override with `PI_AIR_LOG`). Format: `<time> <LEVEL> <scope> <message>`:
   - `pi-junie`: process start, exit, signals, crashes
@@ -52,7 +51,7 @@ terminal.
   Readable summary: `grep -v ':wire ' .pi-dev/pi-air.log`
 - Switches: `PI_AIR_TRUST_PROJECT=0` (no project skills), `PI_AIR_JUNIE_EXECUTE_TOOL=0` (IDE router keeps its
   MCP name instead of Junie's `execute_tool`; see `packages/bridge/src/pi/junie-compat.ts`), `PI_AIR_PLUGINS=0` (no plugins),
-  `PI_AIR_WELCOME=0` (no welcome message).
+  `PI_AIR_WELCOME=0` (no welcome message), `PI_AIR_JUNIE_COST=0` (no Junie Cost).
 - Node binary: taken from `PATH`, otherwise the newest `~/.nvm` Node 24+. Override with `PI_AIR_NODE`.
 - Pi state for the bridge is kept apart from your `~/.pi/agent` (in `~/.pi/pi-junie/`), so your own Pi
   logins are never sent to AIR's proxy.
@@ -72,6 +71,7 @@ packages/bridge/           pi-junie, the ACP bridge (package "pi-junie")
   test/                    replay simulator + fixtures extracted from Junie <-> AIR recordings
   scripts/                 fixture extraction
   docs/spec.md             the bridge's spec
+packages/junie-cost/       Junie Cost, built-in plugin (copy of junie-pi's package, adapted here)
 ```
 
 ## Tests and the replay workflow

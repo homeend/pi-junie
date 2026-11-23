@@ -257,14 +257,16 @@ that unlock each one:
   package.json name); it reports name + version,
   and loads it into every session by path (`additionalExtensionPaths`; other on-disk extensions stay off).
   `PI_AIR_PLUGINS=0` skips plugins.
+- Built-in plugins: packages of this repository passed as `bundledPlugins` (main.ts) and loaded the same way. Today
+  only Junie Cost (`packages/junie-cost`); `PI_AIR_JUNIE_COST=0` leaves it out.
 - Welcome: a new chat (session/new only, not resume/load) opens with one `agent_message_chunk` from the agent,
   sent after the response: the Pi version and, for each known plugin (subagents, todo list, plan mode, web access,
-  Junie Cost),
+  and Junie Cost as built in),
   whether it is available (with the install command when not). It is not part of the Pi transcript, so it is not replayed. `PI_AIR_WELCOME=0` turns it off. The
   startup log also says `subagents: available` / `subagents: not available`.
 - Known plugins (`KNOWN_PLUGINS`): `@tintinweb/pi-subagents`, `@juicesharp/rpiv-todo`, `@narumitw/pi-plan-mode`,
-  `pi-web-access`, `pi-extension-junie-cost`. Sessions enable only their listed tools (Pi's tool allowlist).
-- Junie Cost (`pi-extension-junie-cost`, from the junie-pi repository, not on npm): works through Pi's hooks only,
+  `pi-web-access`. Sessions enable only their listed tools (Pi's tool allowlist).
+- Junie Cost (`pi-junie-cost`, built in from `packages/junie-cost`, a copy of junie-pi's package): works through Pi's hooks only,
   with no tools the bridge enables. `read` gets a 100-line default window; `bash` output over 10,000 characters is
   cut to head and tail with a 3–4-sentence summary from the slot's cheap model (`claude-haiku-5-5`, `gpt-6-luna`,
   Gemini Flash Lite; else the session model), the full output in `<session>.outputs/` next to the Pi transcript; old
@@ -273,7 +275,7 @@ that unlock each one:
   milliseconds. AIR shows the cut output. Its journal and usage entries are not messages, so replay ignores them.
   Eco (`jetbrains-ai/<id>-eco` virtual models, `create_plan` / `report_plan`) needs Pi's `jetbrains-ai` provider:
   bridge sessions never offer those models, so Eco stays inert. Checked end to end against the real package in
-  `test/junie-cost.test.ts` (skipped without a checkout; `JUNIE_COST_DIR` points at one).
+  `test/junie-cost.test.ts`.
 - Subagents (`@tintinweb/pi-subagents`, chosen because its children are in-process Pi sessions on the
   bridge's model runtime, reachable as live `AgentSession`s): sessions get its `Agent`, `get_subagent_result`
   and `steer_subagent` tools (they run without asking; the children's own tools are gated).

@@ -5,6 +5,7 @@
 //   scopes: pi-junie (process), acp (requests), wire (raw JSON-RPC, redacted), pi (bridge), http (LLM calls)
 // PI_AIR_WIRE=0 disables the raw wire lines; PI_AIR_DEBUG=1 enables debug lines.
 
+import { fileURLToPath } from "node:url";
 import { appendFileSync } from "node:fs";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { AcpAgent } from "./acp/agent.ts";
@@ -116,6 +117,8 @@ const backend = await PiBackend.create({
 	trustProject: process.env.PI_AIR_TRUST_PROJECT !== "0", // PI_AIR_TRUST_PROJECT=0: no project skills
 	// Junie compatibility: AIR's IDE router as `execute_tool` (PI_AIR_JUNIE_EXECUTE_TOOL=0 keeps the MCP name)
 	junieCompat: { executeToolAlias: process.env.PI_AIR_JUNIE_EXECUTE_TOOL !== "0" },
+	// Built-in plugins from this repository's packages: Junie Cost (PI_AIR_JUNIE_COST=0 leaves it out).
+	bundledPlugins: process.env.PI_AIR_JUNIE_COST === "0" ? [] : [fileURLToPath(new URL("../../junie-cost", import.meta.url))],
 	// Plugins installed with `pi install` (e.g. subagents) are found in the user's Pi agent dir; PI_AIR_PLUGINS=0 skips them.
 	piAgentDir: process.env.PI_AIR_PLUGINS === "0" ? undefined : getAgentDir(),
 	// New chats open with a welcome message (Pi version, subagents available or not); PI_AIR_WELCOME=0 turns it off.

@@ -1,6 +1,12 @@
 # Plan: run pi-junie the way Junie runs on the eval
 
-Status: proposal, 2026-11-23. Nothing here is implemented yet.
+Status: accepted 2026-11-23, in progress.
+
+Decisions (§7): both targets (eval and local runs); assume the eval may set any of Junie's settings; junie-cost is
+copied into this repository (`packages/junie-cost`) and changed here; `junie-config` lives here too. The repository
+became an npm workspace like junie-pi (`packages/bridge`, `packages/junie-cost`, next `packages/junie-config`).
+
+Done: workspace layout; junie-cost copied and built into the bridge.
 
 ## 1. Where we are
 
@@ -109,7 +115,7 @@ them.
 junie-cost's Eco is fixed to the `jetbrains-ai` provider: both the virtual models and the router use it. With vendor
 keys or custom profiles, `MODEL_MIX_ENABLED=true` would therefore do nothing. Options:
 
-1. **(recommended) Change junie-cost upstream.** Add an option for the provider of the primary and implementation
+1. **(chosen, in our copy) Make the router provider-neutral.** Add an option for the provider of the primary and implementation
    models, plus the implementation model ids, so the router works across providers. It is a small change in
    `model-mix/router.ts` and keeps one Eco implementation.
 2. Our own Eco in `junie-config`, copying junie-cost's planner. That makes two copies to keep in step.
@@ -139,7 +145,7 @@ keys or custom profiles, `MODEL_MIX_ENABLED=true` would therefore do nothing. Op
 6. **`pi-junie run`.** The headless runner: non-interactive mode, Pi JSON output, exit codes. End-to-end test with the
    fake proxy, checking that the output parses the way `PiExecutor` reads it, using `pi/print-json.jsonl` from
    `cli-evals` tests as the reference.
-7. **Eco across providers.** Prepare the junie-cost change (§4.1) as a patch for junie-pi, then map
+7. **Eco across providers.** Make the router of our junie-cost copy provider-neutral (§4.1), then map
    `MODEL_MIX_ENABLED` onto it, together with the Default group levels marked `ecoMode`.
 8. **Harness patches** (§3.3) for `cli-evals` and the install script, plus a local dry run.
    - The dry run: the eval prompt, one SWE-bench task in a container, pi-junie headless.
@@ -149,8 +155,7 @@ keys or custom profiles, `MODEL_MIX_ENABLED=true` would therefore do nothing. Op
    - Feature map row.
    - Update this plan to "done".
 
-Steps 1–6 are self-contained and testable here. Step 7 depends on junie-pi accepting the change; step 8 on access to
-the harness branch and an eval run.
+Steps 1–6 are self-contained and testable here. Step 8 depends on access to the harness branch and an eval run.
 
 ## 6. Not covered, on purpose
 
@@ -160,12 +165,9 @@ the harness branch and an eval run.
   features with no Pi counterpart. They are logged as ignored.
 - Junie's trajectory format. pi-junie produces Pi's JSON events, which the harness already parses for Pi.
 
-## 7. Open questions
+## 7. Decisions (2026-11-23)
 
-1. **Target.** Eval parity (harness reads the env, headless runs), local runs with Junie's keys and profiles, or both?
-   The plan covers both; steps 6 and 8 serve only the eval.
-2. **Harness access.** Who owns `dsushentsev/add-junie-in-pi-agent` and the `swebench_matterhorn` Pi scripts? The
-   exact values Junie's eval jobs set are needed to mirror them.
-3. **Eco.** Change junie-cost upstream (recommended) or keep a copy here?
-4. **Where `junie-config` lives.** In this repository, or in junie-pi next to junie-cost? It is a plain Pi plugin, so
-   it fits either.
+1. **Target:** both, the eval and local runs with Junie's keys and profiles.
+2. **Harness values:** unknown; assume a job may set any of Junie's settings, so `junie-config` handles all of §1.
+3. **Eco:** junie-cost is copied into this repository and its router made provider-neutral here.
+4. **`junie-config`:** lives in this repository, as `packages/junie-config`.

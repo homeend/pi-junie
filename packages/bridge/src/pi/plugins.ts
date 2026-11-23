@@ -27,18 +27,15 @@ export { WEB_ACCESS_PLUGIN } from "./web-access.ts";
 
 /**
  * Junie Cost (Junie's cost savings for Pi: tool-output limits and summaries, cache-aware history thinning, task-journal
- * compaction, accounted cheap-model requests, bash timeout guidance). Not on npm: installed from a local checkout of
- * the junie-pi repository with `pi install <path>/packages/junie-cost`. Registers no tools the bridge enables; its Eco
- * mode needs Pi's `jetbrains-ai` provider, which bridge sessions do not have, so Eco stays inert.
+ * compaction, accounted cheap-model requests, bash timeout guidance). Built in: `packages/junie-cost` in this
+ * repository, a copy of junie-pi's `pi-extension-junie-cost` adapted for the bridge, loaded by path (see main.ts).
  */
-export const JUNIE_COST_PLUGIN = "pi-extension-junie-cost";
+export const JUNIE_COST_PLUGIN = "pi-junie-cost";
 
-const KNOWN_PLUGINS = [SUBAGENTS_PLUGIN, TODO_PLUGIN, PLAN_MODE_PLUGIN, WEB_ACCESS_PLUGIN, JUNIE_COST_PLUGIN];
+const KNOWN_PLUGINS = [SUBAGENTS_PLUGIN, TODO_PLUGIN, PLAN_MODE_PLUGIN, WEB_ACCESS_PLUGIN];
 
 /** How the welcome message tells the user to install a plugin that is missing. */
-const INSTALL_HINT: Record<string, string> = {
-	[JUNIE_COST_PLUGIN]: "install from a junie-pi checkout with `pi install <junie-pi>/packages/junie-cost`",
-};
+const INSTALL_HINT: Record<string, string> = {};
 
 /** Tools of the detected plugins that bridge sessions enable. */
 export function pluginTools(detected: DetectedPlugin[]): string[] {
@@ -67,7 +64,9 @@ export function pluginWelcomeLines(detected: DetectedPlugin[]): string[] {
 		line("Todo list", TODO_PLUGIN),
 		line("Plan mode", PLAN_MODE_PLUGIN),
 		line("Web access", WEB_ACCESS_PLUGIN),
-		line("Junie Cost", JUNIE_COST_PLUGIN),
+		has(detected, JUNIE_COST_PLUGIN)
+			? `- **Junie Cost: on** (built in, \`${JUNIE_COST_PLUGIN}\` ${detected.find((p) => p.name === JUNIE_COST_PLUGIN)?.version ?? ""})`
+			: "- **Junie Cost: off** (`PI_AIR_JUNIE_COST=0`)",
 	];
 }
 
@@ -98,6 +97,17 @@ export function detectPlugins(piAgentDir: string, log?: Logger): DetectedPlugin[
 		found.push({ name, version, path });
 	}
 	return found;
+}
+
+/** A plugin that ships with the bridge (a package directory of this repository), described by its package.json. */
+export function bundledPlugin(dir: string, log?: Logger): DetectedPlugin | undefined {
+	const manifest = readManifest(dir, log);
+	if (!manifest?.name) {
+		log?.warn(`built-in plugin at ${dir}: no package.json name; not loaded`);
+		return undefined;
+	}
+	log?.info(`plugin ${manifest.name} ${manifest.version ?? "<unknown version>"} built in at ${dir}`);
+	return { name: manifest.name, version: manifest.version, path: dir };
 }
 
 function readManifest(dir: string, log?: Logger): { name?: string; version?: string } | undefined {

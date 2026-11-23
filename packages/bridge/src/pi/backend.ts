@@ -36,7 +36,7 @@ import { type MixCatalog, parseMixCatalog } from "./mixes.ts";
 import { isReadOnlyCommand } from "./safe-commands.ts";
 import { FETCH_CONTENT_TOOL, WEB_READ_TOOLS, withoutBackgroundFetch } from "./web-access.ts";
 import { AGENT_TOOL, installChildSessionHook, markBridgeSession, SubagentRelay, subagentModelsNote, withChildHost } from "./subagents.ts";
-import { type DetectedPlugin, detectPlugins, has, pluginTools, pluginWelcomeLines, SUBAGENT_TOOLS, SUBAGENTS_PLUGIN, TODO_PLUGIN, TODO_TOOLS } from "./plugins.ts";
+import { bundledPlugin, type DetectedPlugin, detectPlugins, has, pluginTools, pluginWelcomeLines, SUBAGENT_TOOLS, SUBAGENTS_PLUGIN, TODO_PLUGIN, TODO_TOOLS } from "./plugins.ts";
 import { discoverModels, type ListedModel, listingIdMatches } from "./discovery.ts";
 
 function ideRouterNote(name: string): string {
@@ -66,6 +66,8 @@ export interface PiBackendOptions {
 	discoveryTimeoutMs?: number;
 	/** Trust the session's project for Pi project resources (skills). Default true. */
 	trustProject?: boolean;
+	/** Plugins that ship with the bridge: package directories loaded into every session (e.g. packages/junie-cost). */
+	bundledPlugins?: string[];
 	/** Junie compatibility profile (see junie-compat.ts). */
 	junieCompat?: Partial<JunieCompatOptions>;
 	/** How long the start of a message is held back to tell commentary from the answer (see phases.ts). */
@@ -108,7 +110,10 @@ export class PiBackend implements AgentBackend {
 		this.trustProject = options.trustProject ?? true;
 		this.phaseHold = options.phaseHold;
 		this.junieCompat = { ...JUNIE_COMPAT_DEFAULTS, ...options.junieCompat };
-		this.plugins = options.piAgentDir ? detectPlugins(options.piAgentDir, this.log) : [];
+		this.plugins = [
+			...(options.bundledPlugins ?? []).flatMap((dir) => bundledPlugin(dir, this.log) ?? []),
+			...(options.piAgentDir ? detectPlugins(options.piAgentDir, this.log) : []),
+		];
 		if (this.plugins.some((p) => p.name === SUBAGENTS_PLUGIN)) {
 			installChildSessionHook();
 			// The plugin saves its children as ordinary Pi sessions in Pi's default session dir (its `rememberAgents`),
