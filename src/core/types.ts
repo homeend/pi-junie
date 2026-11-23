@@ -254,6 +254,8 @@ export interface SessionSummary {
 	createdAt: string;
 	updatedAt: string;
 	lastPromptAt?: string;
+	/** The session this one was forked from. */
+	forkedFrom?: string;
 }
 
 /** One past item of a conversation, replayed when a client reopens a session. */

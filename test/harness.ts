@@ -249,6 +249,11 @@ export class FakeBackend implements AgentBackend {
 		if (sessionId.includes("/")) return undefined;
 		return { session: await this.openSessionWithId(sessionId, cwd), restored: sessionId.startsWith("fake-session-") };
 	}
+	async forkSession({ sessionId, cwd }: { sessionId: string; cwd: string }) {
+		this.calls.push(`fork ${sessionId} ${cwd}`);
+		if (sessionId.includes("/")) return undefined;
+		return this.openSessionWithId(`fork-of-${sessionId}`, cwd);
+	}
 	private async openSessionWithId(id: string, cwd: string): Promise<BackendSession> {
 		return this.makeSession(id, cwd);
 	}

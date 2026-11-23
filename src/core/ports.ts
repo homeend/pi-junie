@@ -80,6 +80,11 @@ export interface AgentBackend {
 	 * as an empty session with the same id (`restored: false`). Returns undefined only for an invalid id.
 	 */
 	resumeSession(request: SessionContext & { sessionId: string }): Promise<{ session: BackendSession; restored: boolean } | undefined>;
+	/**
+	 * A new session with a copy of a saved session's conversation, working in `cwd` (which may be another directory,
+	 * such as a worktree the client made). Undefined when the source is unknown.
+	 */
+	forkSession(request: SessionContext & { sessionId: string }): Promise<BackendSession | undefined>;
 	/** Saved sessions, newest first, optionally only those of one working directory. */
 	listSessions(request: { cwd?: string; limit: number }): SessionSummary[];
 	/** Names + versions of installed agent-side plugins, for the compatibility layer. */

@@ -22,6 +22,8 @@ export interface SessionMeta {
 	/** Plan mode as the user last chose it (applied to the plan-mode plugin at the next prompt). */
 	planMode?: boolean;
 	lastPromptAt?: string;
+	/** The session this one was forked from. */
+	forkedFrom?: string;
 	createdAt: string;
 	updatedAt: string;
 }
@@ -72,6 +74,32 @@ export class SessionStore {
 		const existing = SessionManager.findById(cwd, id, this.piDir);
 		if (existing) return { manager: SessionManager.open(existing, this.piDir, cwd), restored: true };
 		return { manager: SessionManager.create(cwd, this.piDir, { id }), restored: false };
+	}
+
+	/**
+	 * Copies a session's Pi transcript into a new session `id` working in `cwd` (Pi's `forkFrom`: same entries, a new
+	 * header with that cwd and the source as parent). False when the source has no transcript yet (nothing to copy).
+	 */
+	forkTranscript(source: { id: string; cwd: string }, id: string, cwd: string): boolean {
+		const path = SessionManager.findById(source.cwd, source.id, this.piDir) ?? this.findTranscript(source.id);
+		if (!path) return false;
+		SessionManager.forkFrom(path, cwd, this.piDir, { id });
+		return true;
+	}
+
+	/** The transcript file of a session, whatever cwd its header names (a session resumed elsewhere). */
+	private findTranscript(id: string): string | undefined {
+		for (const name of readdirSync(this.piDir)) {
+			if (!name.endsWith(".jsonl")) continue;
+			const path = join(this.piDir, name);
+			try {
+				const header = JSON.parse(readFileSync(path, "utf8").split("\n", 1)[0]) as { type?: string; id?: string };
+				if (header.type === "session" && header.id === id) return path;
+			} catch {
+				// unreadable: not ours
+			}
+		}
+		return undefined;
 	}
 
 	private metaPath(id: string): string {

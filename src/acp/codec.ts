@@ -478,7 +478,11 @@ export function encodeSessionSummary(s: SessionSummary): Record<string, unknown>
 		cwd: s.cwd,
 		...(s.title ? { title: s.title } : {}),
 		updatedAt: s.updatedAt,
-		_meta: { jetbrains: { air: { version: 1, archived: false, state: "idle", ...(s.lastPromptAt ? { lastPromptAt: s.lastPromptAt } : {}) } } },
+		_meta: {
+			jetbrains: {
+				air: { version: 1, archived: false, state: "idle", ...(s.lastPromptAt ? { lastPromptAt: s.lastPromptAt } : {}), ...(s.forkedFrom ? { forkedFrom: s.forkedFrom } : {}) },
+			},
+		},
 	};
 }
 

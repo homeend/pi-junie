@@ -133,6 +133,8 @@ export class AcpAgent {
 				return this.newSession(params);
 			case "session/resume":
 				return this.resumeSession(params);
+			case "session/fork":
+				return this.forkSession(params);
 			case "session/set_config_option":
 				return this.setConfigOption(params);
 			case "session/prompt":
@@ -174,7 +176,7 @@ export class AcpAgent {
 				loadSession: true,
 				promptCapabilities: { audio: false, image: true, embeddedContext: true },
 				mcpCapabilities: { http: true, sse: false },
-				sessionCapabilities: { list: {}, close: {}, resume: {}, additionalDirectories: {} },
+				sessionCapabilities: { list: {}, close: {}, resume: {}, fork: {}, additionalDirectories: {} },
 				providers: {},
 				_meta: { authStatus: {} }, // we push _auth/status_update (Junie's capability marker)
 			},
@@ -266,6 +268,25 @@ export class AcpAgent {
 		}
 		this.log.info(`session/load ${sessionId}: replayed ${history.length} item(s)`);
 		return { configOptions: this.configOptionsFor(backend) };
+	}
+
+	/**
+	 * `session/fork` (Junie's v1 shape): a new session with the conversation so far, in the request's `cwd` (AIR's
+	 * "Open in New Session", into the current project or a worktree it just made). The fork is live at once; AIR
+	 * loads it next, which replays the copied history. A fork point (`_meta.jetbrains.air.fork`) is not honoured yet:
+	 * the whole conversation is copied.
+	 */
+	private async forkSession(params: JsonObject): Promise<unknown> {
+		const sessionId = String(params.sessionId);
+		if (typeof params.cwd !== "string") throw RpcError.invalidParams("session/fork needs cwd");
+		const point = (params._meta as { jetbrains?: { air?: { fork?: unknown } } } | undefined)?.jetbrains?.air?.fork;
+		if (point !== undefined) this.log.warn(`session/fork ${sessionId}: fork point ${JSON.stringify(point)} not supported yet; copying the whole conversation`);
+		await this.backend.modelsSettled(MODEL_DISCOVERY_WAIT_MS);
+		const backend = await this.backend.forkSession({ sessionId, ...this.sessionContext(params, params.cwd) });
+		if (!backend) throw new RpcError(-32002, `Session not found: ${sessionId}`);
+		this.sessions.set(backend.id, { backend });
+		this.publishCommands(backend);
+		return { sessionId: backend.id, configOptions: this.configOptionsFor(backend) };
 	}
 
 	/** AIR resumes its chat after restarting the agent (e.g. when the LLM proxy identity changed). */

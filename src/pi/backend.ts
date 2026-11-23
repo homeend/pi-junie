@@ -403,13 +403,43 @@ export class PiBackend implements AgentBackend {
 		return { session: new PiSession({ ...meta, cwd }, this, context), restored: true };
 	}
 
+	async forkSession(context: SessionContext & { sessionId: string }): Promise<BackendSession | undefined> {
+		const { sessionId: sourceId, cwd } = context;
+		const source = SessionStore.isValidId(sourceId) ? this.store.load(sourceId) : undefined;
+		if (!source) {
+			this.log.error(`session ${sourceId}: fork rejected, no such session`);
+			return undefined;
+		}
+		const id = `pi-${Date.now().toString(36)}-${++this.counter}`;
+		const now = new Date().toISOString();
+		// Like Junie: the fork keeps the source's settings and starts in Default mode.
+		const meta: SessionMeta = {
+			id,
+			cwd,
+			forkedFrom: sourceId,
+			createdAt: now,
+			updatedAt: now,
+			...(source.model ? { model: source.model } : {}),
+			...(source.effort ? { effort: source.effort } : {}),
+			...(source.mix ? { mix: source.mix } : {}),
+			...(source.approvalMode ? { approvalMode: source.approvalMode } : {}),
+			...(source.title ? { title: source.title } : {}),
+			...(source.lastPromptAt ? { lastPromptAt: source.lastPromptAt } : {}),
+			...(source.planMode !== undefined ? { planMode: false } : {}),
+		};
+		const copied = this.store.forkTranscript(source, id, cwd);
+		this.store.save(meta);
+		this.log.info(`session ${id} forked from ${sourceId} (cwd ${cwd}${cwd === source.cwd ? "" : `, source cwd ${source.cwd}`}): ${copied ? "conversation copied" : "the source has no conversation yet"}`);
+		return new PiSession(meta, this, context);
+	}
+
 	listSessions({ cwd, limit }: { cwd?: string; limit: number }): SessionSummary[] {
 		return this.store
 			.list()
 			.filter((m) => !cwd || m.cwd === cwd)
 			.filter((m) => m.lastPromptAt) // never-prompted chats are not history
 			.slice(0, limit)
-			.map((m) => ({ id: m.id, cwd: m.cwd, title: m.title, createdAt: m.createdAt, updatedAt: m.updatedAt, lastPromptAt: m.lastPromptAt }));
+			.map((m) => ({ id: m.id, cwd: m.cwd, title: m.title, createdAt: m.createdAt, updatedAt: m.updatedAt, lastPromptAt: m.lastPromptAt, forkedFrom: m.forkedFrom }));
 	}
 
 	/** Resolves a ModelRef to the Pi model registered for its binding. */

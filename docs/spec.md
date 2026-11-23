@@ -224,6 +224,13 @@ group ids (`proxy:<slot>`), `_meta` shapes and stop reasons.
   `_meta.jetbrains.air` with `archived:false`, `lastPromptAt`); `session/load` replays the transcript's active
   branch as `user_message_chunk` / `agent_thought_chunk` / `agent_message_chunk` + the title, then answers. AIR restarts the agent whenever the LLM proxy identity changes (auth source
   switch, BYOK) and resumes the open chat; without resume it reports "This agent cannot resume the saved session".
+- **Fork** (`session/fork`, Junie's v1 shape, advertised as `sessionCapabilities.fork`): AIR's "Open in New Session"
+  (behind its registry key `air.sessions.fork`) into the current project or into a worktree AIR has just made, given
+  as `cwd`. The bridge copies the source's Pi transcript into a new session working in that `cwd` (Pi's `forkFrom`)
+  and its settings (model, effort, Default level, Brave Mode, title); the fork starts in Default mode and is live at
+  once (`{sessionId, configOptions}`), AIR then loads it. List rows carry `_meta.jetbrains.air.forkedFrom`. Files are
+  not rewound (as in Junie). Not yet: the fork point (`_meta.jetbrains.air.fork`, a response to fork at); the whole
+  conversation is copied and the point is logged.
 - stdout belongs to ACP. The host redirects `console.log` to stderr.
 
 ### 3.3 Compatibility layer (src/compat)
@@ -353,7 +360,7 @@ redacted, plus diagnostics. It is the source for debugging and for future fixtur
    servers, steering, failures, phases, plugins (subagents, todo list, plan mode, web access), the ingrazzio slot
    with Junie Lite and the Default group.
 7. Next (not started): real Eco, plan file links, plan-mode `defaultPlanTools`, goal mode, changed-file reports,
-   session fork / archive / rename, session instructions, ACP v2 codec.
+   fork points, session archive / rename, session instructions, ACP v2 codec.
 
 ## 7. Out of scope for now
 

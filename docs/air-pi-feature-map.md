@@ -22,7 +22,7 @@ AIR.
 | Additional skill roots | Pi core (`additionalSkillPaths`) | Done |
 | Session index / list / load / resume | Pi core (`SessionManager`) + bridge store | Done (list, load, resume, loadReplayEnd) |
 | Session archive / rename / delete | Bridge (file level); Pi core has names | Not yet; archive has no Pi equivalent |
-| Session fork | Pi core (`forkFrom`, branching) | Not yet; small |
+| Session fork | Pi core (`forkFrom`, branching) | Partly (whole conversation, into the project or an AIR worktree); fork point not yet |
 | Steering | Pi core (`steer`) | Done (AIR does not send it yet) |
 | Goal mode | **Plugin**: `@narumitw/pi-goal` or `pi-codex-goal` | Not yet; plugin + mapping |
 | Plans / plan review / plan files | **Plugin**: todo list `@juicesharp/rpiv-todo`; plan mode `@narumitw/pi-plan-mode` | Todo list and plan mode + review done; plan files not yet |
