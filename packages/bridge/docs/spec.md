@@ -312,6 +312,10 @@ that unlock each one:
   additional directories, at most 1,024 paths / 256 KiB. Files changed by `bash`, subagents or the IDE's tools are
   not tracked (the `uncertainty` says so). AIR shows the "N files changed · Since last turn" card and the Last Turn
   diff from it, with its own line counts.
+- Broken response streams (`src/pi/stream-errors.ts`): a response cut off mid-event (seen through AIR's proxy:
+  `event: content_block_delta` with an empty `data:`, "Could not parse Anthropic SSE event ...: Unexpected end of JSON
+  input") is not in Pi's retryable errors, so it ended the turn. The bridge rewords it at `message_end` as "Stream was
+  interrupted (...)", which Pi retries with its own policy (3 attempts, 2/4/8 s).
 - Built-in plugins: packages of this repository passed as `bundledPlugins` (main.ts) and loaded the same way. Today
   Junie Config (`packages/junie-config`: Junie's settings from the environment; inert without them, records them in
   the session as a `junie-config` custom entry and the startup log lists the ones set) and Junie Cost

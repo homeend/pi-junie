@@ -22,6 +22,8 @@ export interface FakeProxyOptions {
 	listing?: (path: string, req: FakeRequest) => [number, unknown] | undefined;
 	/** What the fake Anthropic model answers: text, or a tool call. */
 	reply?: (req: FakeRequest) => string | FakeToolReply;
+	/** Cut this request's stream after an event with an empty `data:` line (as AIR's proxy once did). */
+	breakStream?: (req: FakeRequest) => boolean;
 }
 
 export async function startFakeProxy(options: FakeProxyOptions = {}): Promise<{ url: string; requests: FakeRequest[]; close: () => Promise<void> }> {
@@ -72,6 +74,11 @@ export async function startFakeProxy(options: FakeProxyOptions = {}): Promise<{ 
 						];
 			const events: [string, unknown][] = [start, ...body, ["message_stop", { type: "message_stop" }]];
 			res.writeHead(200, { "content-type": "text/event-stream" });
+			if (options.breakStream?.(fr)) {
+				for (const [name, data] of events.slice(0, 3)) res.write(`event: ${name}\ndata: ${JSON.stringify(data)}\n\n`);
+				res.end("event: content_block_delta\ndata: \n\n");
+				return;
+			}
 			for (const [name, data] of events) res.write(`event: ${name}\ndata: ${JSON.stringify(data)}\n\n`);
 			res.end();
 		});

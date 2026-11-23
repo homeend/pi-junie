@@ -28,6 +28,7 @@ import type { JunieProfile } from "pi-junie-config/profiles";
 import { jetbrainsAiProvider } from "pi-junie-jetbrains-ai";
 import { bridgeProviderId, CUSTOM_MODELS_GROUP, DEFAULT_MODEL, JETBRAINS_AI_GROUP, joinBaseUrl, keyAuthHeaders, SLOTS, type SlotDefinition, VENDOR_ROUTES, vertexBaseUrl } from "./catalog.ts";
 import { openPiTranscript, type SessionMeta, SessionStore } from "./session-store.ts";
+import { retryBrokenStreams } from "./stream-errors.ts";
 import { BRIDGE_TOOLS, READ_ONLY_TOOLS, toolKind, toolLocations, toolResultText, toolTitle } from "./tools.ts";
 import { IDE_ROUTER_TOOL, IDE_SERVER, ideRouterName, ideServerToolExposure, JUNIE_COMPAT_DEFAULTS, type JunieCompatOptions, junieExecuteToolAlias } from "./junie-compat.ts";
 import { classifyFailure } from "./failures.ts";
@@ -700,6 +701,8 @@ export class PiBackend implements AgentBackend {
 		this.log.info(`session ${id}: Pi transcript ${restored ? `restored (${manager.getEntries().length} entries)` : "created"} at ${manager.getSessionFile() ?? "<memory>"}`);
 		const { resourceLoader, settingsManager } = await this.resources(cwd, context, [
 			gate,
+			// A response stream cut off mid-event is retried like an interrupted stream (stream-errors.ts).
+			retryBrokenStreams,
 			// The client's MCP servers (e.g. the IDE's own) are registered for this session and connected by Pi's MCP extension.
 			registerClientMcpServers(mcpServers, this.junieCompat),
 			createMcpExtension(),
