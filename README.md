@@ -85,6 +85,25 @@ packages/jetbrains-ai/     JetBrains AI provider (copy of junie-pi's package), u
 packages/plugin-manager/   /plugins for Pi in the terminal: switch installed Pi packages on and off from inside Pi
 ```
 
+## Developing
+
+To work on pi-junie with the agent process (specs, audits, Cezar), from a fresh checkout:
+
+1. **Tools on the machine:** Node 22.19 or newer with npm (for example `nvm install 24`), git, jq, curl and bash.
+   On Windows, use WSL: the scripts are bash and have only been run there. Claude Code is needed for Cezar's
+   implementation step.
+2. **Set up:** `scripts/dev.sh setup`. It installs the dependencies, the skills, Cezar and the links for Claude
+   Code and Pi into git-ignored folders of the checkout, all at locked versions. `scripts/dev.sh check` shows
+   what is there without changing anything.
+3. **JetBrains AI key:** put `JUNIE_API_KEY=<key>` (from <https://junie.jetbrains.com/cli>) into
+   `~/.config/pi-junie/env`, mode 600.
+4. **Start a feature:** `scripts/pi-jbai`, pick a `jetbrains-ai/...` model with `/model`, then
+   `/skill:new-feature <what you want>`. In Claude Code: `/new-feature <what you want>`.
+5. **For the implementation step:** `scripts/dev.sh cezar projects add .` once, then `scripts/dev.sh cezar` in a
+   second terminal.
+
+The whole flow is in [docs/development.md](docs/development.md). The package manager is npm.
+
 ## Tests and the replay workflow
 
 ```bash

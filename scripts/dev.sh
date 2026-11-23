@@ -2,7 +2,7 @@
 # Developer environment for working ON pi-junie with agents (docs/development.md).
 # Not needed to USE pi-junie in AIR: for that, `npm ci` and bin/pi-air are enough.
 #
-#   scripts/dev.sh setup [--no-cezar]   install everything below; safe to run again
+#   scripts/dev.sh setup                install everything below; safe to run again
 #   scripts/dev.sh check                report what is installed; changes nothing
 #   scripts/dev.sh worktree [dir]       prepare a task worktree (dependencies + skills); default: current dir
 #   scripts/dev.sh cezar [args]         start Cezar's local cockpit (http://127.0.0.1:4321), or run a cezar command
@@ -15,7 +15,7 @@
 #                              .agents/skills/om-*   upstream skills at the commit in skills-lock.json
 #                              .agents/skills/agent-* links to your own review skills in ~/.claude/skills, if present
 #                              .claude/skills/       links, so Claude Code sees the same skills as Pi
-#                              .dev-tools/           Cezar, at the version below
+#                              .dev-tools/           Cezar and the skills installer, locked in scripts/dev-tools/
 #   outside the repo           nothing. Tools started later write their own state:
 #                              ~/.cezar (Cezar), ~/.pi/pi-junie-dev (headless Pi), ~/.local/state/pi-junie (air-test link)
 # Network: npm registry and github.com/open-mercato/skills. Telemetry of both tools is switched off here.
@@ -23,8 +23,6 @@
 # Settings: PI_JUNIE_ENV (key file, default ~/.config/pi-junie/env), PI_REVIEW_MODELS, PI_AUDIT_MODEL.
 set -euo pipefail
 
-CEZAR_VERSION="0.20.0"
-SKILLS_CLI="skills@1.9.0"
 REVIEW_MODELS="${PI_REVIEW_MODELS:-jetbrains-ai/claude-opus-5-5 jetbrains-ai/gpt-6.1-sol}"
 AUDIT_MODEL="${PI_AUDIT_MODEL:-jetbrains-ai/gpt-6.1-sol}"
 OWN_REVIEW_SKILLS="agent-cross-review agent-review agent-overview agent-notes"
@@ -88,7 +86,7 @@ cmd_check() {
   for s in $OWN_REVIEW_SKILLS; do
     [[ -f "$MAIN/.agents/skills/$s/SKILL.md" ]] && ok "skill $s (yours)" || note "skill $s not in ~/.claude/skills: cross-review inside AIR is unavailable"
   done
-  [[ -x "$MAIN/.dev-tools/node_modules/.bin/cezar" ]] && ok "Cezar $(jq -r .version "$MAIN/.dev-tools/node_modules/@open-mercato/cezar/package.json")" || note "Cezar not installed (setup --no-cezar, or not set up yet)"
+  [[ -x "$MAIN/.dev-tools/node_modules/.bin/cezar" ]] && ok "Cezar $(jq -r .version "$MAIN/.dev-tools/node_modules/@open-mercato/cezar/package.json")" || miss "Cezar: scripts/dev.sh setup"
   if [[ -r "$ENV_FILE" ]] && grep -q '^JUNIE_API_KEY=.' "$ENV_FILE"; then ok "JetBrains AI key file $ENV_FILE"
   else note "no JUNIE_API_KEY in $ENV_FILE: headless Pi (audit, review, Cezar's Pi steps) needs it or a saved /login"; fi
   [[ -L "$STATE_DIR/under-test" ]] && note "under test in AIR: $(readlink "$STATE_DIR/under-test")"
@@ -97,17 +95,27 @@ cmd_check() {
 }
 
 cmd_setup() {
-  local cezar=1
-  [[ "${1:-}" == "--no-cezar" ]] && cezar=0
   [[ "$HERE" == "$MAIN" ]] || die "run setup in the main checkout ($MAIN); in a task worktree use: scripts/dev.sh worktree"
   node_ok || die "node >= 22.19 is required"
-  for t in git jq npm npx; do command -v "$t" >/dev/null 2>&1 || die "$t is required"; done
+  for t in git jq npm curl; do command -v "$t" >/dev/null 2>&1 || die "$t is required"; done
   cd "$MAIN"
 
   say "1/4 dependencies"
   [[ -x node_modules/.bin/pi ]] || npm ci --no-audit --no-fund --loglevel=error >/dev/null
 
-  say "2/4 upstream skills (commit pinned in skills-lock.json)"
+  # Cezar and the skills installer, with every dependency at the version in scripts/dev-tools/package-lock.json.
+  say "2/4 developer tools into .dev-tools/ (locked in scripts/dev-tools/)"
+  if ! cmp -s scripts/dev-tools/package-lock.json .dev-tools/package-lock.json || [[ ! -x .dev-tools/node_modules/.bin/skills ]]; then
+    mkdir -p .dev-tools
+    rm -f .dev-tools/package-lock.json
+    cp scripts/dev-tools/package.json .dev-tools/package.json
+    cp scripts/dev-tools/package-lock.json .dev-tools/package-lock.tmp
+    mv .dev-tools/package-lock.tmp .dev-tools/package-lock.json
+    (cd .dev-tools && npm ci --ignore-scripts --no-audit --no-fund --loglevel=error >/dev/null) \
+      || { rm -f .dev-tools/package-lock.json; die "installing the developer tools failed"; }
+  fi
+
+  say "3/4 upstream skills (commit pinned in skills-lock.json)"
   local need=0 s
   for s in $(jq -r '.skills | keys[]' skills-lock.json); do [[ -f ".agents/skills/$s/SKILL.md" ]] || need=1; done
   if [[ "$need" == 1 ]]; then
@@ -115,25 +123,16 @@ cmd_setup() {
     local log try
     log="$(mktemp)"
     for try in 1 2 3; do
-      npx --yes "$SKILLS_CLI" experimental_install --agent claude-code --agent pi --frozen-lockfile --yes >"$log" 2>&1 && break
+      .dev-tools/node_modules/.bin/skills experimental_install --agent claude-code --agent pi --frozen-lockfile --yes >"$log" 2>&1 && break
       [[ "$try" == 3 ]] && { cat "$log" >&2; rm -f "$log"; die "installing the upstream skills failed"; }
       say "  retrying ($try)"
     done
     rm -f "$log"
   fi
 
-  say "3/4 skill links"
+  say "4/4 skill links"
   link_own_review_skills "$MAIN"
   link_claude_skills "$MAIN"
-
-  if [[ "$cezar" == 1 ]]; then
-    say "4/4 Cezar $CEZAR_VERSION into .dev-tools/"
-    if [[ "$(jq -r .version .dev-tools/node_modules/@open-mercato/cezar/package.json 2>/dev/null)" != "$CEZAR_VERSION" ]]; then
-      npm install --prefix .dev-tools --no-audit --no-fund --no-package-lock --loglevel=error "@open-mercato/cezar@$CEZAR_VERSION" >/dev/null
-    fi
-  else
-    say "4/4 Cezar skipped"
-  fi
   say
   cmd_check
 }

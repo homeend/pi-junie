@@ -1,0 +1,9 @@
+{
+  "name": "pi-junie-dev-tools",
+  "private": true,
+  "description": "Developer tools installed by scripts/dev.sh setup into .dev-tools/ with npm ci, so their dependencies are the ones in package-lock.json. To update: change a version here, run `npm install --package-lock-only` in this folder, review the lock diff, commit both.",
+  "dependencies": {
+    "@open-mercato/cezar": "0.20.0",
+    "skills": "1.9.0"
+  }
+}

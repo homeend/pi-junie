@@ -20,11 +20,16 @@ It installs into git-ignored folders of this checkout:
 | Open Mercato skills: spec writing, spec audit, code review, check-and-commit, troubleshooter, brainstorm | `.agents/skills/om-*` | the commit in `skills-lock.json` |
 | Your own review skills (`agent-cross-review` and its siblings), if you have them | links to `~/.claude/skills` | yours |
 | Links so Claude Code sees the same skills as Pi | `.claude/skills/` | |
-| Cezar, the local task runner | `.dev-tools/` | pinned in `scripts/dev.sh` |
+| Cezar, the local task runner, and the skills installer | `.dev-tools/` | `scripts/dev-tools/package-lock.json` |
 
 Nothing is installed outside the repository; headless Pi keeps its state in `~/.pi/pi-junie-dev`, and `air-test`
 keeps one link in `~/.local/state/pi-junie/`. Needs Node 22.19+, git, jq and curl;
-Claude Code for Cezar's implementation step.
+Claude Code for Cezar's implementation step. The README's "Developing" section has the steps from an empty
+machine.
+
+Every npm package comes at a locked version: the repository's through `package-lock.json`, the tools' through
+`scripts/dev-tools/package-lock.json`. Both are installed with `npm ci`, so a new release of some dependency
+reaches you only when someone updates a lockfile and commits it.
 
 **JetBrains AI key for headless Pi** (spec audits, second reviews, Cezar's Pi steps). Put a Junie API key from
 <https://junie.jetbrains.com/cli> into a file outside the repository:
@@ -118,15 +123,18 @@ One build is under test at a time. A chat that is already open keeps the old bui
 | `skills-lock.json` | Which upstream skills, at which commit | yes |
 | `scripts/feature`, `.ai/review-matrix` | Helper of the `new-feature` skill (audit, queue); which model reviews which | yes |
 | `scripts/dev.sh`, `scripts/pi-jbai` | Setup and the commands above; Pi on JetBrains AI | yes |
+| `scripts/dev-tools/` | Versions of Cezar and the skills installer, with their lockfile | yes |
 | `.ai/runs/` | Audits and writer replies per spec | no |
 | `.ai/reviews/` | Audit and review reports | no |
 | `.agents/skills/om-*`, `.claude/skills/`, `.dev-tools/` | Installed by `scripts/dev.sh setup` | no |
 
 ## Updating the tools
 
-- **Upstream skills:** `DO_NOT_TRACK=1 npx skills@1.9.0 update -p`, review the diff of `skills-lock.json`, and set
+- **Upstream skills:** `DO_NOT_TRACK=1 .dev-tools/node_modules/.bin/skills update -p`, review the diff of `skills-lock.json`, and set
   the same commit as `ref` in `.ai/cezar/config.json`.
-- **Cezar:** change `CEZAR_VERSION` in `scripts/dev.sh` and run `scripts/dev.sh setup`.
+- **Cezar or the skills installer:** change the version in `scripts/dev-tools/package.json`, run
+  `npm install --package-lock-only` in that folder, review the diff of its `package-lock.json`, commit both, then
+  run `scripts/dev.sh setup`.
 
 ## Not tried yet
 
