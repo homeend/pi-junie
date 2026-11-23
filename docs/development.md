@@ -23,8 +23,8 @@ It installs into git-ignored folders of this checkout:
 | Cezar, the local task runner | `.dev-tools/` | pinned in `scripts/dev.sh` |
 
 Nothing is installed outside the repository; headless Pi keeps its state in `~/.pi/pi-junie-dev`, and `air-test`
-keeps one link in `~/.local/state/pi-junie/`. Needs Node 22.19+, git and jq; Claude Code and gg for the first route
-below.
+keeps one link in `~/.local/state/pi-junie/`. Needs Node 22.19+, git, jq and curl;
+Claude Code for Cezar's implementation step.
 
 **JetBrains AI key for headless Pi** (spec audits, second reviews, Cezar's Pi steps). Put a Junie API key from
 <https://junie.jetbrains.com/cli> into a file outside the repository:
@@ -43,47 +43,68 @@ prints the exact line for your machine:
 
 ## The flow for one feature
 
-| # | Step | You | The agent |
+```bash
+scripts/feature           # list the specs, or start a new feature
+```
+
+One script takes a feature from an idea to a task in Cezar's queue. You decide three times: approve the spec, try
+the result in AIR, say "merge".
+
+| # | Step | You | Done for you |
 | --- | --- | --- | --- |
-| 1 | Start | Run the `new-feature` skill with the item (`/new-feature session instructions` in Claude Code, the `new-feature` command in a pi-junie chat) | Names the type of change, reads that type's checklist, asks its questions |
-| 2 | Spec | Answer the questions | Writes `.ai/specs/<date>-<title>.md` |
-| 3 | Spec audit | `scripts/dev.sh audit <spec>`, read the audit, then approve the spec or send it back | A second model (Sol) checks the spec against the code; report in `.ai/reviews/` |
-| 4 | Implement | Dispatch it (two routes below) | Works on a branch in its own worktree, test first |
-| 5 | Checks and first review | Nothing | `npm run check`, `npm test`; Claude reviews against the spec and fixes |
-| 6 | Second review | Read the two reports | Opus and Sol each review through Pi and only report |
-| 7 | Test in AIR | Try it in a new chat with `pi-junie-dev` | `air-test-handoff` skill: points the test entry at the worktree, lists what to try |
-| 8 | Merge | Say "merge" | Syncs the branch with `main` in its worktree, reruns the checks, merges, updates the feature map |
+| 1 | Start | `scripts/feature new "<item>"`, pick the model that writes the spec | The reviewer is chosen from another model family (`.ai/review-matrix`); you can change it |
+| 2 | Spec | Nothing | The writer (headless Pi, `new-feature` skill) writes `.ai/specs/<date>-<title>.md` |
+| 3 | Audit | Nothing | Up to three rounds: the reviewer audits the spec against the code, the writer revises, until the reviewer approves |
+| 4 | Decide | Read the spec in your editor, then: approve, audit again, reject, or leave it | Approve commits the spec on `main` and sends it to Cezar |
+| 5 | Implement, check, review | Nothing | Cezar: worktree, implementation (Claude), `npm run check`, `npm test`, a review with fixes, then Opus and Sol each review through Pi and only report |
+| 6 | Test in AIR | Try it in a new chat with `pi-junie-dev` | `scripts/dev.sh air-test <worktree>` points the test entry at the worktree |
+| 7 | Merge | Say "merge" | The branch is synced with `main` in its worktree, the checks are rerun, then merged |
+
+The writer runs unattended and cannot ask you anything. What it cannot settle from the repository goes under
+"Open questions" in the spec; what only you can do (for example a recording of AIR with Junie) becomes the spec's
+first task. Read those before you approve.
 
 The four types of change and what each requires are in `.agents/skills/new-feature/references/`: a bridge change,
 an adopted Pi plugin (checked first with the `plugin-check` skill), an own plugin package, a change to a copied
 package.
 
-### Step 4, route A: Claude Code with gg
-
-In Claude Code, in the main checkout: "delegate the spec at `.ai/specs/<file>` to a worker" (your `gg-delegate`
-skill). In the worker's worktree, run `scripts/dev.sh worktree` once: it installs dependencies and links the
-skills. Steps 5 and 6 are then asked for by hand:
+### The script
 
 ```bash
-cd <worktree>
-scripts/dev.sh review .ai/specs/<file>     # second review: Opus and Sol, reports in .ai/reviews/
+scripts/feature                   # the list; pick a spec by number, or n for a new feature
+scripts/feature new "<item>"      # steps 1 to 4
+scripts/feature review <spec>     # audit an existing spec again
+scripts/feature queue <spec>      # approve it: commit on main, send to Cezar
+scripts/feature reject <spec>     # mark it rejected; the file stays
 ```
 
-### Step 4, route B: Cezar
+`<spec>` is a path, a file name, or the number from the list. For a run without questions:
+`scripts/feature new "<item>" --model <id> --reviewer <id> --rounds 3 --then queue` (`--then` also takes `leave` and
+`reject`). The audits and the writer's replies are in `.ai/runs/<spec name>/` (not tracked). A spec's state is its
+`Status:` line: draft, approved or rejected.
+
+The same skill works in a chat if you want to answer the questions yourself: `/new-feature <item>` in Claude Code,
+`/skill:new-feature <item>` in Pi. The spec then shows up in `scripts/feature` like any other.
+
+### Cezar
 
 ```bash
 scripts/dev.sh cezar projects add .     # once: register this repository
-scripts/dev.sh cezar                    # cockpit at http://127.0.0.1:4321
+scripts/dev.sh cezar                    # cockpit at http://127.0.0.1:4321; keep it running
 ```
 
-Create a task with the workflow **feature-from-spec** and the spec's path as its text. Cezar makes the worktree,
-prepares it (`scripts/dev.sh worktree`, through the lifecycle setting in `.ai/cezar/config.json`) and runs steps
-4 to 6 from `.ai/cezar/workflows/feature-from-spec.yaml`, stopping at its review gate. Its Pi steps run
-`scripts/pi-jbai`: plain Pi on JetBrains AI.
+`scripts/feature queue` creates a task with the workflow **feature-from-spec** and the spec's path as its text.
+Cezar makes the worktree and runs `.ai/cezar/workflows/feature-from-spec.yaml`: prepare the worktree
+(`scripts/dev.sh worktree`), then step 5 above, stopping at its review gate. Its Pi steps run `scripts/pi-jbai`:
+plain Pi on JetBrains AI. Without a running Cezar, `queue` commits the approved spec and tells you how to send it
+later.
 
 Try Cezar without spending anything: `CEZ_DRY_RUN=1 scripts/dev.sh cezar` uses mock agents.
 
-### Step 7: test in AIR
+By hand, without Cezar: make a worktree and a branch, run `scripts/dev.sh worktree` in it, implement there, then
+`scripts/dev.sh review .ai/specs/<file>` for the two second reviews.
+
+### Test in AIR
 
 ```bash
 scripts/dev.sh air-test <worktree>
@@ -102,7 +123,9 @@ One build is under test at a time. A chat that is already open keeps the old bui
 | `.ai/cezar/` | Cezar's project config and the workflow | yes |
 | `.agents/skills/new-feature`, `plugin-check`, `air-test-handoff` | This repository's own skills | yes |
 | `skills-lock.json` | Which upstream skills, at which commit | yes |
+| `scripts/feature`, `.ai/review-matrix` | The feature script; which model reviews which | yes |
 | `scripts/dev.sh`, `scripts/pi-jbai` | Setup and the commands above; Pi on JetBrains AI | yes |
+| `.ai/runs/` | Audits and writer replies per spec | no |
 | `.ai/reviews/` | Audit and review reports | no |
 | `.agents/skills/om-*`, `.claude/skills/`, `.dev-tools/` | Installed by `scripts/dev.sh setup` | no |
 
@@ -114,7 +137,8 @@ One build is under test at a time. A chat that is already open keeps the old bui
 
 ## Not tried yet
 
-See section 11 of [agentic-process.html](agentic-process.html). In short: the setup, the worktree preparation, a
-headless spec audit and a headless second review have been run; a full feature through Cezar has not.
+See section 11 of [agentic-process.html](agentic-process.html). In short: setup, worktree preparation, the feature
+script (spec, audit rounds, approve and queue) and the headless second review have been run. Cezar has only run the
+workflow with mock agents; a real feature has not gone through it.
 
 The flow needs these files on `main`: task worktrees start from `main`.

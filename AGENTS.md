@@ -32,7 +32,7 @@ Both must pass before a change is called done. Node 22.19 or newer.
 
 ## Process
 
-New work follows `docs/development.md`: a spec in `.ai/specs/` (start with the `new-feature` skill), an audit of
+New work follows `docs/development.md`: a spec in `.ai/specs/` (start with `scripts/feature`, or the `new-feature` skill in a chat), an audit of
 the spec by a second model, implementation on a branch in its own worktree, checks, two reviews, a hand test in
 AIR, then a merge by the owner.
 

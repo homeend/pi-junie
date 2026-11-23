@@ -323,7 +323,7 @@ steps:
 <p>AIR starts <code>&lt;repo&gt;/bin/pi-air</code> from the main checkout, but at stage 6 the change exists only in the task worktree. The launcher finds its root from its own location, so a worktree's <code>bin/pi-air</code> runs that worktree's code and writes its own log (<code>.pi-dev/pi-air.log</code> inside the worktree).</p>
 <ul>
 <li><strong>A second agent entry in <code>~/.jetbrains/acp.json</code>,</strong> for example <code>pi-junie-dev</code>, pointing at a fixed link such as <code>~/pi-junie-under-test/bin/pi-air</code>. The link is switched to the worktree under test; the stable <code>pi-junie</code> entry keeps running <code>main</code>.</li>
-<li><strong>The worktree needs its dependencies:</strong> a setup script (<code>npm ci</code>) under <code>worktreeLifecycle</code> in <code>.ai/cezar/config.json</code>.</li>
+<li><strong>The worktree needs its dependencies:</strong> <code>scripts/dev.sh worktree</code> as the first step of the workflow. Cezar does not run worktree scripts from a git-tracked <code>config.json</code>.</li>
 <li><strong>One build under test at a time.</strong> Implementation runs in parallel, testing in AIR is serial: you switch the link (the test-handoff skill prints the command and the checklist), start a new chat with <code>pi-junie-dev</code>, and send back or accept.</li>
 </ul>
 
@@ -459,7 +459,7 @@ scripts/dev.sh cezar                    # cockpit on http://127.0.0.1:4321</code
 <li><code>defaultRunner</code>: <code>"claude"</code> for now.</li>
 <li><code>skillsRepos</code>: the Open Mercato skills at the same commit as <code>skills-lock.json</code>.</li>
 <li><code>requiredChecks</code>: <code>npm run check</code> and <code>npm test</code>.</li>
-<li><code>worktreeLifecycle</code>: after creating a task worktree, run <code>scripts/dev.sh worktree</code> (dependencies and skill links).</li>
+<li>The workflow's first step prepares the task worktree: <code>scripts/dev.sh worktree</code> (dependencies and skill links).</li>
 </ul>
 <p>It is a long-running process, so it belongs in its own named tmux session. The parallel cap (<code>maxParallel</code>, default 2) is in <code>~/.cezar/config.json</code>.</p>
 
@@ -504,12 +504,14 @@ scripts/dev.sh cezar                    # cockpit on http://127.0.0.1:4321</code
 <li><strong>Worktree preparation.</strong> <code>scripts/dev.sh worktree</code> in a new worktree, twice: dependencies installed, all skills linked.</li>
 <li><strong>Second review through headless Pi.</strong> <code>scripts/dev.sh review</code> on a branch with one planted off-by-one bug. Run with the main clone's script against a scratch worktree. Both reports (Opus, Sol) show the results of <code>npm run check</code> and <code>npm test</code> and name the bug with file and line; neither mentions a tracker or a setup step; the worktree was unchanged afterwards and the key does not appear in the reports. About 90 seconds per model. The first attempt hung: <code>pi --print</code> waits for its input to close when not started from a terminal; the script now gives it none and has a time limit.</li>
 <li><strong>Spec audit through headless Pi.</strong> <code>scripts/dev.sh audit</code> on a throwaway spec: Sol answered "no-go" with reasons taken from the code (the spec asked to add a function that already exists and missed the code path that sets the title today). Nothing was changed.</li>
-<li><strong>Cezar start-up.</strong> With mock agents (<code>CEZ_DRY_RUN=1</code>): the cockpit answered, and listed the <code>feature-from-spec</code> workflow and the project settings, including the <code>worktreeLifecycle</code> entry.</li>
+<li><strong>The feature script.</strong> <code>scripts/feature new</code>, unattended: Sonnet wrote a spec with the <code>new-feature</code> skill, Sol audited it and asked for changes (two critical findings), Sonnet revised, Sol approved in round two. About four minutes. List, model choice, the reviewer matrix, reject, approve-and-commit and the menu were each run; approve was run in a scratch clone.</li>
+<li><strong>Queueing to Cezar, with mock agents.</strong> <code>scripts/feature queue</code> created a task in a mock-agent Cezar; the workflow prepared its worktree, passed the real <code>npm run check</code> and <code>npm test</code>, ran every step and stopped at the review gate. This found that Cezar does not run worktree scripts from a git-tracked <code>config.json</code>; the preparation is now the workflow's first step.</li>
+<li><strong>Cezar start-up.</strong> With mock agents (<code>CEZ_DRY_RUN=1</code>): the cockpit answered, and listed the <code>feature-from-spec</code> workflow and the project settings, which were loaded.</li>
 <li><strong>JetBrains AI in headless Pi.</strong> Single requests to Opus, Sol and Luna, and the review above with tools and a skill.</li>
 </ul>
 <h3>Not run</h3>
 <ul>
-<li><strong>A real task through Cezar.</strong> Not tried: whether the workflow's steps run as written, whether Cezar passes <code>model:</code> to a step with <code>runner: pi</code>, whether its Pi runner (marked experimental, one recorded fixture) works with Pi 1.5.2 through <code>scripts/pi-jbai</code>, and whether the lifecycle command runs in a new worktree. Cezar on WSL has no stated test coverage in its repo.</li>
+<li><strong>A real task through Cezar.</strong> Not tried: whether the workflow's steps run as written, whether Cezar passes <code>model:</code> to a step with <code>runner: pi</code>, whether its Pi runner (marked experimental, one recorded fixture) works with Pi 1.5.2 through <code>scripts/pi-jbai</code>, with real agents. Cezar on WSL has no stated test coverage in its repo.</li>
 <li><strong>The process files are not on <code>main</code> yet.</strong> Task worktrees start from <code>main</code>, so until these files are merged a new worktree has no <code>scripts/dev.sh</code>, no <code>AGENTS.md</code> and no skill config, and <code>om-code-review</code> would start its own tracker setup.</li>
 <li><strong>The <code>new-feature</code>, <code>plugin-check</code> and <code>air-test-handoff</code> skills</strong> were not run in any agent.</li>
 <li><strong>The second AIR entry for a build under test</strong> (<code>scripts/dev.sh air-test</code>) follows from how the launcher resolves its root; it was not tried, including whether AIR picks up a switched link on a new chat without a restart.</li>

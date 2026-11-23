@@ -34,8 +34,12 @@ with code. Do not edit anything outside `.ai/specs/` while this skill runs.
 5. **Stop and hand over.** Tell the user:
    - the spec's path and its type;
    - the open questions, if any;
-   - the next step: an audit by a different model (`om-pre-implement-spec`, or `scripts/dev.sh audit <spec>`),
-     then their approval. Implementation starts only after they approve the spec.
+   - the next step: `scripts/feature review <spec>` has a model from another family audit the spec and lets it
+     be revised; `scripts/feature queue <spec>` is their approval and sends it to Cezar. Implementation starts
+     only after they approve the spec.
+
+When `scripts/feature` runs this skill unattended, nobody can answer: follow the instructions in its prompt
+(decide what the repository lets you decide, list the rest under "Open questions") instead of asking.
 
 ## Rules
 

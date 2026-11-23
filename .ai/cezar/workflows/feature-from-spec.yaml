@@ -3,6 +3,12 @@ description: Implement an approved spec, check it, review it (Claude fixes, then
 # The task text is the path of an approved spec, e.g. .ai/specs/2026-11-24-session-instructions.md
 # Pi steps run scripts/pi-jbai (set as CEZ_PI_BIN by `scripts/dev.sh cezar`), which pays through JetBrains AI.
 steps:
+  # Dependencies and skill links for the new worktree. A step here, because Cezar does not run
+  # worktree scripts from a git-tracked config.json.
+  - id: prepare
+    name: Prepare worktree
+    command: "bash scripts/dev.sh worktree ."
+
   - id: implement
     name: Implement
     runner: claude
