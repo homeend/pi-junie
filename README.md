@@ -52,6 +52,9 @@ for now. `PI_AIR_JUNIE_COST=0` leaves it out.
 - Switches: `PI_AIR_TRUST_PROJECT=0` (no project skills), `PI_AIR_JUNIE_EXECUTE_TOOL=0` (IDE router keeps its
   MCP name instead of Junie's `execute_tool`; see `packages/bridge/src/pi/junie-compat.ts`), `PI_AIR_PLUGINS=0` (no plugins),
   `PI_AIR_WELCOME=0` (no welcome message), `PI_AIR_JUNIE_COST=0` (no Junie Cost).
+- Junie's keys, set in the `env` of the `acp.json` entry or the environment: `JUNIE_API_KEY` adds a JetBrains AI
+  model group; `JUNIE_ANTHROPIC_API_KEY` / `JUNIE_OPENAI_API_KEY` / `JUNIE_GOOGLE_API_KEY` give that vendor's models
+  without AIR; `JUNIE_MODEL` / `JUNIE_EFFORT` pick new chats' model. See `packages/junie-config/README.md`.
 - Node binary: taken from `PATH`, otherwise the newest `~/.nvm` Node 24+. Override with `PI_AIR_NODE`.
 - Pi state for the bridge is kept apart from your `~/.pi/agent` (in `~/.pi/pi-junie/`), so your own Pi
   logins are never sent to AIR's proxy.
@@ -73,6 +76,7 @@ packages/bridge/           pi-junie, the ACP bridge (package "pi-junie")
   docs/spec.md             the bridge's spec
 packages/junie-cost/       Junie Cost, built-in plugin (copy of junie-pi's package, adapted here)
 packages/junie-config/     Junie Config, built-in plugin: Junie's settings, keys and model profiles applied to Pi
+packages/jetbrains-ai/     JetBrains AI provider (copy of junie-pi's package), used with JUNIE_API_KEY
 ```
 
 ## Tests and the replay workflow

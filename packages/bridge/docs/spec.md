@@ -257,6 +257,16 @@ that unlock each one:
   package.json name); it reports name + version,
   and loads it into every session by path (`additionalExtensionPaths`; other on-disk extensions stay off).
   `PI_AIR_PLUGINS=0` skips plugins.
+- Junie's keys and model choice (`junie` option, read by `packages/junie-config/src/credentials.ts` in main.ts):
+  - `JUNIE_API_KEY` registers the copied jetbrains-ai provider (`registerNativeProvider`, provider `jetbrains-ai`)
+    as the model group `jetbrains-ai` ("JetBrains AI"); the provider reads the key from the environment.
+  - `JUNIE_<VENDOR>_API_KEY` (anthropic, openai, google) binds that slot as a client binding would, to the vendor's
+    API (`VENDOR_ROUTES`) with `ProviderBinding.apiKey`: discovery sends the vendor's auth header, the Pi provider
+    gets the real key instead of the placeholder. A later providers/set for the slot replaces it.
+  - A prompt re-sets the session's model when its route (base URL, headers) changed, not only its id.
+  - `JUNIE_MODEL` / `JUNIE_EFFORT` (else `PRIMARY_MODEL` / `PRIMARY_MODEL_REASONING_EFFORT`) are a new session's
+    model and effort when the model is available (looked up like a Default level's model), before the
+    recommended Default level.
 - Built-in plugins: packages of this repository passed as `bundledPlugins` (main.ts) and loaded the same way. Today
   Junie Config (`packages/junie-config`: Junie's settings from the environment; inert without them, records them in
   the session as a `junie-config` custom entry and the startup log lists the ones set) and Junie Cost

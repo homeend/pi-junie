@@ -83,7 +83,30 @@ export const DEFAULT_MODEL = { slotId: "anthropic", modelId: "claude-sonnet-5-5"
 
 /** Name of the Pi provider that carries a client binding. Never one of Pi's own providers. */
 export function bridgeProviderId(slotId: string): string {
-	return `air-${slotId}`;
+	return slotId === JETBRAINS_AI_GROUP.id ? JETBRAINS_AI_GROUP.providerId : `air-${slotId}`;
+}
+
+/**
+ * JetBrains AI with a Junie API key (`JUNIE_API_KEY`): Junie's model catalog through Ingrazzio, from the copied
+ * jetbrains-ai package (packages/jetbrains-ai). A model group of its own; the provider keeps the package's id.
+ */
+export const JETBRAINS_AI_GROUP = { id: "jetbrains-ai", displayName: "JetBrains AI", providerId: "jetbrains-ai" };
+
+/**
+ * Where a vendor key (`JUNIE_<VENDOR>_API_KEY`) binds the vendor's slot: the vendor's public API, in the same form a
+ * client binding has (slot apiType and base URL, see SlotDefinition.apiTypes).
+ */
+export const VENDOR_ROUTES: Record<string, { apiType: string; baseUrl: string }> = {
+	anthropic: { apiType: "anthropic", baseUrl: "https://api.anthropic.com" },
+	openai: { apiType: "openai", baseUrl: "https://api.openai.com/v1" },
+	google: { apiType: "google", baseUrl: "https://generativelanguage.googleapis.com" },
+};
+
+/** The vendor's own auth header for a real key, for requests the bridge makes itself (model discovery). */
+export function keyAuthHeaders(apiType: string, apiKey: string): Record<string, string> {
+	if (apiType === "anthropic") return { "x-api-key": apiKey };
+	if (apiType === "google") return { "x-goog-api-key": apiKey };
+	return { authorization: `Bearer ${apiKey}` };
 }
 
 /** Junie's placeholders when the client names no Vertex project/location; the proxy fills in the real ones. */

@@ -12,7 +12,8 @@
     "@earendil-works/pi-agent-core": "1.5.2",
     "@earendil-works/pi-ai": "1.5.2",
     "@earendil-works/pi-coding-agent": "1.5.2",
-    "pi-junie-config": "*"
+    "pi-junie-config": "*",
+    "pi-junie-jetbrains-ai": "*"
   },
   "devDependencies": {
     "typebox": "1.4.7"

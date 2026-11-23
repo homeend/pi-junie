@@ -39,6 +39,11 @@ export interface ProviderBinding {
 	headers: Record<string, string>;
 	/** Model ids the user picked in the client for this provider, in order (narrows a discovered account catalog). */
 	selectedModels?: string[];
+	/**
+	 * A real vendor key (Junie's `JUNIE_<VENDOR>_API_KEY`) when the binding goes straight to the vendor rather than
+	 * through a proxy that authenticates by `headers`. Never logged.
+	 */
+	apiKey?: string;
 	/** Vertex resource location the client names for a vertex binding (else the proxy's placeholders apply). */
 	vertex?: { projectId: string; location: string };
 }

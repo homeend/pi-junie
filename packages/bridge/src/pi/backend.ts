@@ -20,7 +20,9 @@ import {
 import { type Logger, silentLogger } from "../core/log.ts";
 import type { AgentBackend, BackendSession, PermissionAsk, PlanReviewAsk, QuestionAsk, SessionContext, TurnSink } from "../core/ports.ts";
 import type { ApprovalMode, CommandInfo, HistoryItem, PlanUpdate, McpServerSpec, ModelChoice, ModelGroup, ModelMix, ModelRef, PromptInput, ProviderBinding, ProviderSlotState, SessionSummary, SteerResult, TurnResult } from "../core/types.ts";
-import { bridgeProviderId, DEFAULT_MODEL, joinBaseUrl, SLOTS, type SlotDefinition, vertexBaseUrl } from "./catalog.ts";
+import type { JunieCredentials, JunieModelChoice } from "pi-junie-config/credentials";
+import { jetbrainsAiProvider } from "pi-junie-jetbrains-ai";
+import { bridgeProviderId, DEFAULT_MODEL, JETBRAINS_AI_GROUP, joinBaseUrl, keyAuthHeaders, SLOTS, type SlotDefinition, VENDOR_ROUTES, vertexBaseUrl } from "./catalog.ts";
 import { openPiTranscript, type SessionMeta, SessionStore } from "./session-store.ts";
 import { BRIDGE_TOOLS, READ_ONLY_TOOLS, toolKind, toolLocations, toolResultText, toolTitle } from "./tools.ts";
 import { IDE_ROUTER_TOOL, IDE_SERVER, ideRouterName, ideServerToolExposure, JUNIE_COMPAT_DEFAULTS, type JunieCompatOptions, junieExecuteToolAlias } from "./junie-compat.ts";
@@ -66,6 +68,11 @@ export interface PiBackendOptions {
 	discoveryTimeoutMs?: number;
 	/** Trust the session's project for Pi project resources (skills). Default true. */
 	trustProject?: boolean;
+	/**
+	 * Junie's configuration from the environment (packages/junie-config): keys bind models without a client, the
+	 * model choice is the default of new sessions. `vendorBaseUrls` replaces a vendor's public API (tests).
+	 */
+	junie?: { credentials?: JunieCredentials; model?: JunieModelChoice; vendorBaseUrls?: Record<string, string> };
 	/** Plugins that ship with the bridge: package directories loaded into every session (e.g. packages/junie-cost). */
 	bundledPlugins?: string[];
 	/** Junie compatibility profile (see junie-compat.ts). */
@@ -84,6 +91,9 @@ export class PiBackend implements AgentBackend {
 	private readonly pending = new Set<Promise<void>>();
 	/** The Ingrazzio route (no models) and the feature flags read through it. */
 	private ingrazzio?: { binding: ProviderBinding; generation: number; flags?: FeatureFlags; mixes?: MixCatalog };
+	/** The JetBrains AI group is registered (JUNIE_API_KEY). */
+	private jetbrainsAi = false;
+	private junieModel: JunieModelChoice = {};
 	private readonly fetchImpl?: typeof fetch;
 	private readonly discoveryTimeoutMs?: number;
 	private generation = 0;
@@ -123,6 +133,8 @@ export class PiBackend implements AgentBackend {
 			this.log.info(`subagent transcripts go to ${process.env.PI_CODING_AGENT_SESSION_DIR}`);
 		}
 		this.showWelcome = options.welcome ?? false;
+		this.junieModel = options.junie?.model ?? {};
+		if (options.junie?.credentials) this.useJunieCredentials(options.junie.credentials, options.junie.vendorBaseUrls ?? {});
 		const subagents = this.plugins.some((p) => p.name === SUBAGENTS_PLUGIN);
 		this.log.info(`subagents: ${subagents ? "available" : "not available"}`);
 	}
@@ -171,8 +183,32 @@ export class PiBackend implements AgentBackend {
 		void done.finally(() => this.pending.delete(done));
 	}
 
+	/**
+	 * Junie's keys, as Junie's CLI uses them: `JUNIE_API_KEY` adds the JetBrains AI group (Junie's catalog through
+	 * Ingrazzio); a vendor key binds that vendor's slot to the vendor's API. A client's providers/set for the same slot
+	 * later replaces the key binding, so in AIR the IDE's providers win.
+	 */
+	private useJunieCredentials(credentials: JunieCredentials, vendorBaseUrls: Record<string, string>): void {
+		if (credentials.junieApiKey) {
+			// The provider reads JUNIE_API_KEY from the environment itself (packages/jetbrains-ai/src/api-key.ts).
+			this.runtime.registerNativeProvider(jetbrainsAiProvider());
+			this.jetbrainsAi = true;
+			const count = this.runtime.getModels().filter((m) => m.provider === JETBRAINS_AI_GROUP.providerId).length;
+			this.log.info(`Junie key: JetBrains AI group with ${count} models (JUNIE_API_KEY)`);
+		}
+		for (const { vendor, env, apiKey } of credentials.vendorKeys) {
+			const route = VENDOR_ROUTES[vendor];
+			if (!route) continue;
+			this.log.info(`Junie key: ${vendor} bound to the vendor API (${env})`);
+			this.bindProvider({ slotId: vendor, apiType: route.apiType, baseUrl: vendorBaseUrls[vendor] ?? route.baseUrl, headers: {}, apiKey });
+		}
+		for (const env of credentials.unsupported) this.log.warn(`Junie key: ${env} is set but not supported yet; ignored`);
+	}
+
 	bindProvider(binding: ProviderBinding): void {
 		if (binding.slotId === INGRAZZIO_SLOT.id) return this.bindIngrazzio(binding);
+		const previous = this.bindings.get(binding.slotId)?.binding;
+		if (previous?.apiKey && !binding.apiKey) this.log.info(`bind ${binding.slotId}: the client's binding replaces the Junie key binding`);
 		const slot = this.slot(binding.slotId);
 		const target = slot.apiTypes[binding.apiType];
 		if (!target) throw new Error(`slot ${slot.id} has no apiType ${binding.apiType}`);
@@ -181,7 +217,7 @@ export class PiBackend implements AgentBackend {
 		const generation = ++this.generation;
 		this.bindings.set(slot.id, { binding, generation, status: "discovering" });
 		this.log.info(
-			`bind ${slot.id}: apiType=${binding.apiType} baseUrl=${binding.baseUrl} headers=[${Object.keys(binding.headers).join(", ")}]` +
+			`bind ${slot.id}: apiType=${binding.apiType} baseUrl=${binding.baseUrl} headers=[${Object.keys(binding.headers).join(", ")}]${binding.apiKey ? " key=<set>" : ""}` +
 				`${binding.selectedModels ? ` selectedModels=[${binding.selectedModels.join(", ")}]` : ""} -> discovering models`,
 		);
 		const done = this.discover(slot, binding, generation);
@@ -194,7 +230,7 @@ export class PiBackend implements AgentBackend {
 		const target = slot.apiTypes[binding.apiType];
 		const started = Date.now();
 		const result = await discoverModels(
-			{ apiType: binding.apiType, baseUrl: binding.baseUrl, headers: binding.headers },
+			{ apiType: binding.apiType, baseUrl: binding.baseUrl, headers: { ...binding.headers, ...(binding.apiKey ? keyAuthHeaders(binding.apiType, binding.apiKey) : {}) } },
 			{ fetch: this.fetchImpl, timeoutMs: this.discoveryTimeoutMs, log: this.log },
 		);
 		const state = this.bindings.get(slot.id);
@@ -263,7 +299,9 @@ export class PiBackend implements AgentBackend {
 				name: `AIR ${slot.displayName}`,
 				baseUrl,
 				headers: binding.headers,
-				apiKey: PLACEHOLDER_API_KEY, // Pi needs a key; withoutPlaceholderAuth removes it from requests (see proxy-auth.ts)
+				// A vendor key goes as the vendor's own auth. Through the proxy Pi still needs a key: a placeholder that
+				// withoutPlaceholderAuth removes from requests (see proxy-auth.ts).
+				apiKey: binding.apiKey ?? PLACEHOLDER_API_KEY,
 				api: target.piApi,
 				models,
 			});
@@ -324,7 +362,11 @@ export class PiBackend implements AgentBackend {
 	}
 
 	availableModels(): ModelGroup[] {
-		const slots = [...SLOTS.filter((s) => this.bindings.has(s.id)), ...(this.ingrazzio ? [INGRAZZIO_SLOT] : [])];
+		const slots = [
+			...SLOTS.filter((s) => this.bindings.has(s.id)),
+			...(this.ingrazzio ? [INGRAZZIO_SLOT] : []),
+			...(this.jetbrainsAi ? [JETBRAINS_AI_GROUP] : []),
+		];
 		return slots.map((s) => ({
 			slotId: s.id,
 			name: s.displayName,
@@ -381,9 +423,15 @@ export class PiBackend implements AgentBackend {
 		const id = `pi-${Date.now().toString(36)}-${++this.counter}`;
 		const now = new Date().toISOString();
 		const meta: SessionMeta = { id, cwd, createdAt: now, updatedAt: now };
-		// Like Junie, a new chat starts on the recommended Default level when there is one.
-		const recommended = this.modelMixes().find((m) => m.recommended);
-		if (recommended) Object.assign(meta, { mix: recommended.id, model: recommended.model, ...(recommended.effort ? { effort: recommended.effort } : {}) });
+		const configured = this.configuredModel();
+		if (configured) {
+			// Junie's JUNIE_MODEL / JUNIE_EFFORT (or PRIMARY_MODEL*): the run's model, chosen by configuration.
+			Object.assign(meta, { model: configured, ...(this.junieModel.effort && this.junieModel.effort !== "none" ? { effort: this.junieModel.effort } : {}) });
+		} else {
+			// Like Junie, a new chat starts on the recommended Default level when there is one.
+			const recommended = this.modelMixes().find((m) => m.recommended);
+			if (recommended) Object.assign(meta, { mix: recommended.id, model: recommended.model, ...(recommended.effort ? { effort: recommended.effort } : {}) });
+		}
 		this.store.save(meta);
 		this.log.info(`session ${id} opened (cwd ${cwd}), default model ${fmt(this.defaultModel())}`);
 		return new PiSession(meta, this, context);
@@ -453,7 +501,17 @@ export class PiBackend implements AgentBackend {
 		return this.runtime.getModel(bridgeProviderId(ref.slotId), ref.modelId);
 	}
 
+	/** The model Junie's configuration names (JUNIE_MODEL / PRIMARY_MODEL), when it is available. */
+	private configuredModel(): ModelRef | undefined {
+		if (!this.junieModel.model) return undefined;
+		const ref = this.modelForSetting(this.junieModel.model);
+		if (!ref) this.log.warn(`Junie model ${this.junieModel.model} is not among the available models; using the default`);
+		return ref;
+	}
+
 	defaultModel(): ModelRef | undefined {
+		const configured = this.junieModel.model ? this.modelForSetting(this.junieModel.model) : undefined;
+		if (configured) return configured;
 		if (this.resolveModel(DEFAULT_MODEL)) return DEFAULT_MODEL;
 		const first = this.availableModels().find((g) => g.models.length)?.models[0];
 		return first ? { slotId: first.slotId, modelId: first.modelId } : undefined;
@@ -1015,7 +1073,8 @@ class PiSession implements BackendSession {
 			const askUser = this.context.questionForms ? askUserTool(() => this.askUser) : undefined;
 			this.pi = await this.backend.createPiSession(this.id, this.cwd, model, this.thinkingLevel(), this.gate, this.context, askUser);
 		}
-		else if (this.pi.model?.id !== model.id || this.pi.model?.provider !== model.provider) await this.pi.setModel(model);
+		// Same model on a new route (a new providers/set, or a client binding replacing a Junie key) counts as a change.
+		else if (this.pi.model?.id !== model.id || this.pi.model?.provider !== model.provider || !sameRoute(this.pi.model, model)) await this.pi.setModel(model);
 		if (this.pi.thinkingLevel !== this.thinkingLevel()) this.pi.setThinkingLevel(this.thinkingLevel());
 		const pi = this.pi;
 		await this.syncPlanMode(pi, sink);
@@ -1211,4 +1270,9 @@ function registerClientMcpServers(servers: McpServerSpec[], compat: JunieCompatO
 			else pi.registerMcpServer(name, { type: "http", url: s.url, headers: s.headers, ...exposure });
 		}
 	};
+}
+
+/** Whether two descriptions of a model send requests the same way (address and headers). */
+function sameRoute(a: Model<Api>, b: Model<Api>): boolean {
+	return a.baseUrl === b.baseUrl && JSON.stringify(a.headers ?? {}) === JSON.stringify(b.headers ?? {});
 }

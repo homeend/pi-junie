@@ -8,6 +8,7 @@
 import { fileURLToPath } from "node:url";
 import { appendFileSync } from "node:fs";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { junieCredentials, junieModelChoice } from "pi-junie-config/credentials";
 import { describeJunieSettings, resolveJunieSettings } from "pi-junie-config/settings";
 import { AcpAgent } from "./acp/agent.ts";
 import type { JsonObject, Transport } from "./acp/jsonrpc.ts";
@@ -120,6 +121,8 @@ const backend = await PiBackend.create({
 	trustProject: process.env.PI_AIR_TRUST_PROJECT !== "0", // PI_AIR_TRUST_PROJECT=0: no project skills
 	// Junie compatibility: AIR's IDE router as `execute_tool` (PI_AIR_JUNIE_EXECUTE_TOOL=0 keeps the MCP name)
 	junieCompat: { executeToolAlias: process.env.PI_AIR_JUNIE_EXECUTE_TOOL !== "0" },
+	// Junie's keys and model choice from the environment (JUNIE_API_KEY, JUNIE_<VENDOR>_API_KEY, JUNIE_MODEL, ...).
+	junie: { credentials: junieCredentials(), model: junieModelChoice() },
 	// Built-in plugins from this repository's packages: Junie Config (Junie's settings from the environment; inert
 	// without them) and Junie Cost (PI_AIR_JUNIE_COST=0 leaves it out).
 	bundledPlugins: [

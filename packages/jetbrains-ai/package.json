@@ -1,0 +1,20 @@
+{
+	"name": "pi-junie-jetbrains-ai",
+	"version": "1.0.0",
+	"private": true,
+	"description": "JetBrains AI provider for Pi (Junie's models through Ingrazzio), copied from junie-pi's pi-extension-jetbrains-ai",
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts"
+	},
+	"pi": {
+		"extensions": ["./src/index.ts"]
+	},
+	"scripts": {
+		"check": "tsc --noEmit -p ."
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-ai": "*"
+	},
+	"keywords": ["pi-package", "jetbrains", "ai"]
+}
