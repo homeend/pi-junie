@@ -1,0 +1,363 @@
+<title>pi-junie Architecture</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one reading column with a full-width system diagram; layers keyed by color (IDE, bridge, Pi, models, plugins). */
+:root {
+	--bg: #f6f7fa;
+	--surface: #ffffff;
+	--fg: #1b1e27;
+	--muted: #5d6475;
+	--line: #d8dce5;
+	--accent: #6b3fd4;
+	--ide: #2f6fd6;
+	--ide-bg: #e8f0fd;
+	--bridge: #6b3fd4;
+	--bridge-bg: #efe9fc;
+	--pi: #1f8a5b;
+	--pi-bg: #e5f4ec;
+	--model: #b06a10;
+	--model-bg: #fbf0df;
+	--plug: #b23a6e;
+	--plug-bg: #fbe8f0;
+	--code-bg: #eef0f5;
+	--font-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+	--font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme="light"]) {
+		--bg: #12141b; --surface: #1a1d26; --fg: #e6e8ef; --muted: #9aa1b2; --line: #2c3140; --accent: #a888ff;
+		--ide: #7aa8ff; --ide-bg: #17243d; --bridge: #a888ff; --bridge-bg: #231c3a; --pi: #5fd09a; --pi-bg: #13291f;
+		--model: #f0b25e; --model-bg: #2c2214; --plug: #f07aab; --plug-bg: #2d1824; --code-bg: #222632;
+		color-scheme: dark;
+	}
+}
+:root[data-theme="dark"] {
+	--bg: #12141b; --surface: #1a1d26; --fg: #e6e8ef; --muted: #9aa1b2; --line: #2c3140; --accent: #a888ff;
+	--ide: #7aa8ff; --ide-bg: #17243d; --bridge: #a888ff; --bridge-bg: #231c3a; --pi: #5fd09a; --pi-bg: #13291f;
+	--model: #f0b25e; --model-bg: #2c2214; --plug: #f07aab; --plug-bg: #2d1824; --code-bg: #222632;
+	color-scheme: dark;
+}
+body {
+	background: var(--bg); color: var(--fg); font: 15px/1.6 var(--font-body);
+	padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+	padding-block: 2rem 4rem;
+}
+main { max-width: 1040px; margin: 0 auto; display: grid; gap: 2.5rem; }
+.prose { max-width: 68ch; }
+h1, h2, h3 { line-height: 1.2; text-wrap: balance; margin: 0; }
+h1 { font-size: 2.1rem; font-weight: 700; letter-spacing: -0.01em; }
+h2 { font-size: 1.35rem; font-weight: 600; display: flex; align-items: baseline; gap: .6rem; }
+h3 { font-size: 1rem; font-weight: 600; }
+h2 .path { font: 500 .8rem var(--font-mono); color: var(--muted); }
+p { margin: 0; }
+section { display: grid; gap: 1rem; min-width: 0; }
+code, .mono { font-family: var(--font-mono); font-size: .86em; }
+code { background: var(--code-bg); padding: .08em .35em; border-radius: 4px; overflow-wrap: anywhere; }
+a { color: var(--accent); }
+.eyebrow { font: 600 .72rem var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
+.lede { font-size: 1.05rem; color: var(--muted); max-width: 70ch; }
+.facts { display: flex; flex-wrap: wrap; gap: .5rem 1.5rem; font: .82rem var(--font-mono); color: var(--muted); }
+.facts b { color: var(--fg); font-weight: 600; }
+.diagram { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 1rem; overflow-x: auto; }
+.diagram svg { display: block; min-width: 900px; width: 100%; height: auto; }
+.legend { display: flex; flex-wrap: wrap; gap: .4rem 1.2rem; font-size: .82rem; color: var(--muted); }
+.legend span::before { content: ""; display: inline-block; width: .7em; height: .7em; border-radius: 2px; margin-right: .4em; vertical-align: -.05em; background: var(--c); }
+.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+th, td { text-align: left; vertical-align: top; padding: .6rem .8rem; border-bottom: 1px solid var(--line); }
+tr:last-child td { border-bottom: 0; }
+th { font: 600 .72rem var(--font-mono); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); background: var(--bg); }
+td:first-child { white-space: nowrap; }
+.layers { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 1rem; }
+.layer { background: var(--surface); border: 1px solid var(--line); border-top: 3px solid var(--c); border-radius: 8px; padding: .9rem 1rem; display: grid; gap: .5rem; align-content: start; min-width: 0; }
+.layer h3 { font-family: var(--font-mono); font-size: .88rem; color: var(--c); }
+.layer p, .layer li { font-size: .88rem; color: var(--muted); }
+.layer ul { margin: 0; padding-left: 1.1rem; display: grid; gap: .25rem; }
+.rule { font-size: .82rem; color: var(--fg); background: var(--bg); border-radius: 6px; padding: .35rem .55rem; }
+ol.flow { margin: 0; padding: 0; list-style: none; counter-reset: step; display: grid; gap: .6rem; }
+ol.flow li { counter-increment: step; display: grid; grid-template-columns: 2rem 1fr; gap: .2rem .6rem; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: .65rem .9rem; min-width: 0; }
+ol.flow li::before { content: counter(step); grid-row: span 2; font: 600 .85rem var(--font-mono); color: var(--accent); }
+ol.flow b { font-weight: 600; }
+ol.flow span { color: var(--muted); font-size: .9rem; min-width: 0; }
+.chips { display: flex; flex-wrap: wrap; gap: .4rem; }
+.chip { font-size: .8rem; padding: .2rem .55rem; border-radius: 999px; background: var(--surface); border: 1px solid var(--line); }
+.chip.done { border-color: var(--pi); color: var(--pi); }
+.chip.todo { border-style: dashed; color: var(--muted); }
+.two { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem; }
+.box { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: .9rem 1rem; display: grid; gap: .5rem; min-width: 0; }
+.box ul { margin: 0; padding-left: 1.1rem; display: grid; gap: .3rem; font-size: .9rem; }
+.box li { min-width: 0; }
+footer { font-size: .82rem; color: var(--muted); border-top: 1px solid var(--line); padding-top: 1rem; }
+/* SVG diagram, colored from the tokens */
+svg text { font-family: var(--font-body); fill: var(--fg); }
+svg .t-title { font-weight: 600; font-size: 14px; }
+svg .t-sub { font-size: 12px; fill: var(--muted); }
+svg .t-mono { font-family: var(--font-mono); font-size: 11px; fill: var(--muted); }
+svg .t-edge { font-family: var(--font-mono); font-size: 10.5px; fill: var(--muted); }
+svg .ide { fill: var(--ide-bg); stroke: var(--ide); }
+svg .bridge { fill: var(--bridge-bg); stroke: var(--bridge); }
+svg .pi { fill: var(--pi-bg); stroke: var(--pi); }
+svg .model { fill: var(--model-bg); stroke: var(--model); }
+svg .plug { fill: var(--plug-bg); stroke: var(--plug); }
+svg .inner { fill: var(--surface); stroke: var(--line); }
+svg .edge { stroke: var(--muted); stroke-width: 1.4; fill: none; }
+svg .arrow { fill: var(--muted); }
+svg .c-ide { fill: var(--ide); } svg .c-bridge { fill: var(--bridge); } svg .c-pi { fill: var(--pi); } svg .c-model { fill: var(--model); } svg .c-plug { fill: var(--plug); }
+@media (max-width: 480px) { h1 { font-size: 1.7rem; } td:first-child { white-space: normal; } }
+</style>
+
+<main>
+	<header style="display:grid;gap:.8rem">
+		<div class="eyebrow">Architecture · state of 2026-11-23</div>
+		<h1>pi-junie</h1>
+		<p class="lede">Pi, the open coding agent, runs in-process as an ACP v1 agent of JetBrains AIR. A bridge translates between AIR's protocol and Pi's SDK; Junie's behavior (models, Default group, Eco, cost savings, configuration, changed-file reports) is added around it as Pi plugins. Pi itself is never modified.</p>
+		<div class="facts"><span><b>5</b> packages</span><span><b>~10k</b> lines of TypeScript</span><span><b>185</b> offline tests</span><span><b>Pi 1.5.2</b> SDK</span><span><b>ACP v1</b> + AIR <code>_meta</code></span></div>
+	</header>
+
+	<section>
+		<h2>The system</h2>
+		<div class="diagram" role="img" aria-label="AIR talks ACP over stdio to the bridge; the bridge drives Pi sessions in-process; Pi calls models through AIR's proxy or Junie's own sources; plugins extend each Pi session.">
+			<svg viewBox="0 0 980 600" xmlns="http://www.w3.org/2000/svg">
+				<defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrow" d="M0,0 L10,5 L0,10 z"/></marker></defs>
+
+				<!-- AIR -->
+				<rect class="ide" x="14" y="14" width="214" height="572" rx="10" stroke-width="1.5"/>
+				<text class="t-title" x="30" y="42">JetBrains AIR</text>
+				<text class="t-sub" x="30" y="60">the IDE, the ACP client</text>
+				<g>
+					<rect class="inner" x="30" y="78" width="182" height="46" rx="6"/><text class="t-sub" x="42" y="98">Chat, plan cards,</text><text class="t-sub" x="42" y="114">changed-files card</text>
+					<rect class="inner" x="30" y="134" width="182" height="46" rx="6"/><text class="t-sub" x="42" y="154">Model picker, Default,</text><text class="t-sub" x="42" y="170">effort, Eco, Brave Mode</text>
+					<rect class="inner" x="30" y="190" width="182" height="46" rx="6"/><text class="t-sub" x="42" y="210">Permissions, plan</text><text class="t-sub" x="42" y="226">review, question forms</text>
+					<rect class="inner" x="30" y="246" width="182" height="46" rx="6"/><text class="t-sub" x="42" y="266">Session list, fork,</text><text class="t-sub" x="42" y="282">resume, session cost</text>
+					<rect class="inner" x="30" y="302" width="182" height="46" rx="6"/><text class="t-sub" x="42" y="322">IDE tools (MCP server)</text><text class="t-mono" x="42" y="338">execute_tool router</text>
+				</g>
+				<text class="t-mono" x="30" y="392">~/.jetbrains/acp.json</text>
+				<text class="t-mono" x="30" y="408">→ bin/pi-air (node)</text>
+
+				<!-- edge AIR <-> bridge -->
+				<path class="edge" d="M228 150 H288" marker-end="url(#ah)" marker-start="url(#ah)"/>
+				<text class="t-edge" x="234" y="140">ACP v1</text>
+				<text class="t-edge" x="234" y="168">stdio</text>
+
+				<!-- Bridge -->
+				<rect class="bridge" x="290" y="14" width="420" height="300" rx="10" stroke-width="1.5"/>
+				<text class="t-title" x="306" y="42">packages/bridge</text>
+				<text class="t-sub" x="440" y="42">the ACP bridge ("pi-junie")</text>
+				<rect class="inner" x="306" y="56" width="388" height="58" rx="6"/>
+				<text class="t-title c-bridge" x="318" y="77" style="font-size:12.5px">acp/ driver</text>
+				<text class="t-mono" x="318" y="96">jsonrpc · wire · codec · agent · file-changes</text>
+				<rect class="inner" x="306" y="122" width="388" height="38" rx="6"/>
+				<text class="t-title c-bridge" x="318" y="146" style="font-size:12.5px">core/</text>
+				<text class="t-mono" x="362" y="146">neutral types + ports (no ACP, no Pi)</text>
+				<rect class="inner" x="306" y="168" width="388" height="96" rx="6"/>
+				<text class="t-title c-bridge" x="318" y="189" style="font-size:12.5px">pi/ backend</text>
+				<text class="t-mono" x="318" y="208">PiBackend: providers, discovery, Default group,</text>
+				<text class="t-mono" x="318" y="224">Eco models, Junie keys and profiles, plugins</text>
+				<text class="t-mono" x="318" y="244">PiSession (one per chat): tools, permissions,</text>
+				<text class="t-mono" x="318" y="260">phases, plan, subagents, cost, /stats</text>
+				<rect class="inner" x="306" y="272" width="388" height="32" rx="6"/>
+				<text class="t-title c-bridge" x="318" y="293" style="font-size:12.5px">compat/</text>
+				<text class="t-mono" x="384" y="293">AIR feature ↔ plugin requirements</text>
+
+				<!-- edge bridge -> Pi -->
+				<path class="edge" d="M500 314 V346" marker-end="url(#ah)"/>
+				<text class="t-edge" x="508" y="335">in-process SDK calls</text>
+
+				<!-- Pi -->
+				<rect class="pi" x="290" y="348" width="420" height="96" rx="10" stroke-width="1.5"/>
+				<text class="t-title" x="306" y="376">Pi SDK 1.5.2</text>
+				<text class="t-sub" x="410" y="376">@earendil-works/pi-coding-agent</text>
+				<text class="t-mono" x="306" y="398">AgentSession per chat · one shared ModelRuntime</text>
+				<text class="t-mono" x="306" y="416">SessionManager transcripts · tools read/edit/write/bash</text>
+				<text class="t-mono" x="306" y="434">extension API: hooks, tools, commands, virtual models</text>
+
+				<!-- edge Pi -> plugins -->
+				<path class="edge" d="M500 444 V474" marker-end="url(#ah)"/>
+				<text class="t-edge" x="508" y="463">loaded into every session</text>
+
+				<!-- Plugins -->
+				<rect class="plug" x="290" y="476" width="420" height="110" rx="10" stroke-width="1.5"/>
+				<text class="t-title" x="306" y="500">Extensions of each Pi session</text>
+				<rect class="inner" x="306" y="510" width="126" height="66" rx="6"/>
+				<text class="t-title c-plug" x="314" y="528" style="font-size:12px">bridge's own</text>
+				<text class="t-mono" x="314" y="546">gate, client MCP,</text>
+				<text class="t-mono" x="314" y="561">ask_user, retries</text>
+				<rect class="inner" x="438" y="510" width="126" height="66" rx="6"/>
+				<text class="t-title c-plug" x="446" y="528" style="font-size:12px">built in</text>
+				<text class="t-mono" x="446" y="546">junie-config</text>
+				<text class="t-mono" x="446" y="561">junie-cost</text>
+				<rect class="inner" x="570" y="510" width="126" height="66" rx="6"/>
+				<text class="t-title c-plug" x="578" y="528" style="font-size:12px">detected</text>
+				<text class="t-mono" x="578" y="546">subagents, todo,</text>
+				<text class="t-mono" x="578" y="561">plan mode, web</text>
+
+				<!-- edge Pi -> models -->
+				<path class="edge" d="M710 396 H748" marker-end="url(#ah)"/>
+				<text class="t-edge" x="714" y="386">HTTP</text>
+
+				<!-- Models -->
+				<rect class="model" x="750" y="14" width="216" height="572" rx="10" stroke-width="1.5"/>
+				<text class="t-title" x="766" y="42">Model sources</text>
+				<text class="t-sub" x="766" y="60">one Pi provider each</text>
+				<rect class="inner" x="766" y="78" width="184" height="62" rx="6"/><text class="t-sub" x="778" y="98">AIR LLM proxy slots</text><text class="t-mono" x="778" y="116">Anthropic · OpenAI ·</text><text class="t-mono" x="778" y="131">Google (providers/set)</text>
+				<rect class="inner" x="766" y="150" width="184" height="62" rx="6"/><text class="t-sub" x="778" y="170">Ingrazzio route</text><text class="t-mono" x="778" y="188">feature flags, Default</text><text class="t-mono" x="778" y="203">group, Junie Lite</text>
+				<rect class="inner" x="766" y="222" width="184" height="62" rx="6"/><text class="t-sub" x="778" y="242">JetBrains AI</text><text class="t-mono" x="778" y="260">JUNIE_API_KEY →</text><text class="t-mono" x="778" y="275">packages/jetbrains-ai</text>
+				<rect class="inner" x="766" y="294" width="184" height="62" rx="6"/><text class="t-sub" x="778" y="314">Vendor keys</text><text class="t-mono" x="778" y="332">JUNIE_ANTHROPIC_…</text><text class="t-mono" x="778" y="347">→ vendor's own API</text>
+				<rect class="inner" x="766" y="366" width="184" height="62" rx="6"/><text class="t-sub" x="778" y="386">Custom profiles</text><text class="t-mono" x="778" y="404">~/.junie/models/*.json</text><text class="t-mono" x="778" y="419">custom:&lt;profile&gt;</text>
+				<rect class="inner" x="766" y="438" width="184" height="62" rx="6"/><text class="t-sub" x="778" y="458">Eco (virtual)</text><text class="t-mono" x="778" y="476">eco/&lt;slot&gt;/&lt;model&gt;:</text><text class="t-mono" x="778" y="491">plan → implement</text>
+				<text class="t-mono" x="766" y="530">state: ~/.pi/pi-junie</text>
+				<text class="t-mono" x="766" y="546">log: .pi-dev/pi-air.log</text>
+			</svg>
+		</div>
+		<div class="legend">
+			<span style="--c:var(--ide)">AIR (client)</span><span style="--c:var(--bridge)">bridge</span><span style="--c:var(--pi)">Pi SDK</span><span style="--c:var(--plug)">plugins</span><span style="--c:var(--model)">models</span>
+		</div>
+	</section>
+
+	<section>
+		<h2>Packages <span class="path">npm workspace, packages/*</span></h2>
+		<p class="prose">Each package is a directory with its own <code>package.json</code>, tests and docs. The root is not a Pi package. Two of them are copies of junie-pi's packages, changed here.</p>
+		<div class="table-wrap"><table>
+			<thead><tr><th>Package</th><th>Role</th><th>Loaded by</th></tr></thead>
+			<tbody>
+				<tr><td><code>bridge</code> (pi-junie)</td><td>The ACP agent: protocol driver, Pi backend, AIR features. Started by <code>bin/pi-air</code>.</td><td>AIR, through <code>acp.json</code></td></tr>
+				<tr><td><code>junie-cost</code></td><td>Junie's cost savings: tool-output limits and summaries, history thinning, task-journal compaction, Eco planner and router. Copy of junie-pi's, with per-session Eco routing and provider-neutral pairs.</td><td>Built into the bridge (<code>PI_AIR_JUNIE_COST=0</code> turns it off)</td></tr>
+				<tr><td><code>junie-config</code></td><td>Junie's configuration for Pi: settings from the environment, keys, model choice, custom profiles, step limit, project structure, request options, usage and cost maths, prompt usage log.</td><td>Built into the bridge; inert without Junie settings</td></tr>
+				<tr><td><code>jetbrains-ai</code></td><td>JetBrains AI provider: Junie's catalog through Ingrazzio, browser login or Junie API key. Copy of junie-pi's.</td><td>The bridge when <code>JUNIE_API_KEY</code> is set; terminal Pi via <code>pi install</code></td></tr>
+				<tr><td><code>plugin-manager</code></td><td><code>/plugins</code>: switch installed Pi packages on and off from inside Pi.</td><td>Terminal Pi via <code>pi install</code></td></tr>
+			</tbody>
+		</table></div>
+	</section>
+
+	<section>
+		<h2>Inside the bridge <span class="path">packages/bridge/src</span></h2>
+		<div class="layers">
+			<div class="layer" style="--c:var(--bridge)">
+				<h3>acp/</h3>
+				<p>Everything ACP-shaped: JSON-RPC peer, v1 wire types, the codec (pure translation to and from core types), method dispatch, the changed-files report.</p>
+				<div class="rule">Never imports Pi.</div>
+			</div>
+			<div class="layer" style="--c:var(--bridge)">
+				<h3>core/</h3>
+				<p>Neutral types and the ports between the two sides: <code>AgentBackend</code>, <code>BackendSession</code>, turn events, permission and question asks.</p>
+				<div class="rule">Imports nothing but itself.</div>
+			</div>
+			<div class="layer" style="--c:var(--bridge)">
+				<h3>pi/</h3>
+				<p><code>backend.ts</code> plus one module per concern: catalog, discovery, ingrazzio, mixes, plugins, tools, transcript, phases, session-store, subagents, todo, plan-mode, web-access, ask-user, safe-commands, junie-compat, proxy-auth, stream-errors, failures.</p>
+				<div class="rule">Never imports ACP.</div>
+			</div>
+			<div class="layer" style="--c:var(--bridge)">
+				<h3>compat/</h3>
+				<p>AIR capability strings mapped to plugin requirements: what to advertise in <code>initialize</code>, and why a feature AIR wants is missing.</p>
+				<div class="rule">Standalone.</div>
+			</div>
+		</div>
+		<p class="prose">The boundaries are enforced by <code>test/architecture.test.ts</code>, so the protocol and the agent can change independently.</p>
+	</section>
+
+	<section>
+		<h2>The life of a prompt</h2>
+		<ol class="flow">
+			<li><b><code>initialize</code></b><span>The client says who it is and which AIR features it takes. The bridge answers with its capabilities and <code>_meta.jetbrains.air.capabilities</code> (subagent sessions, changed-file reports).</span></li>
+			<li><b><code>providers/set</code></b><span>AIR hands over its LLM proxy routes. The bridge discovers each route's models, keeps those Junie's picker offers, loads the account's feature flags (Default group, Eco implementation model) and Junie Lite.</span></li>
+			<li><b><code>session/new</code></b><span>A chat on the recommended Default level, or <code>JUNIE_MODEL</code>. The answer carries config options: mode, model with the Default group, effort, Eco, Brave Mode. A welcome message lists the plugins.</span></li>
+			<li><b><code>session/prompt</code></b><span>A Pi <code>AgentSession</code> is created or resumed from its transcript, with the bridge's extensions, the built-in and detected plugins, the IDE's MCP tools and the project's skills.</span></li>
+			<li><b>The agent loop</b><span>Pi streams text, thoughts and tool calls. The bridge turns them into <code>session/update</code>s: message chunks split into commentary and answer, tool rows with diffs and live terminal output, plans, subagent child sessions, <code>usage_update</code> with the chat's cost.</span></li>
+			<li><b>Permissions</b><span>Every tool call passes the bridge's gate: read-only tools run, others ask through <code>session/request_permission</code> unless Brave Mode or a safe-command rule allows them. Questions and plan reviews use AIR's forms.</span></li>
+			<li><b>End of the turn</b><span>If AIR asked, the files the turn's edits changed go out as <code>agentFileChangeReport</code>; then the prompt result with token usage. A failed turn becomes AIR's typed failure row.</span></li>
+		</ol>
+	</section>
+
+	<section>
+		<h2>Models</h2>
+		<div class="two">
+			<div class="box">
+				<h3>Where they come from</h3>
+				<ul>
+					<li><b>AIR's proxy</b> (default): one slot per vendor, bound by <code>providers/set</code>; a placeholder key that <code>proxy-auth.ts</code> strips, AIR adds the real credentials.</li>
+					<li><b>Ingrazzio route</b>: feature flags (<code>JUNIE_MIXES</code>, <code>ECO_MODE_IMPLEMENTATION</code>) and Junie Lite, free.</li>
+					<li><b>Junie keys</b>: <code>JUNIE_API_KEY</code> adds the JetBrains AI group; <code>JUNIE_&lt;VENDOR&gt;_API_KEY</code> binds a slot to the vendor's API. AIR's own binding replaces a key binding.</li>
+					<li><b>Custom profiles</b>: Junie's JSON files, each its own provider, <code>custom:&lt;profile&gt;</code>.</li>
+				</ul>
+			</div>
+			<div class="box">
+				<h3>Default group and Eco</h3>
+				<ul>
+					<li><b>Default group</b>: Junie's levels (Lite, Normal, Hard, Frontier) from the account flag, each a model and an effort; a new chat starts on the recommended one.</li>
+					<li><b>Eco</b> (Junie's Model Mix): a virtual model <code>eco/&lt;slot&gt;/&lt;model&gt;</code>. The chosen model explores read-only and reports a plan (<code>create_plan</code>, <code>report_plan</code>), then GPT-6 Luna at high implements it.</li>
+					<li>The router decides each request from its own conversation, because all chats share one model runtime.</li>
+					<li>Eco is remembered per model; a Default level carries its own; it needs Junie Cost.</li>
+				</ul>
+			</div>
+		</div>
+	</section>
+
+	<section>
+		<h2>AIR features covered</h2>
+		<div class="chips">
+			<span class="chip done">sessions: list, load, resume, close</span><span class="chip done">fork (whole conversation)</span><span class="chip done">config options</span><span class="chip done">Default group</span><span class="chip done">Eco switch</span><span class="chip done">Brave Mode</span><span class="chip done">plan mode + review</span><span class="chip done">todo list as plan</span><span class="chip done">native subagent sessions</span><span class="chip done">question forms</span><span class="chip done">steering</span><span class="chip done">live terminal output</span><span class="chip done">commentary / answer phases</span><span class="chip done">typed failures</span><span class="chip done">auth status</span><span class="chip done">session cost</span><span class="chip done">/stats per prompt</span><span class="chip done">changed-files card</span><span class="chip done">skills as commands</span><span class="chip done">IDE tools via MCP</span><span class="chip done">web search and fetch</span>
+		</div>
+		<div class="chips">
+			<span class="chip todo">fork at a chosen response</span><span class="chip todo">turn cost in chat (AIR shows it for Claude only)</span><span class="chip todo">plan file links</span><span class="chip todo">goal mode</span><span class="chip todo">session archive / rename</span><span class="chip todo">ACP v2</span>
+		</div>
+	</section>
+
+	<section>
+		<h2>Configuration</h2>
+		<div class="table-wrap"><table>
+			<thead><tr><th>Where</th><th>What it changes</th></tr></thead>
+			<tbody>
+				<tr><td><code>acp.json</code> env</td><td><code>PI_AIR_JUNIE_COST=0</code> (no Junie Cost, no Eco), <code>PI_AIR_PLUGINS=0</code> (no detected plugins), <code>PI_AIR_WELCOME=0</code>, <code>PI_AIR_TRUST_PROJECT=0</code>, <code>PI_AIR_JUNIE_EXECUTE_TOOL=0</code>, <code>PI_AIR_LOG</code>, <code>PI_AIR_NODE</code></td></tr>
+				<tr><td>Junie's variables</td><td><code>JUNIE_API_KEY</code>, <code>JUNIE_&lt;VENDOR&gt;_API_KEY</code>, <code>JUNIE_MODEL</code>, <code>JUNIE_EFFORT</code>, <code>MODEL_MIX_ENABLED</code>, <code>MAX_STEPS</code>, <code>ADD_PROJECT_STR</code>, <code>PRIMARY_MODEL_*</code>, <code>JUNIE_BENCHMARK_RULES</code>, <code>JUNIE_LOG_PROMPT_USAGE</code>, <code>JUNIE_HOME</code>; recorded per session, those with no Pi counterpart are logged</td></tr>
+				<tr><td>Pi in the terminal</td><td><code>pi install</code> adds plugins; <code>/plugins off &lt;name&gt;</code> switches one off, and the bridge skips it too at the next agent start</td></tr>
+				<tr><td>In the chat</td><td>model, Default level, effort, Eco, Brave Mode, plan mode; <code>/stats</code>, <code>/compact</code>, skills</td></tr>
+			</tbody>
+		</table></div>
+	</section>
+
+	<section>
+		<h2>State on disk</h2>
+		<div class="two">
+			<div class="box">
+				<h3><code>~/.pi/pi-junie/</code> (the bridge's own)</h3>
+				<ul>
+					<li><code>sessions/&lt;id&gt;.json</code>: chat metadata (model, effort, level, Eco, cost, title)</li>
+					<li><code>sessions/pi/*.jsonl</code>: Pi transcripts, the source of history replay, cost and <code>/stats</code></li>
+					<li><code>auth.json</code>, <code>models-store.json</code>: isolated from your own Pi logins</li>
+					<li><code>eco.json</code>: Eco choice per model; <code>subagents/</code>: child transcripts</li>
+				</ul>
+			</div>
+			<div class="box">
+				<h3>Elsewhere</h3>
+				<ul>
+					<li><code>~/.pi/agent/</code>: your terminal Pi: installed plugins and their on/off switches (read by the bridge)</li>
+					<li><code>~/.junie/models/</code>: Junie's custom model profiles; <code>~/.junie/logs/</code>: prompt usage log</li>
+					<li><code>.pi-dev/pi-air.log</code>: the bridge's log, every ACP and HTTP exchange, secrets redacted</li>
+				</ul>
+			</div>
+		</div>
+	</section>
+
+	<section>
+		<h2>Testing</h2>
+		<p class="prose">All tests run offline: a fake LLM proxy speaks the vendor listings and Anthropic's streaming format (including a broken stream), a memory wire stands in for AIR, and fixtures extracted from real Junie ↔ AIR recordings are replayed against the bridge. Live checks happen by hand in AIR after each commit.</p>
+		<div class="chips"><span class="chip">bridge 155</span><span class="chip">junie-config 23</span><span class="chip">junie-cost 4</span><span class="chip">plugin-manager 4</span><span class="chip">architecture boundaries</span></div>
+	</section>
+
+	<section>
+		<h2>Next</h2>
+		<div class="box">
+			<ul>
+				<li><b>Headless runner</b> (<code>pi-junie run</code>): the eval's non-interactive mode, retries and exit codes, so the eval can run pi-junie with Junie's settings.</li>
+				<li><b>Harness patches</b> for <code>cli-evals</code> and the SWE-bench install scripts (handed over, not pushed).</li>
+				<li><b>JetBrains AI login</b>: license headers and the <code>/auth/test</code> check after the browser login, as Junie does.</li>
+				<li><b>Fork points</b>, and asking AIR to show turn cost for ACP agents.</li>
+			</ul>
+		</div>
+	</section>
+
+	<footer>Source: the pi-junie repository (packages/*, docs/eval-parity-plan.md, packages/bridge/docs/spec.md). Pi, Junie and AIR behavior cited from their sources and specs.</footer>
+</main>

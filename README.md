@@ -4,6 +4,7 @@ Pi as an ACP agent for JetBrains AIR, and the Pi plugins it uses. An npm workspa
 `packages/`, the root is not a Pi package.
 
 Docs:
+- [docs/architecture.html](docs/architecture.html): the architecture as it is now, in one page (open it in a browser)
 - [docs/overview.html](docs/overview.html): the whole approach in one page (open it in a browser)
 - [packages/bridge/docs/spec.md](packages/bridge/docs/spec.md): design and behaviour of the bridge, kept current
 - [docs/eval-parity-plan.md](docs/eval-parity-plan.md): plan to run pi-junie headless with Junie's eval configuration (proposal)
