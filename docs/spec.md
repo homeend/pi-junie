@@ -252,15 +252,28 @@ that unlock each one:
   Default group) are not in the registry.
 - Installed plugins come from `src/pi/plugins.ts`: the user installs a known Pi package with Pi itself
   (`pi install npm:@tintinweb/pi-subagents`); the bridge finds it where `pi install` puts it
-  (`<pi agent dir>/npm/node_modules/<name>`, `~/.pi/agent` or `$PI_CODING_AGENT_DIR`), reports name + version,
+  (`<pi agent dir>/npm/node_modules/<name>`, `~/.pi/agent` or `$PI_CODING_AGENT_DIR`), or, for a local package
+  (`pi install <path>`), among the agent dir's `settings.json` `packages` (paths relative to the agent dir, matched by
+  package.json name); it reports name + version,
   and loads it into every session by path (`additionalExtensionPaths`; other on-disk extensions stay off).
   `PI_AIR_PLUGINS=0` skips plugins.
 - Welcome: a new chat (session/new only, not resume/load) opens with one `agent_message_chunk` from the agent,
-  sent after the response: the Pi version and, for each known plugin (subagents, todo list, plan mode, web access),
+  sent after the response: the Pi version and, for each known plugin (subagents, todo list, plan mode, web access,
+  Junie Cost),
   whether it is available (with the install command when not). It is not part of the Pi transcript, so it is not replayed. `PI_AIR_WELCOME=0` turns it off. The
   startup log also says `subagents: available` / `subagents: not available`.
 - Known plugins (`KNOWN_PLUGINS`): `@tintinweb/pi-subagents`, `@juicesharp/rpiv-todo`, `@narumitw/pi-plan-mode`,
-  `pi-web-access`. Sessions enable only their listed tools (Pi's tool allowlist).
+  `pi-web-access`, `pi-extension-junie-cost`. Sessions enable only their listed tools (Pi's tool allowlist).
+- Junie Cost (`pi-extension-junie-cost`, from the junie-pi repository, not on npm): works through Pi's hooks only,
+  with no tools the bridge enables. `read` gets a 100-line default window; `bash` output over 10,000 characters is
+  cut to head and tail with a 3–4-sentence summary from the slot's cheap model (`claude-haiku-5-5`, `gpt-6-luna`,
+  Gemini Flash Lite; else the session model), the full output in `<session>.outputs/` next to the Pi transcript; old
+  tool results are thinned when that is cheaper than re-caching; `/compact` between tasks uses a summary built from
+  its task journal; cheap-model requests are recorded as Pi usage entries; a `bash` timeout over 3600 is read as
+  milliseconds. AIR shows the cut output. Its journal and usage entries are not messages, so replay ignores them.
+  Eco (`jetbrains-ai/<id>-eco` virtual models, `create_plan` / `report_plan`) needs Pi's `jetbrains-ai` provider:
+  bridge sessions never offer those models, so Eco stays inert. Checked end to end against the real package in
+  `test/junie-cost.test.ts` (skipped without a checkout; `JUNIE_COST_DIR` points at one).
 - Subagents (`@tintinweb/pi-subagents`, chosen because its children are in-process Pi sessions on the
   bridge's model runtime, reachable as live `AgentSession`s): sessions get its `Agent`, `get_subagent_result`
   and `steer_subagent` tools (they run without asking; the children's own tools are gated).

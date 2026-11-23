@@ -31,7 +31,14 @@ pi install npm:@tintinweb/pi-subagents   # subagents as AIR child sessions
 pi install npm:@juicesharp/rpiv-todo     # todo list as AIR's plan / Todo dock
 pi install npm:@narumitw/pi-plan-mode    # plan mode with Junie's plan review
 pi install npm:pi-web-access             # web search and fetch
+pi install <junie-pi>/packages/junie-cost  # Junie's cost savings (not on npm: from a junie-pi checkout)
 ```
+
+Junie Cost (`pi-extension-junie-cost`) cuts long tool output (with a cheap-model summary of big `bash` output and
+the full log next to the session), thins old tool results when that beats re-caching the prompt, builds `/compact`
+summaries from a task journal, and fixes millisecond `bash` timeouts. Its Eco mode needs Pi's `jetbrains-ai`
+provider, which bridge sessions do not have, so it stays off. Note that `pi install` also turns it on for Pi in the
+terminal.
 
 - Log: `.pi-dev/pi-air.log` (override with `PI_AIR_LOG`). Format: `<time> <LEVEL> <scope> <message>`:
   - `pi-junie`: process start, exit, signals, crashes
