@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Plain Pi (not the bridge) with JetBrains AI as its provider, for headless developer use:
+# reviews, spec audits, and Cezar steps with `runner: pi` (scripts/dev.sh sets CEZ_PI_BIN to this file).
+#
+#   scripts/pi-jbai --print --model jetbrains-ai/claude-opus-5-5 "say ok"
+#
+# Uses the MAIN checkout's Pi and packages/jetbrains-ai, also when called from a task worktree,
+# so a branch under review cannot change the reviewer.
+# Key:   JUNIE_API_KEY from $PI_JUNIE_ENV (default ~/.config/pi-junie/env), read here and nowhere else.
+#        Without the file, Pi uses a JetBrains login saved by `/login` in this agent dir.
+# State: $PI_CODING_AGENT_DIR (default ~/.pi/pi-junie-dev), apart from your own Pi and from the bridge's.
+set -euo pipefail
+HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+MAIN="$(dirname "$(git -C "$HERE" rev-parse --path-format=absolute --git-common-dir)")"
+PI="$MAIN/node_modules/.bin/pi"
+[[ -x "$PI" ]] || { echo "pi-jbai: $PI not found; run scripts/dev.sh setup in $MAIN" >&2; exit 1; }
+
+ENV_FILE="${PI_JUNIE_ENV:-$HOME/.config/pi-junie/env}"
+if [[ -r "$ENV_FILE" ]]; then set -a; . "$ENV_FILE"; set +a; fi
+export PI_CODING_AGENT_DIR="${PI_CODING_AGENT_DIR:-$HOME/.pi/pi-junie-dev}"
+mkdir -p "$PI_CODING_AGENT_DIR"
+
+exec "$PI" -e "$MAIN/packages/jetbrains-ai" "$@"

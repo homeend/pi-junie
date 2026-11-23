@@ -1,0 +1,528 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pi-junie Agentic Process</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Sans+Condensed:wght@600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Same visual system as overview.html: one reading column, wide tables and the diagram scroll in their own boxes. */
+:root {
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --fg: #1b1f27;
+  --muted: #5a6273;
+  --line: #d9dde5;
+  --accent: #6b3fd4;      /* human gates */
+  --accent-2: #0f8a7a;    /* agent work */
+  --accent-soft: #efe9fc;
+  --accent-2-soft: #e3f4f1;
+  --warn: #9a5b00;
+  --warn-soft: #fbf0d9;
+  --code-bg: #eef0f4;
+  --font-display: "IBM Plex Sans Condensed", "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
+  --font-body: "IBM Plex Sans", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #12141a; --surface: #1a1d25; --fg: #e6e8ee; --muted: #9aa2b4; --line: #2c313d;
+    --accent: #a98bf5; --accent-2: #4fc7b5; --accent-soft: #2a2240; --accent-2-soft: #16312d;
+    --warn: #e0b060; --warn-soft: #33290f; --code-bg: #232733;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #12141a; --surface: #1a1d25; --fg: #e6e8ee; --muted: #9aa2b4; --line: #2c313d;
+  --accent: #a98bf5; --accent-2: #4fc7b5; --accent-soft: #2a2240; --accent-2-soft: #16312d;
+  --warn: #e0b060; --warn-soft: #33290f; --code-bg: #232733;
+  color-scheme: dark;
+}
+body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 16px; line-height: 1.6; }
+.page { max-width: 980px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 40px 72px; }
+header.hero { display: grid; gap: 10px; padding-block: 8px 28px; border-bottom: 1px solid var(--line); margin-bottom: 8px; }
+.eyebrow { font-family: var(--font-mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.eyebrow b { color: var(--accent); font-weight: 500; }
+.eyebrow i { color: var(--accent-2); font-style: normal; }
+h1 { font-family: var(--font-display); font-weight: 700; font-size: clamp(34px, 6vw, 52px); line-height: 1.05; margin: 0; text-wrap: balance; }
+.lede { color: var(--muted); max-width: 65ch; margin: 0; font-size: 17px; }
+h2 { font-family: var(--font-display); font-weight: 700; font-size: 28px; line-height: 1.2; margin: 48px 0 12px; padding-top: 20px; border-top: 1px solid var(--line); text-wrap: balance; }
+main > h2:first-child { border-top: 0; margin-top: 24px; padding-top: 0; }
+h3 { font-family: var(--font-display); font-weight: 600; font-size: 20px; margin: 28px 0 8px; text-wrap: balance; }
+p, ul, ol { max-width: 72ch; }
+li { margin-block: 4px; }
+strong { font-weight: 600; }
+a { color: var(--accent); }
+code { font-family: var(--font-mono); font-size: .86em; background: var(--code-bg); padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere; }
+.code-wrap { overflow-x: auto; background: var(--code-bg); border-radius: 6px; margin-block: 12px; }
+.code-wrap pre { margin: 0; padding: 14px 16px; }
+.code-wrap code { background: none; padding: 0; overflow-wrap: normal; font-size: 13.5px; }
+.table-wrap { overflow-x: auto; margin-block: 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 14.5px; line-height: 1.5; }
+th, td { text-align: left; vertical-align: top; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+th { font-weight: 600; font-size: 12.5px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); background: var(--bg); }
+tr:last-child td { border-bottom: 0; }
+.ts { font-family: var(--font-mono); font-size: 12px; color: var(--muted); white-space: nowrap; }
+.tag { display: inline-block; font-family: var(--font-mono); font-size: 11.5px; padding: 1px 7px; border-radius: 10px; white-space: nowrap; border: 1px solid transparent; }
+.tag.use { background: var(--accent-2-soft); color: var(--accent-2); border-color: var(--accent-2); }
+.tag.adapt { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+.tag.later { background: var(--warn-soft); color: var(--warn); border-color: var(--warn); }
+.tag.skip { background: var(--code-bg); color: var(--muted); border-color: var(--line); }
+.callout { background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--accent-2); border-radius: 8px; padding: 14px 18px; margin-block: 16px; }
+.callout.warn { border-left-color: var(--warn); }
+.callout p:first-child { margin-top: 0; } .callout p:last-child, .callout ul:last-child { margin-bottom: 0; }
+figure.diagram { margin: 20px 0 8px; }
+.diagram-scroll { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+.diagram svg { display: block; width: 100%; min-width: 900px; height: auto; font-family: var(--font-body); }
+figcaption { color: var(--muted); font-size: 14px; margin-top: 8px; }
+.box { stroke-width: 1.5; }
+.box.human { fill: var(--accent-soft); stroke: var(--accent); }
+.box.agent { fill: var(--accent-2-soft); stroke: var(--accent-2); }
+.t-title { fill: var(--fg); font-family: var(--font-display); font-weight: 700; font-size: 16px; }
+.t-body { fill: var(--fg); font-size: 11.5px; }
+.t-note { fill: var(--muted); font-size: 11.5px; font-style: italic; }
+.t-label { fill: var(--muted); font-family: var(--font-mono); font-size: 11px; letter-spacing: .06em; }
+.edge { stroke: var(--muted); stroke-width: 1.5; fill: none; }
+.arrowhead { fill: var(--muted); }
+@media (max-width: 600px) { body { font-size: 15px; } h2 { font-size: 24px; } }
+</style>
+</head>
+<body>
+<div class="page">
+<header class="hero">
+  <div class="eyebrow"><b>Open Mercato skills</b> · <i>Cezar</i> · applied to pi-junie</div>
+  <h1>An agent-driven process for building the pi-junie harness</h1>
+  <p class="lede">What Open Mercato does (podcast, skills repo, Cezar), which parts fit this project, and a proposed process that starts in Claude Code and ends with Pi doing the work. Analysis and design only: nothing was installed or changed.</p>
+</header>
+<main>
+
+<h2>1. Summary</h2>
+<ul>
+<li><strong>The reusable part is the process shape, plus about a dozen skills.</strong> Open Mercato runs a spec-driven pipeline: requirements → spec with questions → review by a second model → agent implementation in a worktree with a safety net → review → human test → human merge. That shape fits pi-junie almost unchanged.</li>
+<li><strong>The fully automated chain does not fit your local-only wish as shipped.</strong> The <code>om-auto-*</code> skills keep their state in a tracker (issues, PRs, labels) and push to <code>origin</code>. The one chain that stops before a PR is bound to Claude as host. No skill merges locally.</li>
+<li><strong>Cezar fits.</strong> It runs locally without GitHub, queues tasks, gives each a git worktree, has a diff review gate, and can pick a different agent per workflow step. It already has a Pi runner, marked experimental.</li>
+<li><strong>Decided (23 Nov):</strong> the process is local. Work starts with Claude Code dispatched through gg, Cezar is started locally to queue and oversee tasks, the second review is done by Pi with a model you choose, and Pi becomes an executor later. The local-capable <code>om-*</code> skills cover spec, audit, review and validation; backlog and specs are files in the repo; merge is by hand on your OK.</li>
+<li><strong>Pi can do the second review without a new plugin.</strong> A review skill plus the model picker covers one reviewer; your own <code>agent-cross-review</code> skill plus the subagents pi-junie already has covers several models. Plugins exist but none is needed to start (section 7).</li>
+<li><strong>What we would write ourselves is small:</strong> an <code>AGENTS.md</code>, a config file, one spec overlay, one Cezar workflow file and two short project skills (section 9).</li>
+<li><strong>JetBrains AI can now pay for unattended Pi (23 Nov update).</strong> The repo gained <code>packages/jetbrains-ai</code>, a Pi provider that signs in to JetBrains AI from the command line and in headless runs. Standalone Pi no longer needs separate provider keys, so the second review can become a queued Cezar step (section 7).</li>
+<li><strong>The ground is prepared:</strong> the repo now also lives on the Linux file system at <code>~/others/pi-junie</code>, with clean line endings and the tests passing there (section 8, phase 0).</li>
+</ul>
+
+<h2>2. What Open Mercato does: the podcast</h2>
+<p>Source: the YouTube auto-transcription of Better Software Design 105, uncorrected. Timestamps mark the minute where the statement starts. Tool and model names are often garbled in the transcript, so repo names are used where the two disagree.</p>
+<div class="callout">
+<p><strong>Where the detail is.</strong> You expected the skills and development flow in the last third. The process is actually in the middle: flow <span class="ts">0:14–0:19</span>, specs <span class="ts">0:33–0:36</span> and <span class="ts">0:47–0:49</span>, skills <span class="ts">0:37–0:45</span>, Cezar <span class="ts">0:52–0:59</span>. The last third covers merge review, dynamic context and evals <span class="ts">1:07–1:24</span>.</p>
+</div>
+
+<h3>The pipeline as they describe it</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>#</th><th>Stage</th><th>Who</th><th>What happens</th><th>At</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>Requirements</td><td>Human, agent-assisted</td><td>Gathered in workshops, dictated, arranged into a structured file by agents. Architecture is designed by the human.</td><td><span class="ts">0:16</span></td></tr>
+<tr><td>2</td><td>Phasing</td><td>Human</td><td>The requirements file is cut into coding phases; the architecture skeleton comes first.</td><td><span class="ts">0:17</span></td></tr>
+<tr><td>3</td><td>Spec per phase</td><td>Agent through a skill</td><td>The agent researches the codebase, drafts the spec, then asks the designer 10–20 questions to remove ambiguity.</td><td><span class="ts">0:34</span></td></tr>
+<tr><td>4</td><td>Clickable mockup</td><td>Agent, then human and client</td><td>About 30 minutes of agent work. Comments are stored as JSON and passed to the coding agent later.</td><td><span class="ts">0:21</span></td></tr>
+<tr><td>5</td><td>Cross-model spec review</td><td>Agent</td><td>A model from a different vendor looks for gaps in the spec, sometimes several times.</td><td><span class="ts">0:52</span></td></tr>
+<tr><td>6</td><td>Implementation</td><td>Agents</td><td>Cezar starts skills on a coding CLI. Tests, static checks and UI tests run as a safety net.</td><td><span class="ts">0:19</span> <span class="ts">0:53</span></td></tr>
+<tr><td>7</td><td>Manual testing</td><td>Human</td><td>Kept for larger features: “a lot is still tested manually”.</td><td><span class="ts">0:19</span></td></tr>
+<tr><td>8</td><td>PR review and merge</td><td>Human, agent-assisted</td><td>The human asks an agent whether the change breaks core or backward compatibility, reads the generated summary, and decides. The question is architectural, not code quality.</td><td><span class="ts">1:07</span> <span class="ts">1:10</span></td></tr>
+<tr><td>9</td><td>Release</td><td>Human</td><td>Every two weeks, with client feedback.</td><td><span class="ts">0:51</span></td></tr>
+</tbody></table></div>
+<p>Nobody writes code by hand <span class="ts">0:10</span>, and they still call the process human-centric <span class="ts">0:20</span>.</p>
+
+<h3>How skills make the process</h3>
+<ul>
+<li><strong>Why skills exist.</strong> Five or six people prompted by hand, each differently. A hackathon produced 300 PRs in a weekend, all different, some untested. Skills made every run apply the same rules and the same labels <span class="ts">0:40</span>.</li>
+<li><strong>Skills are “machines in a factory”,</strong> fitted to the project's workflow, not general methodology <span class="ts">0:39</span>. Together they act as a project manager for agents <span class="ts">0:28</span>: stages a task passes through, with loops <span class="ts">0:45</span>.</li>
+<li><strong>A setup skill</strong> detects the stack and standards and writes one config file. Every other skill reads it <span class="ts">0:38</span>. In the repo this is <code>om-setup-agent-pipeline</code> and <code>.ai/agentic.config.json</code>.</li>
+<li><strong>State lives in GitHub.</strong> Issues, PRs and labels are the coordination layer: an agent marks a PR in progress, and writes a handoff into the PR so work can resume after a token limit <span class="ts">0:42</span>.</li>
+<li><strong>Specs</strong> are the agent's input context, 200–500 lines (unit not stated), with summary, architecture and user stories. Large work gets a parent document plus one spec per phase. Finished specs are archived, never edited; a change gets a new spec <span class="ts">0:34</span> <span class="ts">0:36</span> <span class="ts">0:47</span>.</li>
+<li><strong>Context is kept small.</strong> A short <code>AGENTS.md</code>; a classifier skill that loads only the skills matching the task; and build-time facts per module extracted from the AST as JSON, which alone made a cheap model work well <span class="ts">1:17</span> <span class="ts">1:19</span>. They optimise for weak models because that also helps strong ones <span class="ts">0:12</span>.</li>
+<li><strong>Skills are improved from real sessions.</strong> A share-session skill sends a cleaned session back; failures are turned into about 200 evals that every targeted model must pass <span class="ts">1:20</span> <span class="ts">1:22</span>.</li>
+</ul>
+
+<h3>Cezar in their day-to-day</h3>
+<ul>
+<li>A management cockpit: pick a defined step (for example issue to PR), the task goes to a queue, and a runner such as Claude Code starts when resources allow <span class="ts">0:53</span>.</li>
+<li>Load 100 tasks on a small server and close the laptop. It throttles on available memory and uses a git worktree per task <span class="ts">0:54</span> <span class="ts">0:57</span>.</li>
+<li>Two-layer dispatch: a strong model plans and scans, a cheap one does the individual reviews <span class="ts">0:55</span>.</li>
+<li>What it adds beyond skills: a queue, scheduling, a record of what was delegated, and model routing. Before it, they opened ten terminal windows and forgot them <span class="ts">0:56</span>.</li>
+</ul>
+
+<h3>Their advice</h3>
+<ul>
+<li>Start from an opinionated architecture; the core team's main job is architecture and context <span class="ts">0:07</span>.</li>
+<li>Speed deceives; a composed process with loops and verification is needed on top of single sessions <span class="ts">0:31</span>.</li>
+<li>Bottlenecks are understanding and control of the system, and testing <span class="ts">1:25</span>.</li>
+</ul>
+
+<h2>3. The skills repo</h2>
+<p>Checked in <code>t:\others\skills</code>: 74 skills, each a directory with a <code>SKILL.md</code> in the standard Agent Skills format. All skill frontmatter was read; about 11 skill bodies were read closely and the rest are classified from their descriptions.</p>
+<ul>
+<li><strong>They are project-neutral.</strong> A lint rule bans Open Mercato references inside the skills. A few are shaped for a platform product and noted below.</li>
+<li><strong>No skill calls GitHub directly.</strong> Skills name tracker operations, and a descriptor file (<code>.ai/trackers/&lt;tracker&gt;.md</code>) implements them. Shipped descriptors: github, gitlab, forgejo, jira, linear. There is no local one.</li>
+<li><strong>Install:</strong> <code>npx skills add open-mercato/skills</code>. A project can override part of a skill with a file at <code>.ai/skills/&lt;skill&gt;/SKILL.md</code> without forking it.</li>
+<li><strong>Name suffixes:</strong> <code>auto-</code> means autonomous and non-interactive; <code>-loop</code> is a long-run engine with checkpoints; <code>-multi</code> adds multi-model review; <code>-optimized</code> hands bounded work to cheaper models.</li>
+</ul>
+
+<h3>Catalogue and fit for pi-junie</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>Group</th><th>Skills</th><th>What they do</th><th>Fit</th></tr></thead>
+<tbody>
+<tr><td>Setup</td><td><code>om-setup-agent-pipeline</code>, <code>om-setup-agent-harness</code>, <code>om-setup-discovery-pipeline</code>, <code>om-apply-upgrade-notes</code>, <code>om-help</code></td><td>Write the config, descriptors and <code>SDLC.md</code>; route to the next skill.</td><td><span class="tag adapt">adapt</span> Run setup once for the validation commands; labels off.</td></tr>
+<tr><td>Spec</td><td><code>om-spec-writing</code>, <code>om-pre-implement-spec</code>, <code>om-brainstorm</code></td><td>Feature spec with an open-questions gate and phased plan; read-only go/no-go audit of a spec.</td><td><span class="tag use">use as is</span> Verified: <code>om-spec-writing</code> performs no tracker operations.</td></tr>
+<tr><td>Review and validation</td><td><code>om-code-review</code>, <code>om-check-and-commit</code>, <code>om-smart-test</code>, <code>om-troubleshooter</code></td><td>Review a branch or uncommitted diff; run the gate and commit; run affected tests; symptom-first debugging.</td><td><span class="tag use">use</span> Review and commit need the config from setup. Never ask <code>om-check-and-commit</code> to publish: that pushes.</td></tr>
+<tr><td>Staged implementation</td><td><code>om-implement-feature</code> and its <code>-multi</code>, <code>-optimized</code>, <code>-multi-optimized</code> variants; <code>om-harness</code></td><td>Spec to a reviewed, staged diff. No commit, push or PR.</td><td><span class="tag adapt">Claude only</span> The runtime requires Claude as host (<code>harness.mjs</code> lines 175 and 552). Usable now, not from Pi.</td></tr>
+<tr><td>Context</td><td><code>om-create-agents-md</code>, <code>om-create-skill</code>, <code>om-ai-context-maintenance</code></td><td>Write <code>AGENTS.md</code> from the code; author skills in this layout; archive old run files.</td><td><span class="tag use">use</span> <code>om-create-agents-md</code> first.</td></tr>
+<tr><td>Security</td><td><code>om-auto-sec-report-pr</code>, <code>om-auto-sec-report</code>, <code>om-auto-audit-dependencies</code></td><td>Security report on a branch or spec; dependency audit.</td><td><span class="tag adapt">adapt</span> Branch report works locally. Useful here: the bridge handles proxy keys.</td></tr>
+<tr><td>Backlog</td><td><code>om-backlog</code>, <code>om-prepare-issue</code>, <code>om-auto-manage-issues</code>, <code>om-auto-issue-triage</code></td><td>Cut a brief or spec into epics and stories; file and label issues.</td><td><span class="tag adapt">dry run only</span> <code>om-backlog --dry-run</code> prints the story tree without filing issues.</td></tr>
+<tr><td>Skill improvement</td><td><code>om-evolve-harness</code>, <code>om-judge-agent-session</code>, <code>om-pipeline-retro</code>, <code>om-share-this-session</code></td><td>Turn a failure into an eval case; judge a session.</td><td><span class="tag later">later</span> Needs an eval harness wired into the config first.</td></tr>
+<tr><td>Autonomous PR chain</td><td><code>om-auto-create-pr</code>, <code>om-auto-create-pr-loop</code>, <code>om-auto-continue-pr</code>, <code>om-auto-continue-pr-loop</code>, <code>om-auto-implement-spec</code>, <code>om-auto-write-spec</code>, <code>om-auto-fix-issue</code>, <code>om-auto-fix-pr</code>, <code>om-pr-autopilot</code>, <code>om-open-pr</code>, <code>om-auto-review-pr</code>, <code>om-review-prs</code></td><td>Spec or issue to PR, review loop, drive a PR to merge-ready.</td><td><span class="tag skip">needs a forge</span> Push to <code>origin</code> and a draft PR are built in.</td></tr>
+<tr><td>Issue fixing</td><td><code>om-verify-in-repo</code>, <code>om-root-cause</code>, <code>om-fix</code>, <code>om-fix-issue</code> and its three variants</td><td>Check an issue is real, diagnose, fix with tests.</td><td><span class="tag skip">needs a forge</span> They read and claim issues.</td></tr>
+<tr><td>Merge and housekeeping</td><td><code>om-merge-buddy</code>, <code>om-approve-merge-pr</code>, <code>om-auto-merge-triage</code>, <code>om-auto-merge-buddy</code>, <code>om-close-fixed-issues</code>, <code>om-followup-issue-from-pr</code>, <code>om-auto-update-changelog</code></td><td>Merge readiness, merge, changelog.</td><td><span class="tag skip">needs a forge</span></td></tr>
+<tr><td>QA of a running web app</td><td><code>om-prepare-test-env</code>, <code>om-auto-qa-pr</code>, <code>om-integration-tests</code>, <code>om-qa-buddy</code>, <code>om-auto-qa-scenarios</code></td><td>Boot the app, browser QA, end-to-end tests.</td><td><span class="tag skip">skip</span> pi-junie has no web UI; its end-to-end test is a person in AIR.</td></tr>
+<tr><td>UX and discovery</td><td><code>om-ux-setup</code>, <code>om-ux-shape</code>, <code>om-ux-design</code>, <code>om-ux-review-pr</code>, <code>om-figma-design-with-ds</code>, <code>om-mockup-prototype</code>, <code>om-discover</code>, <code>om-synthetic-users</code></td><td>Design contract, screens, prototypes, product brief.</td><td><span class="tag skip">skip</span> The UI is AIR's.</td></tr>
+<tr><td>Platform-shaped</td><td><code>om-gap-analysis</code>, <code>om-app-spec-writing</code>, <code>om-framework-context</code>, <code>om-eject-and-customize</code></td><td>Map client requirements onto a platform checkout; read knowledge shipped in dependencies.</td><td><span class="tag skip">skip</span> <code>om-gap-analysis</code> is not the kind of gap analysis this project has.</td></tr>
+</tbody></table></div>
+<p>The AST module facts and the dynamic-context classifier described in the podcast are <strong>not</strong> in this repo. They are Open Mercato's own and cannot be adopted; section 9 notes the cheap local equivalent.</p>
+
+<h2>4. Cezar</h2>
+<p>Checked in <code>t:\others\cezar</code> by reading docs and code. Start-up and the review path were run later; see section 11.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Question</th><th>Finding</th></tr></thead>
+<tbody>
+<tr><td>What it is</td><td>A Node CLI plus a local web cockpit on <code>127.0.0.1:4321</code>. It starts agent CLIs you are already logged in to, one git worktree per task (<code>.ai/cezar/worktrees/&lt;id&gt;</code>, branch <code>cez/&lt;id&gt;</code>), and streams progress, tokens and cost. MIT licence. No database: state is files in <code>.ai/cezar/</code> and <code>~/.cezar/</code>.</td></tr>
+<tr><td>Does it need GitHub?</td><td>No. <code>git</code> and <code>gh</code> are optional and their absence must degrade gracefully (a review rule in its own repo). Without a remote you still get tasks, worktrees, the queue, workflows, diff review and scheduled automations. GitHub is needed only for its issue and PR features.</td></tr>
+<tr><td>Does it run Pi?</td><td>Yes: <code>pi</code> is one of 11 runners, driven as <code>pi --mode rpc</code>, marked <strong>experimental</strong> in its reference. Limits: no private MCP servers attached, built-in model list only, and a configured bash allowlist disables bash.</td></tr>
+<tr><td>How the process is expressed</td><td>Workflow files in <code>.ai/cezar/workflows/</code>: agent steps, shell check steps, bounded retry on failure, and a <code>runner:</code> per step. A step's <code>skill:</code> is added to the agent's system prompt, and used skills are copied into the worktree's <code>.claude/skills</code> and <code>.agents/skills</code>.</td></tr>
+<tr><td>Human review</td><td>A diff-first review gate (Accept / Send back / Draft PR), <strong>off by default</strong>; enable with <code>CEZ_REVIEW_GATE=1</code>. Autonomous runs skip it.</td></tr>
+<tr><td>Local merge</td><td>None found. Accepted work stays on the task branch; you merge it with git.</td></tr>
+<tr><td>Relation to the om- skills</td><td>Loose. It fetches <code>open-mercato/skills</code> as its default skill repo (a local path or <code>[]</code> also works) and never reads <code>SDLC.md</code> or the pipeline config. Cezar starts agents; the skills carry the process.</td></tr>
+<tr><td>Maturity</td><td>Version 0.21, about weekly minor releases since July 2026, roughly as many test files as source files. Docs lag the code in places.</td></tr>
+</tbody></table></div>
+<p><strong>Relation to gg.</strong> Cezar overlaps with gg's worktree delegation: both give a task its own worktree and a worker. Cezar adds the queue, cost tracking and a different agent per step, including Pi. gg stays the tool for merging and for review notes in the IDE. Dispatch starts with gg, which you already use; Cezar takes over the queue once it runs locally (phase 2 in section 8). At any one time, one of them dispatches.</p>
+
+<h2>5. The central trade-off</h2>
+<p>Three of your wishes pull against each other: adopt as much as possible, keep work local, and end on Pi. The shipped automation assumes a forge, and the one stop-before-PR chain assumes Claude.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Option</th><th>What you get</th><th>Cost</th></tr></thead>
+<tbody>
+<tr><td><strong>A. Local-first subset</strong> <span class="tag use">chosen</span></td><td>Local-capable <code>om-*</code> skills for spec, audit, review and validation. A Cezar workflow file carries implement → check → cross-review. Backlog and specs are files. Works with Pi as a step runner.</td><td>The <code>om-auto-*</code> chain is not used. Merge and backlog bookkeeping are manual. One workflow file to write.</td></tr>
+<tr><td><strong>B. Full chain on GitHub</strong></td><td>Everything adopted as shipped, including the PR loop, labels and handoffs. <code>origin</code> already points at GitHub, so setup is one skill run.</td><td>All state goes through issues and PRs, which is what you wanted to avoid. PR-chain skills from Pi are untested.</td></tr>
+<tr><td><strong>C. Full chain on a local Forgejo</strong></td><td>Same as B, with nothing leaving the machine. Forgejo is a shipped tracker descriptor.</td><td>A service to install and keep running, for one developer.</td></tr>
+<tr><td><strong>D. Write a local tracker descriptor</strong></td><td>The full chain on plain files.</td><td>Not small: the template lists about 50 operations, and several skills push to <code>origin</code> outside the descriptor. Not recommended.</td></tr>
+</tbody></table></div>
+<p>You chose A. B stays available: if the manual bookkeeping becomes the bottleneck, it is a configuration change, not a rewrite.</p>
+
+<h2>6. The proposed process</h2>
+<figure class="diagram">
+<div class="diagram-scroll">
+<svg viewBox="0 0 1010 210" role="img" aria-label="Seven stages from backlog item to merge, with a loop from testing in AIR back to implementation">
+  <defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="arrowhead"/></marker></defs>
+  <rect x="8" y="6" width="12" height="12" rx="2" class="box human"/><text x="26" y="16" class="t-label">YOU DECIDE</text>
+  <rect x="130" y="6" width="12" height="12" rx="2" class="box agent"/><text x="148" y="16" class="t-label">AGENT WORKS</text>
+
+  <rect x="8" y="40" width="130" height="92" rx="8" class="box human"/>
+  <text x="73" y="64" text-anchor="middle" class="t-title">1 Backlog item</text>
+  <text x="73" y="86" text-anchor="middle" class="t-body">one row of the</text>
+  <text x="73" y="102" text-anchor="middle" class="t-body">feature list</text>
+  <text x="73" y="122" text-anchor="middle" class="t-note">you pick</text>
+
+  <rect x="150" y="40" width="130" height="92" rx="8" class="box agent"/>
+  <text x="215" y="64" text-anchor="middle" class="t-title">2 Spec</text>
+  <text x="215" y="86" text-anchor="middle" class="t-body">om-spec-writing</text>
+  <text x="215" y="102" text-anchor="middle" class="t-body">+ project overlay</text>
+  <text x="215" y="122" text-anchor="middle" class="t-note">you answer questions</text>
+
+  <rect x="292" y="40" width="130" height="92" rx="8" class="box agent"/>
+  <text x="357" y="64" text-anchor="middle" class="t-title">3 Spec audit</text>
+  <text x="357" y="86" text-anchor="middle" class="t-body">pre-implement-spec</text>
+  <text x="357" y="102" text-anchor="middle" class="t-body">by a second model</text>
+  <text x="357" y="122" text-anchor="middle" class="t-note">you approve the spec</text>
+
+  <rect x="434" y="40" width="130" height="92" rx="8" class="box agent"/>
+  <text x="499" y="64" text-anchor="middle" class="t-title">4 Implement</text>
+  <text x="499" y="86" text-anchor="middle" class="t-body">own worktree</text>
+  <text x="499" y="102" text-anchor="middle" class="t-body">replay test first</text>
+  <text x="499" y="122" text-anchor="middle" class="t-note">Claude + gg, Pi later</text>
+
+  <rect x="576" y="40" width="130" height="92" rx="8" class="box agent"/>
+  <text x="641" y="64" text-anchor="middle" class="t-title">5 Gate + review</text>
+  <text x="641" y="86" text-anchor="middle" class="t-body">tests, first review,</text>
+  <text x="641" y="102" text-anchor="middle" class="t-body">second review by Pi</text>
+  <text x="641" y="122" text-anchor="middle" class="t-note">retries on red</text>
+
+  <rect x="718" y="40" width="130" height="92" rx="8" class="box human"/>
+  <text x="783" y="64" text-anchor="middle" class="t-title">6 Test in AIR</text>
+  <text x="783" y="86" text-anchor="middle" class="t-body">spec checklist</text>
+  <text x="783" y="102" text-anchor="middle" class="t-body">screenshots + log</text>
+  <text x="783" y="122" text-anchor="middle" class="t-note">you test</text>
+
+  <rect x="860" y="40" width="130" height="92" rx="8" class="box human"/>
+  <text x="925" y="64" text-anchor="middle" class="t-title">7 Merge</text>
+  <text x="925" y="86" text-anchor="middle" class="t-body">branch synced first,</text>
+  <text x="925" y="102" text-anchor="middle" class="t-body">then git merge</text>
+  <text x="925" y="122" text-anchor="middle" class="t-note">only on your OK</text>
+
+  <path d="M138 86 H148" class="edge" marker-end="url(#arr)"/>
+  <path d="M280 86 H290" class="edge" marker-end="url(#arr)"/>
+  <path d="M422 86 H432" class="edge" marker-end="url(#arr)"/>
+  <path d="M564 86 H574" class="edge" marker-end="url(#arr)"/>
+  <path d="M706 86 H716" class="edge" marker-end="url(#arr)"/>
+  <path d="M848 86 H858" class="edge" marker-end="url(#arr)"/>
+  <path d="M783 132 V168 H499 V134" class="edge" marker-end="url(#arr)"/>
+  <text x="641" y="186" text-anchor="middle" class="t-note">something wrong in AIR: send back with the agent log, same task and worktree</text>
+</svg>
+</div>
+<figcaption>Stages 4 and 5 start as a gg worker plus a Pi review run by hand, and become one Cezar workflow. Stages 1, 6 and 7 stay with you, as do the answers and approval in stages 2 and 3.</figcaption>
+</figure>
+
+<div class="table-wrap"><table>
+<thead><tr><th>#</th><th>Stage</th><th>Tool</th><th>Output</th><th>Borrowed from</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>Pick a backlog item</td><td>The feature list (section 8), kept as a file</td><td>One item marked in progress</td><td>Their phasing step</td></tr>
+<tr><td>2</td><td>Write the spec</td><td><code>om-spec-writing</code> with a project overlay that requires: the recorded Junie ↔ AIR traffic for the feature, where AIR handles it, the source (Pi core, plugin or bridge), the replay test to write, and the AIR test checklist</td><td><code>.ai/specs/&lt;date&gt;-&lt;slug&gt;.md</code>, questions answered by you</td><td>Spec with 10–20 questions</td></tr>
+<tr><td>3</td><td>Audit the spec</td><td><code>om-pre-implement-spec</code>, run by a different model than the one that wrote it</td><td>Go or no-go; you approve</td><td>Cross-model spec review</td></tr>
+<tr><td>4</td><td>Implement</td><td>First: a Claude Code worker started through gg in its own worktree, briefed with the spec. Then: the same as a Cezar task. Test first, from a recording or the fake proxy. While on Claude Code, <code>om-implement-feature</code> can be used here instead</td><td>Changes on a task branch</td><td>Cezar queue and worktrees</td></tr>
+<tr><td>5</td><td>Gate and review</td><td>Checks <code>npm test</code> and <code>npm run check</code> with bounded retry. First review: the implementer's side, on Claude, which also fixes what it finds. Second review: Pi on a model you choose, report only (section 7)</td><td>A green, reviewed diff waiting for you</td><td>Safety net and cross-vendor review</td></tr>
+<tr><td>6</td><td>Test in AIR</td><td>You, with the checklist from the spec, against the task's own build (see below). Problems go back into the same task with screenshots and the log excerpt</td><td>Accepted or sent back</td><td>Their manual testing</td></tr>
+<tr><td>7</td><td>Merge</td><td>Before you are asked: the agent merges <code>main</code> into the task branch inside the task worktree, resolves conflicts there and re-runs the gate. Then you read the diff and merge with git, and nothing else happens in the main checkout. The spec is archived, the feature list updated</td><td>Commit on <code>main</code></td><td>Human merge; archived specs</td></tr>
+</tbody></table></div>
+
+<p>Stages 4 and 5 as a Cezar workflow. It uses the syntax from Cezar's reference; a sketch, not yet tried. Pi's findings arrive with the diff at the review gate, and you decide whether to send the task back:</p>
+<div class="code-wrap"><pre><code># .ai/cezar/workflows/feature-from-spec.yaml
+name: feature-from-spec
+steps:
+  - id: implement
+    name: Implement
+    prompt: "Implement the spec at {{task}}. Write the replay test first."
+    runner: claude              # later: pi
+  - id: verify
+    name: Tests and types
+    command: "npm test &amp;&amp; npm run check"
+    onFail: { retry: implement, max: 2 }
+  - id: review
+    name: First review
+    prompt: "Review the diff against the spec at {{task}}. Fix real issues only."
+    skill: om-code-review
+    runner: claude
+  - id: verify-again
+    name: Tests after review
+    command: "npm test &amp;&amp; npm run check"
+    onFail: { retry: review, max: 1 }
+  - id: second-review
+    name: Second review by Pi
+    prompt: "Review the diff against the spec at {{task}}. Report findings. Do not edit files."
+    skill: om-code-review
+    runner: pi                  # the second review is Pi's
+    model: provider/model       # the reviewer model you choose</code></pre></div>
+
+<h3>Getting a task's build into AIR (stage 6)</h3>
+<p>AIR starts <code>&lt;repo&gt;/bin/pi-air</code> from the main checkout, but at stage 6 the change exists only in the task worktree. The launcher finds its root from its own location, so a worktree's <code>bin/pi-air</code> runs that worktree's code and writes its own log (<code>.pi-dev/pi-air.log</code> inside the worktree).</p>
+<ul>
+<li><strong>A second agent entry in <code>~/.jetbrains/acp.json</code>,</strong> for example <code>pi-junie-dev</code>, pointing at a fixed link such as <code>~/pi-junie-under-test/bin/pi-air</code>. The link is switched to the worktree under test; the stable <code>pi-junie</code> entry keeps running <code>main</code>.</li>
+<li><strong>The worktree needs its dependencies:</strong> a setup script (<code>npm ci</code>) under <code>worktreeLifecycle</code> in <code>.ai/cezar/config.json</code>.</li>
+<li><strong>One build under test at a time.</strong> Implementation runs in parallel, testing in AIR is serial: you switch the link (the test-handoff skill prints the command and the checklist), start a new chat with <code>pi-junie-dev</code>, and send back or accept.</li>
+</ul>
+
+<h3>Settings that follow from your standing rules</h3>
+<ul>
+<li><strong>No merge into <code>main</code> without your OK:</strong> review gate on (<code>CEZ_REVIEW_GATE=1</code>), tasks not autonomous, worktree mode and not Cezar's trunk mode (which commits in place), and merge as an explicit step by you.</li>
+<li><strong>The branch is merge-ready before you are asked:</strong> with parallel tasks <code>main</code> will have moved, so syncing <code>main</code> into the branch and re-running the gate happens in the task worktree every time, never in the main checkout.</li>
+<li><strong>Nothing pushed without you:</strong> no publish option on <code>om-check-and-commit</code>, no GitHub automations in Cezar.</li>
+<li><strong>Recordings contain keys:</strong> <code>acp-examples/</code> stays git-ignored, so it is absent from task worktrees. Agents work from the redacted fixtures in <code>test/fixtures</code>; a new fixture is extracted in the main checkout before the task starts.</li>
+</ul>
+
+<h2>7. The second review, done by Pi</h2>
+<p>The first review is the implementer's side: Claude reviews its own change with <code>om-code-review</code> and fixes what it finds (<code>om-implement-feature</code> has this built in). The second review is Pi on another model. That is the cross-vendor review from the podcast, and it exercises pi-junie on real work.</p>
+
+<h3>What Pi needs before it can review</h3>
+<p>From reading the bridge and the two review skills, no bridge code is missing. Four things have to be in place:</p>
+<ul>
+<li><strong>The review skills in the project's <code>.agents/skills</code>.</strong> The bridge runs Pi with its own state folder, so skills installed for Claude Code (<code>~/.claude/skills</code>) or for your personal Pi are not seen. It does load the opened project's skills and offers them as commands.</li>
+<li><strong>The pipeline config.</strong> <code>om-code-review</code> starts by loading <code>.ai/agentic.config.json</code> and a tracker descriptor, and runs the setup skill itself when they are missing. Run <code>om-setup-agent-pipeline</code> once beforehand, so a review does not turn into a setup session.</li>
+<li><strong>The task's worktree as the working folder.</strong> The skill runs the validation commands on the checkout it is in. Run from the main checkout, it would test <code>main</code>, not the branch.</li>
+<li><strong>A reviewer that reports and does not edit.</strong> <code>om-code-review</code> returns findings with a verdict. The second review stays report-only so that two agents never change the same branch.</li>
+</ul>
+
+<h3>Two ways to run it</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>Route</th><th>How</th><th>Models</th><th>Needs</th></tr></thead>
+<tbody>
+<tr><td><strong>1. In AIR, through pi-junie</strong></td><td>Open the task's worktree in the IDE, start a chat with pi-junie, pick the model, and run the review skill as a command.</td><td>Whatever AIR's picker offers: JetBrains AI models, the Default group, Junie Lite</td><td>You start it. Nothing to install.</td></tr>
+<tr><td><strong>2. Headless, standalone Pi</strong></td><td><code>pi --print -e &lt;repo&gt;/packages/jetbrains-ai --provider jetbrains-ai --model &lt;model&gt; --tools read,grep,find,ls,bash --skill &lt;review skill&gt; "Review this branch against main"</code>, run in the task's worktree. Started by a Cezar step with <code>runner: pi</code>, or by a gg tool entry in the <code>review</code> category.</td><td>JetBrains AI's catalogue through the <code>jetbrains-ai</code> provider, or Pi's own provider logins</td><td>Pi where tasks run (the repo's own <code>node_modules/.bin/pi</code> works), and a JetBrains sign-in or <code>JUNIE_API_KEY</code></td></tr>
+</tbody></table></div>
+<ul>
+<li><strong>Route 2 does not go through AIR.</strong> AIR hands its proxy address and key only to agents AIR starts. An unattended review reaches JetBrains AI directly instead, through the <code>jetbrains-ai</code> provider (below).</li>
+<li><strong>gg's review entry</strong> supplies its own brief and expects gg's JSON review document, as the existing Claude entry does. A Pi entry there follows gg's brief, not <code>om-code-review</code>.</li>
+</ul>
+
+<h3>One reviewer or several</h3>
+<ul>
+<li><strong>One model:</strong> <code>om-code-review</code>. It reviews a branch or an uncommitted diff, runs the validation commands, and is plain instructions in the format Pi reads.</li>
+<li><strong>Several models:</strong> your own <code>agent-cross-review</code> skill. It asks which models to use, starts one read-only subagent per model, and settles their disagreements into one review. pi-junie already runs subagents on chosen models and tells the session which models are available, which is what that skill asks for. It writes its result for the AgentNotes plugin, so the review lands in the IDE. It reads files from its sibling skills (<code>agent-review</code>, <code>agent-overview</code>), so the whole family has to be copied into <code>.agents/skills</code>, not this one skill alone.</li>
+</ul>
+
+<h3>The default: Opus and Sol</h3>
+<p>The second review runs on two models, Claude Opus and GPT Sol, through <code>agent-cross-review</code>: each reviews the change on its own, and the session merges the two into one review. Both are in AIR's picker, so this fits route 1. For route 2 the <code>jetbrains-ai</code> catalogue offers both, and your account may use them: <code>claude-opus-5-5</code> and <code>gpt-6.1-sol</code> each answered a headless test request. Sol is the cross-vendor view; Opus is the same family as the Claude implementer, so agreement between the two reviewers means more than agreement between Opus and the author.</p>
+
+<h3>Which credentials Pi uses: JetBrains AI in both cases</h3>
+<p>A model call needs someone to pay for it. Since the 23 November update of the repo, JetBrains AI can be that someone whoever starts Pi.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Pi is started by</th><th>How model calls are paid</th><th>JetBrains AI?</th></tr></thead>
+<tbody>
+<tr><td><strong>AIR</strong> (pi-junie)</td><td>AIR gives the agent a local proxy address and a proxy key. AIR adds your JetBrains AI token upstream. Pi never holds a credential.</td><td>Yes</td></tr>
+<tr><td><strong>Cezar, gg or a terminal</strong> (standalone Pi)</td><td>The <code>jetbrains-ai</code> provider in <code>packages/jetbrains-ai</code>, loaded with <code>-e</code> or <code>pi install</code>. It calls JetBrains' model service directly, as the Junie CLI does.</td><td>Yes, with the new package</td></tr>
+</tbody></table></div>
+<p><strong>The package</strong> is a copy of <code>pi-extension-jetbrains-ai</code> 1.0.0 from the junie-pi repository, so it is maintained elsewhere and nothing had to be written here. It offers two ways to sign in:</p>
+<ul>
+<li><strong>Browser login:</strong> <code>/login</code> → JetBrains, once, in an interactive Pi. Pi stores the credential in its <code>auth.json</code> and refreshes it, so later headless runs on the same machine reuse it. Pi and the browser must be on the same machine.</li>
+<li><strong>Junie API key:</strong> <code>JUNIE_API_KEY</code> in the environment (from <code>junie.jetbrains.com/cli</code>). No interactive step at all, which suits Cezar steps. The environment key wins over a saved browser login.</li>
+</ul>
+<p><strong>Headless use:</strong></p>
+<pre>cd &lt;task worktree&gt;
+JUNIE_API_KEY=... pi --print -e ~/others/pi-junie/packages/jetbrains-ai \
+   --provider jetbrains-ai --model &lt;model&gt; "&lt;task&gt;"</pre>
+<p>This is the same call shape JetBrains' own eval uses for Pi (<code>docs/eval-parity-plan.md</code>, section 1).</p>
+<p><strong>What I checked here:</strong> Pi 1.5.2 from the repo's <code>node_modules</code> starts headless with the extension and accepts the <code>jetbrains-ai</code> provider. With a <code>JUNIE_API_KEY</code> read from <code>~/.config/pi-junie/env</code> (outside the repo, readable only by you), one small headless request each to <code>gpt-6-luna</code>, <code>claude-opus-5-5</code> and <code>gpt-6.1-sol</code> returned an answer. Without a key Pi stops with "No API key found for jetbrains-ai".</p>
+<p><strong>Two limits to know:</strong></p>
+<ul>
+<li><strong>Standalone Pi is not pi-junie.</strong> Headless Pi with this extension is plain Pi: no bridge, so none of the bridge's permissions, Junie compatibility or Default model group. Subagents and other plugins are available only if installed into that Pi. A headless entry point for pi-junie itself is step 6 of the eval plan and is not built yet.</li>
+<li><strong>The package uses Junie's client identity,</strong> not its own registered JetBrains application (its README says so). That is a question for the Junie team before wider use, not for local work.</li>
+</ul>
+<p><strong>Consequence for the process:</strong> the earlier choice between "reviews stay in AIR" and "a second bill for provider keys" is gone. Phase 1 can still review in AIR because you are present; from phase 2 the review is a Cezar step with <code>runner: pi</code>, paid by JetBrains AI. The same holds for Pi as an executor in phase 3.</p>
+
+<h3>Pi plugins for review</h3>
+<p>Searched on npm on 23 November 2026; downloads are per week. None was installed or read in source.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Package</th><th>What it does</th><th>Fit</th></tr></thead>
+<tbody>
+<tr><td><code>@nicknisi/pi-llm-council</code> 0.5.5 · 1.7k</td><td>A <code>llm_council</code> tool and <code>/council</code> command: several models answer independently as in-process child sessions and a chairman model merges them. Models can be set per call.</td><td><span class="tag later">candidate</span> The closest plugin to multi-model review with chosen models. General questions, not diff-specific; its child sessions would need bridge handling like subagents.</td></tr>
+<tr><td><code>@juicesharp/rpiv-advisor</code> 2.15 · 1.8k</td><td>The working model can hand its conversation to a stronger model for a second opinion before it acts.</td><td><span class="tag later">candidate</span> Review during the work, not of the result. Same author as the todo plugin pi-junie already uses. Its model picker is a terminal dialog.</td></tr>
+<tr><td><code>pi-review</code> 1.2.1 · 0.5k</td><td><code>/review</code>: a strict maintainer review in a new branch of the current conversation.</td><td><span class="tag skip">weak fit</span> Reviews the conversation's own work, not another agent's branch. One model.</td></tr>
+<tr><td><code>pi-simplify</code> 0.2.3 · 27k</td><td><code>/simplify</code>: cleans up recently changed lines.</td><td><span class="tag skip">not a review</span> It edits for clarity; it does not look for bugs.</td></tr>
+<tr><td><code>pi-pr-review</code> 1.19 · 0.2k</td><td>Parallel review of GitHub pull requests with chosen models.</td><td><span class="tag skip">needs GitHub</span></td></tr>
+<tr><td><code>@quintinshaw/pi-dynamic-workflows</code> 3.15 · 21.6k</td><td>Scripted fan-out over many subagents with a model per agent; multi-perspective review is one use.</td><td><span class="tag skip">too much</span> A second orchestration layer next to Cezar.</td></tr>
+<tr><td><code>pi-gauntlet</code> 8.8 · 4.9k, <code>@juicesharp/rpiv-pi</code> 2.15 · 0.9k</td><td>Whole gated workflows for Pi (brainstorm to ship), each with its own review skills and reviewer subagents.</td><td><span class="tag skip">competing process</span> Alternatives to the om- skills, not additions.</td></tr>
+<tr><td><code>@plannotator/pi-extension</code> 0.29 · 20k</td><td>A browser page for a person to review and annotate plans and diffs.</td><td><span class="tag skip">skip</span> Human review UI; judged too much surface for AIR earlier.</td></tr>
+</tbody></table></div>
+<p><strong>Recommendation:</strong> start with skills only. They need no plugin check and no bridge change, and the reviewer model is simply the one you pick. Look at <code>pi-llm-council</code> only if the skill-driven cross-review turns out weak. Any plugin first goes through the plugin check from the overview, because bridge sessions have no terminal UI and several of these packages rely on one.</p>
+
+<h2>8. The backlog, and the order to adopt this in</h2>
+<div class="callout warn">
+<p><strong>Updated 23 November</strong> from the repo's new state (19 commits since the first version of this page). The list is built from the open rows of <code>docs/air-pi-feature-map.md</code> and the plan in <code>docs/eval-parity-plan.md</code>. Done since the first version, and removed from the list: session fork of a whole conversation, changed-file reports, Eco mode, cost per prompt, Junie's settings and keys, custom model profiles, the refreshed README. The feature map still shows changed-file reports as "Not yet" although the commit and its test are in; that row needs a refresh.</p>
+</div>
+<div class="table-wrap"><table>
+<thead><tr><th>Item</th><th>Comes from</th><th>Size</th><th>Note for the process</th></tr></thead>
+<tbody>
+<tr><td>Session instructions</td><td>Pi core (<code>appendSystemPrompt</code>)</td><td>Trivial</td><td>Good first pilot item</td></tr>
+<tr><td>Session fork from a chosen point</td><td>Pi core (<code>forkFrom</code>)</td><td>Small</td><td>Second pilot item; whole-conversation fork is done</td></tr>
+<tr><td>Automatic compaction events</td><td>Pi core events</td><td>Small</td><td></td></tr>
+<tr><td>Session archive, rename, delete</td><td>Bridge, file level</td><td>Small</td><td>Archive has no Pi equivalent; a spec question</td></tr>
+<tr><td>Plan file links</td><td>Plan-mode plugin</td><td>Small</td><td></td></tr>
+<tr><td>Plan-mode tool allowlist</td><td>Plugin setting <code>defaultPlanTools</code></td><td>Small</td><td>MCP and web tools are blocked in plan mode today</td></tr>
+<tr><td>Prompt suggestions</td><td>Bridge</td><td>Medium</td><td>No usable plugin</td></tr>
+<tr><td>Goal mode</td><td>Plugin: <code>@narumitw/pi-goal</code> or <code>pi-codex-goal</code></td><td>Medium</td><td>Plugin choice is yours; runs through the plugin check first</td></tr>
+<tr><td>Headless runner for pi-junie</td><td>Bridge (eval plan, step 6)</td><td>Large</td><td>Retries and non-interactive mode; would let Cezar run pi-junie itself, not plain Pi</td></tr>
+<tr><td>Web search through Ingrazzio</td><td>Bridge</td><td>Medium</td><td>Internal JetBrains route</td></tr>
+<tr><td>YouTrack and GitHub MCP</td><td>Configuration and docs</td><td>Small</td><td>No code</td></tr>
+<tr><td>Install script and setup notes</td><td>Packaging</td><td>Small</td><td></td></tr>
+<tr><td>Refresh the feature map's stale rows</td><td>Docs</td><td>Small</td><td>Do before generating <code>AGENTS.md</code>, which reads it</td></tr>
+</tbody></table></div>
+
+<h3>Adoption phases</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>Phase</th><th>What</th><th>Done when</th></tr></thead>
+<tbody>
+<tr><td><strong>0. Ground</strong> <span class="tag use">done 23 Nov</span></td><td>
+The repo was cloned to <code>~/others/pi-junie</code> on the Linux file system; the checkout on <code>T:</code> is untouched.<br>
+Line endings: the 67 modified files were a Windows checkout (CRLF) seen from Linux; nothing real was changed or unpushed. The new clone is clean, and a <code>.gitattributes</code> (<code>* text=auto eol=lf</code>) keeps it so. That file is not committed yet.<br>
+Updated on 23 Nov to <code>3400af1</code>, where the repo is an npm workspace (<code>packages/bridge</code> and four plugin packages). <code>npm ci</code>, <code>npm test</code> (185 passed, 1 skipped, across four packages) and <code>npm run check</code> pass there.<br>
+Still to do: point AIR's agent entry at the new path.</td><td>Clean <code>git status</code>; tests run where tasks will run</td></tr>
+<tr><td><strong>1. Claude Code with gg, Cezar started, review by Pi</strong></td><td>Install the skills. Run <code>om-create-agents-md</code> and <code>om-setup-agent-pipeline</code> (validation commands; labels off). Add the spec overlay. Start Cezar locally (below). Take the two pilot items through stages 1–7: the first with a Claude Code worker started through gg, the second as a Cezar task, both with the second review in AIR through pi-junie (route 1 in section 7).</td><td>Two features merged from specs, each reviewed by Pi; you have seen both ways of dispatching</td></tr>
+<tr><td><strong>2. Cezar runs the queue</strong></td><td>The workflow file from section 6 with Claude implementing. Give Cezar's Pi runner the repo's Pi with the <code>jetbrains-ai</code> extension and a <code>JUNIE_API_KEY</code> (or a saved browser login), so the second review becomes a step with <code>runner: pi</code> (route 2) paid by JetBrains AI. Several small items in parallel. gg stays for merging and IDE review.</td><td>Parallel tasks end at the review gate, green and reviewed by Pi</td></tr>
+<tr><td><strong>3. Pi as an executor</strong></td><td>Switch the implement step to <code>runner: pi</code> for small items, with the review on a different model. Compare cost and send-backs against Claude.</td><td>A small item goes spec to merge with Pi implementing</td></tr>
+<tr><td><strong>4. Pi on itself</strong></td><td>Write and audit specs from pi-junie inside AIR too: the bridge already offers project skills as commands, and Pi reads <code>.agents/skills</code>. Use what breaks as backlog.</td><td>A spec written and audited from AIR</td></tr>
+<tr><td><strong>5. Optional</strong></td><td>Option B from section 5 if bookkeeping hurts. Session judging and evals once there is enough history.</td><td></td></tr>
+</tbody></table></div>
+
+<h3>Starting Cezar locally</h3>
+<p>Cezar oversees only the tasks it starts itself; it does not watch gg's workers. So it is started in phase 1 and given one of the pilot items, next to gg.</p>
+<div class="code-wrap"><pre><code>scripts/dev.sh setup                    # installs Cezar 0.20.0 into .dev-tools/, nothing global
+CEZ_DRY_RUN=1 scripts/dev.sh cezar      # tour with mock agents, spends nothing
+scripts/dev.sh cezar projects add .     # once: register the repository
+scripts/dev.sh cezar                    # cockpit on http://127.0.0.1:4321</code></pre></div>
+<p><code>scripts/dev.sh cezar</code> switches the review gate on, switches Cezar's telemetry and skill auto-update off, and points Cezar's Pi runner at <code>scripts/pi-jbai</code>. The committed <code>.ai/cezar/config.json</code> sets:</p>
+<ul>
+<li><code>defaultRunner</code>: <code>"claude"</code> for now.</li>
+<li><code>skillsRepos</code>: the Open Mercato skills at the same commit as <code>skills-lock.json</code>.</li>
+<li><code>requiredChecks</code>: <code>npm run check</code> and <code>npm test</code>.</li>
+<li><code>worktreeLifecycle</code>: after creating a task worktree, run <code>scripts/dev.sh worktree</code> (dependencies and skill links).</li>
+</ul>
+<p>It is a long-running process, so it belongs in its own named tmux session. The parallel cap (<code>maxParallel</code>, default 2) is in <code>~/.cezar/config.json</code>.</p>
+
+<h2>9. What we wrote</h2>
+<p>All of it is in the repository on the branch <code>dev-process</code>, uncommitted. <code>docs/development.md</code> is the short guide for daily use: setup, the flow for one feature, and where things live.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Piece</th><th>File</th><th>What it is for</th></tr></thead>
+<tbody>
+<tr><td>Setup and commands</td><td><code>scripts/dev.sh</code></td><td><code>setup</code> installs the upstream skills, the skill links and Cezar into git-ignored folders of the checkout; <code>check</code> reports only. Also: <code>worktree</code>, <code>cezar</code>, <code>audit</code>, <code>review</code>, <code>air-test</code>. Not needed to use the agent.</td></tr>
+<tr><td>Pi on JetBrains AI</td><td><code>scripts/pi-jbai</code></td><td>Plain Pi with the <code>jetbrains-ai</code> provider, for headless audits and reviews and for Cezar's Pi steps. It reads the key file itself, so other steps never see the key.</td></tr>
+<tr><td>Skill: new feature</td><td><code>.agents/skills/new-feature/</code></td><td>The entry point. Names the type of change, loads that type's checklist (bridge change, adopted plugin, own plugin package, copied package) and ends with a spec.</td></tr>
+<tr><td>Skill: plugin check</td><td><code>.agents/skills/plugin-check/</code></td><td>The overview's procedure for a third-party Pi package, as a skill every agent applies the same way.</td></tr>
+<tr><td>Skill: AIR test handoff</td><td><code>.agents/skills/air-test-handoff/</code></td><td>Stage 6 is the only stage no agent can do, so the handoff has to be exact.</td></tr>
+<tr><td>Agent rules</td><td><code>AGENTS.md</code></td><td>Written by hand, short: commands, layer rules, test-first from the wire, secrets, the process rules.</td></tr>
+<tr><td>Skill config</td><td><code>.ai/agentic.config.json</code>, <code>.ai/trackers/local.md</code></td><td>Written by hand instead of generated: the checks to run, and a "local" tracker that tells the skills there are no issues or pull requests, so a review never starts a setup session.</td></tr>
+<tr><td>Overlays</td><td><code>.ai/skills/om-spec-writing/</code>, <code>.ai/skills/om-code-review/</code></td><td>This repository's additions: wire contract, first test and AIR check in every spec; reviews against the spec, report only.</td></tr>
+<tr><td>Cezar project files</td><td><code>.ai/cezar/config.json</code>, <code>.ai/cezar/workflows/feature-from-spec.yaml</code></td><td>The implementation chain: implement, checks, first review with fixes, checks, second review by Opus and by Sol through Pi.</td></tr>
+<tr><td>Upstream skills</td><td><code>skills-lock.json</code></td><td>Six Open Mercato skills pinned to one commit; the files themselves are installed, not committed.</td></tr>
+</tbody></table></div>
+<p><strong>Their AST facts, here.</strong> The cheap equivalent already half exists: <code>packages/bridge/src/compat/features.ts</code> is a registry of AIR features and plugin requirements, and <code>test/architecture.test.ts</code> enforces the layers. A small script that prints the handled ACP methods and the feature status as JSON would give agents the same kind of facts without reading the source. Worth doing only if agents are seen reading too many files.</p>
+
+<h2>10. Decisions</h2>
+<p><strong>Settled:</strong></p>
+<ul>
+<li>Local process (option A); Claude Code with gg first; Cezar started locally; Pi as the second reviewer and later an executor.</li>
+<li>Everything runs in WSL on the Linux file system: the repo is at <code>~/others/pi-junie</code>.</li>
+<li>Line endings: fresh clone plus <code>.gitattributes</code>.</li>
+<li>Default second review: Opus and Sol.</li>
+<li>Credentials for unattended Pi: JetBrains AI, through <code>packages/jetbrains-ai</code>.</li>
+</ul>
+<p><strong>Open:</strong></p>
+<ol>
+<li><strong>How unattended Pi signs in:</strong> settled for now as a <code>JUNIE_API_KEY</code> in <code>~/.config/pi-junie/env</code>; how Cezar's Pi steps get it into their environment is still to be wired. Not needed for phase 1.</li>
+<li><strong>AIR's agent entry:</strong> it has to point at <code>~/others/pi-junie/bin/pi-air</code>. No <code>acp.json</code> was found in this WSL home, so it was left alone.</li>
+<li><strong>Commit <code>.gitattributes</code> and this document,</strong> and what to do with the old checkout on <code>T:</code>.</li>
+</ol>
+
+<h2>11. What was run, and what was not</h2>
+<h3>Run on WSL, 23 November 2026</h3>
+<ul>
+<li><strong>Setup.</strong> <code>scripts/dev.sh setup</code> on a fresh clone, twice: dependencies, six Open Mercato skills restored from <code>skills-lock.json</code>, links for Claude Code and Pi, Cezar 0.20.0 in <code>.dev-tools/</code>. <code>git status</code> stayed clean. The skill download failed partway once; the script now retries.</li>
+<li><strong>Worktree preparation.</strong> <code>scripts/dev.sh worktree</code> in a new worktree, twice: dependencies installed, all skills linked.</li>
+<li><strong>Second review through headless Pi.</strong> <code>scripts/dev.sh review</code> on a branch with one planted off-by-one bug. Run with the main clone's script against a scratch worktree. Both reports (Opus, Sol) show the results of <code>npm run check</code> and <code>npm test</code> and name the bug with file and line; neither mentions a tracker or a setup step; the worktree was unchanged afterwards and the key does not appear in the reports. About 90 seconds per model. The first attempt hung: <code>pi --print</code> waits for its input to close when not started from a terminal; the script now gives it none and has a time limit.</li>
+<li><strong>Spec audit through headless Pi.</strong> <code>scripts/dev.sh audit</code> on a throwaway spec: Sol answered "no-go" with reasons taken from the code (the spec asked to add a function that already exists and missed the code path that sets the title today). Nothing was changed.</li>
+<li><strong>Cezar start-up.</strong> With mock agents (<code>CEZ_DRY_RUN=1</code>): the cockpit answered, and listed the <code>feature-from-spec</code> workflow and the project settings, including the <code>worktreeLifecycle</code> entry.</li>
+<li><strong>JetBrains AI in headless Pi.</strong> Single requests to Opus, Sol and Luna, and the review above with tools and a skill.</li>
+</ul>
+<h3>Not run</h3>
+<ul>
+<li><strong>A real task through Cezar.</strong> Not tried: whether the workflow's steps run as written, whether Cezar passes <code>model:</code> to a step with <code>runner: pi</code>, whether its Pi runner (marked experimental, one recorded fixture) works with Pi 1.5.2 through <code>scripts/pi-jbai</code>, and whether the lifecycle command runs in a new worktree. Cezar on WSL has no stated test coverage in its repo.</li>
+<li><strong>The process files are not on <code>main</code> yet.</strong> Task worktrees start from <code>main</code>, so until these files are merged a new worktree has no <code>scripts/dev.sh</code>, no <code>AGENTS.md</code> and no skill config, and <code>om-code-review</code> would start its own tracker setup.</li>
+<li><strong>The <code>new-feature</code>, <code>plugin-check</code> and <code>air-test-handoff</code> skills</strong> were not run in any agent.</li>
+<li><strong>The second AIR entry for a build under test</strong> (<code>scripts/dev.sh air-test</code>) follows from how the launcher resolves its root; it was not tried, including whether AIR picks up a switched link on a new chat without a restart.</li>
+<li><strong>Skills inside a pi-junie chat.</strong> Plain Pi loads them; whether a bridge session lists the project's <code>.agents/skills</code> is read from the loader code, not tried.</li>
+<li><strong>Review inside gg.</strong> Whether gg's review category accepts a Pi entry, and whether <code>agent-cross-review</code> behaves under Pi as under Claude Code.</li>
+<li><strong>gg next to Cezar.</strong> Cezar's task worktrees are ordinary git worktrees on <code>cez/&lt;id&gt;</code> branches, so gg should see them; not tried.</li>
+<li><strong>The review plugins</strong> were judged from their npm pages only.</li>
+<li><strong>The Windows checkout.</strong> The scripts are bash and were run on WSL only.</li>
+<li><strong>The transcript</strong> is raw speech recognition. Skill names, model names and numbers from the podcast are approximate; where it mattered they were checked against the two repos.</li>
+<li><strong>Skill classification.</strong> About 60 of the 74 skills are classified from their descriptions, not a full read.</li>
+</ul>
+
+</main>
+</div>
+</body>
+</html>

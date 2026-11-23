@@ -1,0 +1,19 @@
+{
+  "skillsRepos": [
+    { "repo": "open-mercato/skills", "ref": "7e6b9de567a73bcc9373b889231bc0efafe1bb30" }
+  ],
+  "defaultRunner": "claude",
+  "baseBranch": "main",
+  "requiredChecks": ["npm run check", "npm test"],
+  "worktreeLifecycle": {
+    "afterCreate": [
+      {
+        "id": "f46bf449-79e4-499c-94c4-41f1ff6ac084",
+        "name": "Dependencies and skills",
+        "command": "bash {{ root_path }}/scripts/dev.sh worktree {{ worktree_path }}",
+        "timeoutSeconds": 900
+      }
+    ],
+    "beforeRemove": []
+  }
+}

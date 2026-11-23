@@ -1,0 +1,52 @@
+name: feature-from-spec
+description: Implement an approved spec, check it, review it (Claude fixes, then Opus and Sol report through Pi).
+# The task text is the path of an approved spec, e.g. .ai/specs/2026-11-24-session-instructions.md
+# Pi steps run scripts/pi-jbai (set as CEZ_PI_BIN by `scripts/dev.sh cezar`), which pays through JetBrains AI.
+steps:
+  - id: implement
+    name: Implement
+    runner: claude
+    prompt: |
+      Implement the spec at {{task}}.
+      Read AGENTS.md first. Write the spec's "First test" before the implementation.
+      Stay inside the spec's scope. Commit on this branch; do not push and do not touch main.
+
+  - id: verify
+    name: Checks
+    command: "npm run check && npm test"
+    onFail:
+      retry: implement
+      max: 2
+
+  - id: review
+    name: First review (fixes)
+    runner: claude
+    skill: om-code-review
+    prompt: |
+      Review this branch against main and against the spec at {{task}}.
+      After the report, fix the blocker and major findings and commit the fixes. Leave the rest listed.
+
+  - id: verify-again
+    name: Checks after review
+    command: "npm run check && npm test"
+    onFail:
+      retry: review
+      max: 1
+
+  - id: second-review-opus
+    name: Second review, Opus (report only)
+    runner: pi
+    model: jetbrains-ai/claude-opus-5-5
+    skill: om-code-review
+    prompt: |
+      Review this branch against main and against the spec at {{task}}.
+      Report only: change, commit and stash nothing. Give the full report as your answer.
+
+  - id: second-review-sol
+    name: Second review, Sol (report only)
+    runner: pi
+    model: jetbrains-ai/gpt-6.1-sol
+    skill: om-code-review
+    prompt: |
+      Review this branch against main and against the spec at {{task}}.
+      Report only: change, commit and stash nothing. Give the full report as your answer.

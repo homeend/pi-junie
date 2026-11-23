@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "baseBranch": "main",
+  "tracker": "local",
+  "validation": {
+    "commands": ["npm run check", "npm test"]
+  },
+  "labels": { "enabled": false },
+  "qaGate": false,
+  "paths": {
+    "runs": ".ai/runs",
+    "analysis": ".ai/analysis",
+    "specs": ".ai/specs"
+  },
+  "reviewChecklist": null
+}

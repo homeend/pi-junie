@@ -2,3 +2,13 @@ node_modules/
 .pi-dev/
 *.log
 acp-examples/
+
+# Developer tooling, installed by scripts/dev.sh (see docs/development.md)
+.dev-tools/
+.claude/skills/
+.agents/skills/om-*
+.agents/skills/agent-*
+.ai/runs/
+.ai/reviews/
+.ai/cezar/worktrees/
+.ai/cezar/lifecycle/
