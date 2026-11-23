@@ -5,6 +5,7 @@ Pi as an ACP agent for JetBrains AIR, plus a small Pi extension dev setup.
 Docs:
 - [docs/overview.html](docs/overview.html): the whole approach in one page (open it in a browser)
 - [docs/spec.md](docs/spec.md): design and behaviour, kept current
+- [docs/eval-parity-plan.md](docs/eval-parity-plan.md): plan to run pi-junie headless with Junie's eval configuration (proposal)
 - [docs/air-pi-feature-map.md](docs/air-pi-feature-map.md): each AIR feature, and whether Pi core, a Pi plugin or the bridge provides it
 - [docs/junie-proxy-triage.md](docs/junie-proxy-triage.md): how Junie calls LLMs through AIR's proxy
 - [docs/gap-analysis.md](docs/gap-analysis.md): the first gap analysis (2026-11-17 snapshot)
