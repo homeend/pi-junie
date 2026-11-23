@@ -272,6 +272,11 @@ that unlock each one:
   model, slot `custom:<id>` (Junie's model id), shown in the "Custom models" group. `JUNIE_MODEL=custom:<id>` selects
   it; JUNIE_EFFORT may use the profile's own effort names; otherwise its `defaultEffort` applies. junie-config's
   extension adds the profile's `extraBody` and `temperature` to each request (`before_provider_request`).
+- Junie's behavior settings, applied by junie-config's extension in every session (`behavior.ts`): `MAX_STEPS`
+  aborts a run at the limit (`junie-exit` entry; 150 by default when `JUNIE_EXECUTION_MODE` is non-interactive),
+  `ADD_PROJECT_STR=true` adds Junie's root listing as a system prompt section, `SUBAGENTS_ENABLED` / `WEB_SEARCH_MODE` /
+  `FETCH_URL_ENABLED` deactivate plugin tools, `PRIMARY_MODEL_*` request options go into each request. main.ts logs
+  Junie settings that are set but have no effect.
 - Built-in plugins: packages of this repository passed as `bundledPlugins` (main.ts) and loaded the same way. Today
   Junie Config (`packages/junie-config`: Junie's settings from the environment; inert without them, records them in
   the session as a `junie-config` custom entry and the startup log lists the ones set) and Junie Cost

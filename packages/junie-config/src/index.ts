@@ -1,18 +1,22 @@
 /**
  * Junie Config: runs Pi with Junie's configuration (docs/eval-parity-plan.md).
  * - Records Junie's settings from the environment in the session, as Junie records `agent_configuration`.
+ * - Applies Junie's behavior settings: step limit, project structure, tool switches, request options (behavior.ts).
  * - Shapes requests to Junie's custom model profiles (`extraBody`, `temperature`).
  * Credentials, model choice and the profiles' providers are applied by whoever runs Pi (pi-junie's bridge), from
  * `credentials.ts`, `profiles.ts` and `profile-provider.ts`.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { junieBehavior, projectStructure } from "./behavior.ts";
 import { PROFILE_PROVIDER_PREFIX } from "./profile-provider.ts";
 import { loadJunieProfiles, profileDirectories } from "./profiles.ts";
-import { withProfileOptions } from "./request-options.ts";
+import { withProfileOptions, withRequestSettings } from "./request-options.ts";
 import { configurationRecord, resolveJunieSettings } from "./settings.ts";
 
 /** Custom entry type of the configuration record. */
 export const JUNIE_CONFIG_ENTRY = "junie-config";
+/** Custom entry type of a run Junie's step limit ended (Junie's exit status `ExitMaxIter`). */
+export const JUNIE_EXIT_ENTRY = "junie-exit";
 
 export default function junieConfig(pi: ExtensionAPI): void {
 	// Record the configuration once per session, when the environment sets any Junie setting: an eval or headless run
@@ -25,15 +29,56 @@ export default function junieConfig(pi: ExtensionAPI): void {
 		pi.appendEntry(JUNIE_CONFIG_ENTRY, configurationRecord(resolved));
 	});
 
-	// Requests to a custom model profile get the profile's extraBody and temperature, as Junie sends them. The profiles
-	// are read from the same locations as the runner's (the process's project and $JUNIE_HOME), matched by provider.
+	const behavior = junieBehavior();
+
+	// Step limit (MAX_STEPS): count the run's completed turns and end the run at the limit, as Junie's agent loop stops
+	// after maxSteps steps. The record says why the run ended.
+	if (behavior.maxSteps) {
+		const limit = behavior.maxSteps;
+		let steps = 0;
+		pi.on("agent_start", () => {
+			steps = 0;
+		});
+		pi.on("turn_end", (_event, ctx) => {
+			if (++steps < limit || ctx.signal?.aborted) return;
+			pi.appendEntry(JUNIE_EXIT_ENTRY, { status: "ExitMaxIter", steps, maxSteps: limit });
+			ctx.abort();
+		});
+	}
+
+	// Project structure (ADD_PROJECT_STR=true): Junie's root listing as a system prompt section, stable within a
+	// session so the prompt cache stays valid; tool switches: the turned-off tools stay inactive in every run.
+	const structures = new Map<string, string | undefined>();
+	if (behavior.addProjectStructure || behavior.disabledTools.length) {
+		pi.on("before_agent_start", (event, ctx) => {
+			if (behavior.addProjectStructure) {
+				if (!structures.has(ctx.cwd)) structures.set(ctx.cwd, projectStructure(ctx.cwd));
+				const text = structures.get(ctx.cwd);
+				if (text) event.systemPromptOptions.sections.project_structure = text;
+			}
+			if (behavior.disabledTools.length) {
+				const active = pi.getActiveTools();
+				const kept = active.filter((t) => !behavior.disabledTools.includes(t));
+				if (kept.length !== active.length) pi.setActiveTools(kept);
+			}
+		});
+	}
+
+	// Request options: Junie's PRIMARY_MODEL_* settings for every model, then a custom model profile's extraBody and
+	// temperature for requests to that profile. The profiles are read from the same locations as the runner's (the
+	// process's project and $JUNIE_HOME), matched by provider.
 	const profiles = new Map(
 		loadJunieProfiles(profileDirectories(process.cwd())).profiles.map((p) => [`${PROFILE_PROVIDER_PREFIX}${p.profileId}`, p.primary]),
 	);
-	if (profiles.size) {
+	const hasRequestSettings = Object.keys(behavior.request).length > 0;
+	if (profiles.size || hasRequestSettings) {
 		pi.on("before_provider_request", (event, ctx) => {
-			const model = ctx.model && profiles.get(ctx.model.provider);
-			return model ? withProfileOptions(event.payload, model) : undefined;
+			if (!ctx.model) return undefined;
+			const profile = profiles.get(ctx.model.provider);
+			let payload = event.payload;
+			if (hasRequestSettings) payload = withRequestSettings(payload, ctx.model.api, profile?.temperature !== undefined ? { ...behavior.request, temperature: undefined } : behavior.request);
+			if (profile) payload = withProfileOptions(payload, profile);
+			return payload === event.payload ? undefined : payload;
 		});
 	}
 }

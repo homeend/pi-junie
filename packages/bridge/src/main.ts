@@ -8,6 +8,7 @@
 import { fileURLToPath } from "node:url";
 import { appendFileSync } from "node:fs";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { APPLIED_SETTINGS } from "pi-junie-config/behavior";
 import { junieCredentials, junieModelChoice } from "pi-junie-config/credentials";
 import { loadJunieProfiles, profileDirectories } from "pi-junie-config/profiles";
 import { describeJunieSettings, resolveJunieSettings } from "pi-junie-config/settings";
@@ -116,6 +117,8 @@ function stdioTransport(): Transport {
 log.info(`starting pid=${process.pid} node=${process.version} cwd=${process.cwd()} log=${LOG_FILE ?? "stderr"}`);
 const junieSettings = describeJunieSettings(resolveJunieSettings());
 if (junieSettings) log.info(`Junie settings from the environment: ${junieSettings}`);
+const noEffect = resolveJunieSettings().filter((r) => r.source === "env" && !APPLIED_SETTINGS.has(r.setting.env)).map((r) => r.setting.env);
+if (noEffect.length) log.warn(`Junie settings with no effect in Pi (recorded only): ${noEffect.join(", ")}`);
 // Junie's custom model profiles: the process's project (.junie/models, for headless runs) and $JUNIE_HOME/models.
 const junieProfiles = loadJunieProfiles(profileDirectories(process.cwd()));
 for (const [id, error] of Object.entries(junieProfiles.errors)) log.error(`Junie profile ${id} not loaded: ${error}`);
