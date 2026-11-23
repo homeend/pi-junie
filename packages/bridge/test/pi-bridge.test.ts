@@ -69,7 +69,15 @@ describe("Pi bridge replay: junie-hello", async () => {
 	});
 
 	it("sends the chat title once, after the first prompt", () => {
-		expect(wire.updates("session_info_update").map((u: Obj) => u.update.title)).toEqual(["hello"]);
+		expect(wire.updates("session_info_update").filter((u: Obj) => u.update.title !== undefined).map((u: Obj) => u.update.title)).toEqual(["hello"]);
+	});
+
+	it("answers AIR's changed-files report requests of the recording, one per prompt", () => {
+		const reports = wire.updates("session_info_update").map((u: Obj) => u.update._meta?.jetbrains?.air?.agentFileChangeReport).filter(Boolean);
+		expect(reports.map((r: Obj) => [r.status, r.paths])).toEqual([
+			["reported", []],
+			["reported", []],
+		]);
 	});
 
 	it("reports usage", () => {

@@ -85,8 +85,8 @@ Session list/load/resume, fork (`SessionManager.forkFrom`, branches), names, ste
 ### Bridge only
 
 ACP driver and AIR metadata, provider discovery through AIR's proxy, auth status, permissions + Brave mode,
-elicitation (`ask_user`), terminal output, phases, typed failures, changed-file reports (edit/write diffs + bash, no
-usable plugin: `pi-diff-widget` is TUI-only), prompt suggestions (only TUI ghost-text plugins exist), session
+elicitation (`ask_user`), terminal output, phases, typed failures, changed-file reports (`agentFileChangeReport`
+from the turn's edit/write diffs, as Junie; no usable plugin: `pi-diff-widget` is TUI-only), prompt suggestions (only TUI ghost-text plugins exist), session
 archive/delete (file level).
 
 ## Prior art

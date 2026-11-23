@@ -44,6 +44,7 @@ import {
 	encodeQuestionForm,
 	decodeQuestionAnswers,
 } from "./codec.ts";
+import { AGENT_FILE_CHANGE_REPORT, decodeFileChangeReportRequest, encodeFileChangeReport } from "./file-changes.ts";
 import { type JsonObject, JsonRpcPeer, RpcError, type Transport } from "./jsonrpc.ts";
 import { type InitializeParams, type InitializeResult, PROTOCOL_VERSION, type ProvidersSetParams, type SessionPromptParams, type SessionUpdate } from "./wire.ts";
 
@@ -65,6 +66,8 @@ interface SessionEntry {
 	turnDone?: Promise<void>;
 	/** Failed turns so far (ids of AIR failure rows). */
 	failures?: number;
+	/** The session's folders: its cwd and additional directories (bounds of changed-file reports). */
+	roots?: string[];
 }
 
 /** v1 steering: AIR sends a message typed while a turn runs (only when we advertise `_meta.steering.supported`). */
@@ -193,7 +196,7 @@ export class AcpAgent {
 		// Like Junie: give model discovery a moment so the first picker is complete; late results arrive as config_option_update.
 		await this.backend.modelsSettled(MODEL_DISCOVERY_WAIT_MS);
 		const backend = await this.backend.openSession(this.sessionContext(params, cwd));
-		this.sessions.set(backend.id, { backend });
+		this.sessions.set(backend.id, { backend, roots: [backend.cwd, ...decodeSkillRoots(params, backend.cwd)] });
 		this.publishCommands(backend);
 		this.sendWelcome(backend.id);
 		return { sessionId: backend.id, configOptions: this.configOptionsFor(backend) };
@@ -258,7 +261,7 @@ export class AcpAgent {
 		const resumed = existing ? { session: existing, restored: true } : await this.backend.resumeSession({ sessionId, ...this.sessionContext(params, cwd) });
 		if (!resumed || !resumed.restored) throw new RpcError(-32002, `Session not found: ${sessionId}`);
 		const backend = resumed.session;
-		this.sessions.set(backend.id, { backend });
+		this.sessions.set(backend.id, { backend, roots: [backend.cwd, ...decodeSkillRoots(params, backend.cwd)] });
 		this.publishCommands(backend);
 		const history = backend.history();
 		for (const update of encodeHistory(history, { planUpdates: this.client?.planUpdates })) this.sendUpdate(sessionId, update);
@@ -286,7 +289,7 @@ export class AcpAgent {
 		await this.backend.modelsSettled(MODEL_DISCOVERY_WAIT_MS);
 		const backend = await this.backend.forkSession({ sessionId, ...this.sessionContext(params, params.cwd) });
 		if (!backend) throw new RpcError(-32002, `Session not found: ${sessionId}`);
-		this.sessions.set(backend.id, { backend });
+		this.sessions.set(backend.id, { backend, roots: [backend.cwd, ...decodeSkillRoots(params, backend.cwd)] });
 		this.publishCommands(backend);
 		return { sessionId: backend.id, configOptions: this.configOptionsFor(backend) };
 	}
@@ -304,7 +307,7 @@ export class AcpAgent {
 		const resumed = await this.backend.resumeSession({ sessionId, ...this.sessionContext(params, cwd) });
 		if (!resumed) throw new RpcError(-32002, `Session not found: ${sessionId}`);
 		const backend = resumed.session;
-		this.sessions.set(backend.id, { backend });
+		this.sessions.set(backend.id, { backend, roots: [backend.cwd, ...decodeSkillRoots(params, backend.cwd)] });
 		this.publishCommands(backend);
 		if (!resumed.restored) {
 			// After the response, tell the user the model will not see the earlier messages.
@@ -349,7 +352,8 @@ export class AcpAgent {
 	private async prompt(params: SessionPromptParams): Promise<unknown> {
 		const entry = this.requireSession(params.sessionId);
 		if (entry.turn) throw new RpcError(-32000, "A prompt is already running in this session");
-		return encodePromptResult(await this.runTurn(params.sessionId, entry, decodePrompt(params.prompt)));
+		const reportId = decodeFileChangeReportRequest((params as SessionPromptParams & { _meta?: unknown })._meta);
+		return encodePromptResult(await this.runTurn(params.sessionId, entry, decodePrompt(params.prompt), reportId));
 	}
 
 	/**
@@ -383,13 +387,15 @@ export class AcpAgent {
 	}
 
 	/** Runs one turn on the backend, streaming its events as session/update. Owns `entry.turn` until it ends. */
-	private runTurn(sessionId: string, entry: SessionEntry, input: PromptInput): Promise<TurnResult> {
+	private runTurn(sessionId: string, entry: SessionEntry, input: PromptInput, fileChangeReportId?: string): Promise<TurnResult> {
 		// The turn exists before any await, so a session/cancel arriving right away is not lost.
 		const turn = new AbortController();
 		entry.turn = turn;
 		const stream: TranscriptState = { knownTools: new Set<string>(), messages: new MessageIds() };
 		const knownTools = stream.knownTools;
 		const children = new Map<string, TranscriptState>();
+		// Files the turn's edit tools changed (a completed edit/write that changed its file reports a diff).
+		const changedPaths: string[] = [];
 		const run = async (): Promise<TurnResult> => {
 			try {
 				const command = decodeCommand(input.text, await entry.backend.commands());
@@ -400,6 +406,7 @@ export class AcpAgent {
 				const result = await entry.backend.prompt(
 					input,
 					(event) => {
+						if (event.kind === "tool" && event.update.status === "completed" && event.update.diff) changedPaths.push(event.update.diff.path);
 						// Native subagent sessions replace the launching tool's row (like Junie).
 						if (event.kind === "tool" && event.update.launchesSubagent && this.nativeSubagents()) return;
 						// The todo tool's calls show as the plan itself.
@@ -427,6 +434,11 @@ export class AcpAgent {
 					(review, signal) => this.reviewPlan(sessionId, review, knownTools, signal),
 				);
 				if (result.stop === "error") this.reportFailure(sessionId, entry, result);
+				// AIR asked for this turn's changed files: answer before the prompt's response (like Junie).
+				if (fileChangeReportId && this.client?.features.includes(AGENT_FILE_CHANGE_REPORT)) {
+					this.sendUpdate(sessionId, encodeFileChangeReport(fileChangeReportId, changedPaths, entry.roots ?? [entry.backend.cwd]));
+					this.log.info(`session ${sessionId}: file-change report ${fileChangeReportId}: ${changedPaths.length} edit(s)`);
+				}
 				return result;
 			} finally {
 				entry.turn = undefined;

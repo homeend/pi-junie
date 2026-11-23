@@ -263,8 +263,8 @@ that unlock each one:
   in the `initialize` result, plus a diagnostic list of features that are unavailable and why.
 - Two directions: installed extensions decide what is advertised, and features AIR asks for that can't be
   met are reported as missing requirements.
-- Only `nativeSubagentSessions` is `available` (advertised when `@tintinweb/pi-subagents` is installed); the other
-  entries are `planned`. Features that need no capability string (plans, plan review, Brave Mode, web access, the
+- `available`: `nativeSubagentSessions` (advertised when `@tintinweb/pi-subagents` is installed) and
+  `agentFileChangeReport` (always); the other entries are `planned`. Features that need no capability string (plans, plan review, Brave Mode, web access, the
   Default group) are not in the registry.
 - Installed plugins come from `src/pi/plugins.ts`: the user installs a known Pi package with Pi itself
   (`pi install npm:@tintinweb/pi-subagents`); the bridge finds it where `pi install` puts it
@@ -301,6 +301,15 @@ that unlock each one:
   Junie's layout: tokens, cost in credits (1 credit = 1 USD), usage by model, the last prompts (up to 100) with
   preview, tokens and credits; it does not reach the model or the transcript. AIR derives a turn's cost from the
   change of `usage_update.cost`, but shows it in the chat only for agents declaring `showsTurnCost` (Claude).
+- Changed files per turn (`agentFileChangeReport`, `src/acp/file-changes.ts`, as Junie): advertised in `initialize`;
+  when the client advertises it too and a prompt carries `_meta.jetbrains.air.agentFileChangeReportRequest =
+  {version: 1, requestId}` (exactly these keys), the bridge answers before the prompt's response with a
+  `session_info_update` whose `_meta.jetbrains.air.agentFileChangeReport` = `{version: 1, requestId, status:
+  "reported", paths, declaredComplete: false, truncated, uncertainty}`. `paths`: the files the turn's own `edit` /
+  `write` calls changed (a completed call with a diff), canonical (symlinks resolved), inside the session's cwd and
+  additional directories, at most 1,024 paths / 256 KiB. Files changed by `bash`, subagents or the IDE's tools are
+  not tracked (the `uncertainty` says so). AIR shows the "N files changed · Since last turn" card and the Last Turn
+  diff from it, with its own line counts.
 - Built-in plugins: packages of this repository passed as `bundledPlugins` (main.ts) and loaded the same way. Today
   Junie Config (`packages/junie-config`: Junie's settings from the environment; inert without them, records them in
   the session as a `junie-config` custom entry and the startup log lists the ones set) and Junie Cost
@@ -420,8 +429,7 @@ redacted, plus diagnostics. It is the source for debugging and for future fixtur
 6. Done since: tools and permissions, sessions (list, load, resume), effort, commands and skills, client MCP
    servers, steering, failures, phases, plugins (subagents, todo list, plan mode, web access), the ingrazzio slot
    with Junie Lite and the Default group.
-7. Next (not started): real Eco, plan file links, plan-mode `defaultPlanTools`, goal mode, changed-file reports,
-   fork points, session archive / rename, session instructions, ACP v2 codec.
+7. Next (not started): plan file links, plan-mode `defaultPlanTools`, goal mode, fork points, session archive / rename, session instructions, ACP v2 codec.
 
 ## 7. Out of scope for now
 

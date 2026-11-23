@@ -28,14 +28,14 @@ export interface FeatureResolution {
 	unavailable: { feature: string; reason: string }[];
 }
 
-/** Known AIR features with a capability string. Only subagent sessions are "available"; the rest are "planned". */
+/** Known AIR features with a capability string. "available": subagent sessions, changed-file reports; the rest "planned". */
 export const AIR_FEATURE_RULES: FeatureRule[] = [
 	{ feature: "nativeSubagentSessions", description: "Child sessions for subagents", requires: [{ plugin: "@tintinweb/pi-subagents", minVersion: "0.26.0" }], status: "available" },
 	{ feature: "customInstructions", description: "Session instructions from AIR on session/new", requires: [], status: "planned" },
 	{ feature: "providerModels", description: "_providers/models catalog probe", requires: [], status: "planned" },
 	{ feature: "sessionIndex", description: "Session list with AIR metadata", requires: [], status: "planned" },
 	{ feature: "planFile", description: "Plan files linked to plan updates", requires: [{ plugin: "plan-mode" }], status: "planned" },
-	{ feature: "agentFileChangeReport", description: "Changed-file reports after a turn", requires: [], status: "planned" },
+	{ feature: "agentFileChangeReport", description: "Changed-file reports after a turn", requires: [], status: "available" },
 ];
 
 export function compareVersions(a: string, b: string): number {

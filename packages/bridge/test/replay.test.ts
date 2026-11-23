@@ -18,7 +18,7 @@ describe("replay: junie-hello (handshake, providers, one session, two prompts)",
 		const [init] = byMethod("initialize");
 		expect(init.result.protocolVersion).toBe(1);
 		expect(init.result.agentCapabilities.providers).toEqual({});
-		expect(init.result._meta.jetbrains.air).toEqual({ version: 1, capabilities: [] });
+		expect(init.result._meta.jetbrains.air).toEqual({ version: 1, capabilities: ["agentFileChangeReport"] });
 		expect(init.result.agentInfo.name).toBe("pi-junie");
 	});
 
