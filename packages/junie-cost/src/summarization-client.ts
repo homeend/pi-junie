@@ -7,7 +7,7 @@ import type {
 } from "@earendil-works/pi-ai";
 import type { ExtensionContext, SessionManager } from "@earendil-works/pi-coding-agent";
 import { firstAvailable } from "./utils.ts";
-import { ecoPrimaryId, IMPLEMENTATION_MODEL_IDS } from "./model-mix/router.ts";
+import { ecoTargetFor } from "./model-mix/router.ts";
 
 export interface SummarizationOptions {
 	/** Required deadline for the entire request, including authentication. */
@@ -48,10 +48,8 @@ export function selectSummarizationModel(ctx: ExtensionContext) {
 	if (!selected) return undefined;
 	// ModelRegistry.complete does not route virtual models, so an Eco pair maps to the model of its requests outside
 	// the agent loop (COST-06.R17): the first available implementation model, or else the pair's primary model.
-	const ecoPrimary = ecoPrimaryId(selected);
-	const primary = ecoPrimary
-		? firstAvailable(ctx, selected.provider, [...IMPLEMENTATION_MODEL_IDS, ecoPrimary])
-		: selected;
+	const eco = ecoTargetFor(selected, ctx);
+	const primary = eco ? (eco.implementation() ?? eco.primary()) : selected;
 	if (!primary) return undefined;
 	const family = modelFamily(primary);
 	if (!family) return primary;

@@ -32,9 +32,9 @@ export default function junieCost(pi: ExtensionAPI): void {
 	// Planning is a read-only phase of the main session from create_plan to report_plan.
 	const planner = createModelMixPlanner(pi);
 	// Virtual `<id>-eco` models keep the user-selected model and ctx.model stable while each physical request is routed
-	// by the planner's state: the cheap model takes the task only after an accepted plan, and after three failed turns
+	// by its conversation: the cheap model takes the task only after an accepted plan, and after three failed turns
 	// in a row one request goes back to the primary model.
-	for (const model of ecoModels(planner.useImplementationModel)) pi.registerVirtualModel(model);
+	for (const model of ecoModels()) pi.registerVirtualModel(model);
 	pi.registerTool(planner.createPlanTool);
 	pi.registerTool(planner.reportPlanTool);
 	// A new or resumed session starts without planning. Pi restores the tool set from the transcript,

@@ -216,13 +216,6 @@ export function createModelMixPlanner(pi: ExtensionAPI) {
 		createPlanTool,
 		reportPlanTool,
 
-		/**
-		 * Whether the router sends the task's next request to the implementation model: the task implements an accepted
-		 * plan (R11), as with Junie's useImplementModel (agent/modelmix/ModelMixContext.kt:45), and the implementation
-		 * model has not just failed MAX_FAILED_TURNS turns in a row (R14).
-		 */
-		useImplementationModel: () => state.phase === "implementing" && state.failedTurns < MAX_FAILED_TURNS,
-
 		/** A new session starts without planning; one saved mid-planning gets its original tools back (R15). */
 		handleSessionStart(_event: SessionStartEvent, ctx: ExtensionContext) {
 			state = { phase: "idle" };
