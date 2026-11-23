@@ -72,6 +72,7 @@ export const JUNIE_SETTINGS: readonly JunieSetting[] = [
 	s("junie_home", "JUNIE_HOME"),
 	s("junie_time_limit", "JUNIE_TIME_LIMIT"),
 	s("ej_auth_use_direct_access", "EJ_AUTH_USE_DIRECT_ACCESS"),
+	s("junie_log_prompt_usage", "JUNIE_LOG_PROMPT_USAGE"),
 	s("junie_litellm_url", "JUNIE_LITELLM_URL"),
 	// Environment.kt: credentials
 	s("junie_api_key", "JUNIE_API_KEY", { secret: true }),

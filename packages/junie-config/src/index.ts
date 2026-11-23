@@ -6,12 +6,16 @@
  * Credentials, model choice and the profiles' providers are applied by whoever runs Pi (pi-junie's bridge), from
  * `credentials.ts`, `profiles.ts` and `profile-provider.ts`.
  */
+import { appendFileSync, mkdirSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { junieBehavior, projectStructure } from "./behavior.ts";
 import { PROFILE_PROVIDER_PREFIX } from "./profile-provider.ts";
 import { loadJunieProfiles, profileDirectories } from "./profiles.ts";
 import { withProfileOptions, withRequestSettings } from "./request-options.ts";
 import { configurationRecord, resolveJunieSettings } from "./settings.ts";
+import { promptUsageLogMessage, sessionUsage } from "./usage.ts";
 
 /** Custom entry type of the configuration record. */
 export const JUNIE_CONFIG_ENTRY = "junie-config";
@@ -28,6 +32,26 @@ export default function junieConfig(pi: ExtensionAPI): void {
 		if (ctx.sessionManager.getEntries().some((e) => e.type === "custom" && e.customType === JUNIE_CONFIG_ENTRY)) return;
 		pi.appendEntry(JUNIE_CONFIG_ENTRY, configurationRecord(resolved));
 	});
+
+	// Prompt usage log (JUNIE_LOG_PROMPT_USAGE / Junie's --log-prompt-usage): when a run settles, one line per new
+	// prompt with its tokens and cost, in `<JUNIE_HOME>/logs/log-prompt-<date>-pid-<pid>.log` as Junie writes it.
+	if (process.env.JUNIE_LOG_PROMPT_USAGE?.trim().toLowerCase() === "true") {
+		let logged = 0;
+		pi.on("agent_settled", (_event, ctx) => {
+			const prompts = sessionUsage(ctx.sessionManager.getEntries()).prompts.filter((p) => p.index > logged);
+			if (!prompts.length) return;
+			logged = prompts.at(-1)!.index;
+			try {
+				const dir = join(process.env.JUNIE_HOME?.trim() || join(homedir(), ".junie"), "logs");
+				mkdirSync(dir, { recursive: true });
+				const now = new Date();
+				const file = join(dir, `log-prompt-${now.toISOString().slice(0, 10)}-pid-${process.pid}.log`);
+				appendFileSync(file, prompts.map((p) => `${now.toISOString()} INFO  JuniePromptUsage - ${promptUsageLogMessage(p)}\n`).join(""));
+			} catch {
+				// The log is a convenience: a failed write must not fail the run.
+			}
+		});
+	}
 
 	const behavior = junieBehavior();
 

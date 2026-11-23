@@ -56,6 +56,8 @@ for now. `PI_AIR_JUNIE_COST=0` leaves it out.
   model group; `JUNIE_ANTHROPIC_API_KEY` / `JUNIE_OPENAI_API_KEY` / `JUNIE_GOOGLE_API_KEY` give that vendor's models
   without AIR; `JUNIE_MODEL` / `JUNIE_EFFORT` pick new chats' model. Junie's custom model profiles (`~/.junie/models/*.json`)
   appear as "Custom models" (`JUNIE_MODEL=custom:<profile>`). See `packages/junie-config/README.md`.
+- `/stats` (or `/usage`, `/cost`, `/credits`) in a chat: tokens and cost (credits = USD) per model and per prompt,
+  as in Junie. AIR shows the chat's total cost on its session row.
 - Node binary: taken from `PATH`, otherwise the newest `~/.nvm` Node 24+. Override with `PI_AIR_NODE`.
 - Pi state for the bridge is kept apart from your `~/.pi/agent` (in `~/.pi/pi-junie/`), so your own Pi
   logins are never sent to AIR's proxy.

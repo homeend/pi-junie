@@ -108,6 +108,8 @@ export interface CommandInfo {
 	description: string;
 	/** Placeholder for free-text arguments; absent when the command takes none. */
 	hint?: string;
+	/** Other names the command answers to when typed (not listed separately). */
+	aliases?: string[];
 	/**
 	 * `new_session` is handled by the client itself; `skill` runs one of the session's skills; `plan_mode` switches
 	 * plan mode on (`/plan [task]`, `/plan off`), which clients may show as a toggle.
@@ -265,6 +267,8 @@ export interface SessionSummary {
 	lastPromptAt?: string;
 	/** The session this one was forked from. */
 	forkedFrom?: string;
+	/** The session's cost so far in USD, when known. */
+	costUsd?: number;
 }
 
 /** One past item of a conversation, replayed when a client reopens a session. */

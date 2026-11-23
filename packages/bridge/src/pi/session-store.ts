@@ -19,6 +19,8 @@ export interface SessionMeta {
 	mix?: string;
 	/** Brave Mode: safe / auto / brave. */
 	approvalMode?: ApprovalMode;
+	/** The session's cost so far in USD, as last reported (session list rows). */
+	costUsd?: number;
 	/** Eco mode as chosen in this session for its explicit model (else the remembered choice for the model). */
 	eco?: boolean;
 	/** Plan mode as the user last chose it (applied to the plan-mode plugin at the next prompt). */

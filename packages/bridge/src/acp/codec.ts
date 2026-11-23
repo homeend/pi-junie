@@ -517,7 +517,7 @@ export function encodeSessionSummary(s: SessionSummary): Record<string, unknown>
 		updatedAt: s.updatedAt,
 		_meta: {
 			jetbrains: {
-				air: { version: 1, archived: false, state: "idle", ...(s.lastPromptAt ? { lastPromptAt: s.lastPromptAt } : {}), ...(s.forkedFrom ? { forkedFrom: s.forkedFrom } : {}) },
+				air: { version: 1, archived: false, state: "idle", ...(s.lastPromptAt ? { lastPromptAt: s.lastPromptAt } : {}), ...(s.forkedFrom ? { forkedFrom: s.forkedFrom } : {}), ...(s.costUsd !== undefined ? { cost: { amount: s.costUsd, currency: "USD" } } : {}) },
 			},
 		},
 	};
@@ -735,7 +735,7 @@ export function decodeCommand(text: string, commands: CommandInfo[]): { name: st
 	const m = /^\s*([/$])(?:skill:)?([^\s]+)(?:\s+([\s\S]*))?$/.exec(text);
 	if (!m) return undefined;
 	const [, sigil, name, args = ""] = m;
-	const command = commands.find((c) => c.name === name && c.kind !== "new_session");
+	const command = commands.find((c) => (c.name === name || c.aliases?.includes(name)) && c.kind !== "new_session");
 	if (!command || (sigil === "$" && command.kind !== "skill")) return undefined;
-	return { name, args: args.trim() };
+	return { name: command.name, args: args.trim() };
 }

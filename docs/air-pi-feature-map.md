@@ -41,7 +41,7 @@ AIR.
 | Typed session failures | Bridge | Done |
 | Changed-file reports | Bridge (from edit/write/bash tool results) | Not yet |
 | Prompt suggestions | Bridge (no usable plugin: the only ones are TUI ghost text) | Not yet |
-| Usage and cost | Pi core (message usage, `getSessionStats`) | Done |
+| Usage and cost | Pi core (message usage) + junie-config (`usage.ts`) + bridge | Done: `usage_update` with the chat's cost from its transcript (continues after a restart, Junie Cost's summaries included, Junie Lite free), cost on session list rows, Junie's `/stats` (`/usage`, `/cost`, `/credits`) per model and per prompt in credits, `JUNIE_LOG_PROMPT_USAGE` log. Turn cost in AIR's chat needs AIR: it shows it only for agents declaring `showsTurnCost` (Claude) with `air.sessions.turn.cost` on |
 
 **Count**: of 25 features, 4 come from Pi plugins (subagents done; goal, plan/todo, optional permission rules), 9 are
 Pi core with a bridge mapping, and the rest are protocol work the bridge must do anyway (ACP shapes, IDE proxy,

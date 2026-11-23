@@ -21,6 +21,7 @@ import { type Logger, silentLogger } from "../core/log.ts";
 import type { AgentBackend, BackendSession, PermissionAsk, PlanReviewAsk, QuestionAsk, SessionContext, TurnSink } from "../core/ports.ts";
 import type { ApprovalMode, CommandInfo, HistoryItem, PlanUpdate, McpServerSpec, ModelChoice, ModelGroup, ModelMix, ModelRef, PromptInput, ProviderBinding, ProviderSlotState, SessionSummary, SteerResult, TurnResult } from "../core/types.ts";
 import type { JunieCredentials, JunieModelChoice } from "pi-junie-config/credentials";
+import { formatCredits, formatStatsNumber, reportedCost, sessionUsage, totalTokens } from "pi-junie-config/usage";
 import { ECO_MODELS, ECO_PROVIDER, ecoRoute, IMPLEMENTATION_MODEL_IDS, registerEcoTarget } from "pi-junie-cost/router";
 import { profileModelId, profileProvider } from "pi-junie-config/profile-provider";
 import type { JunieProfile } from "pi-junie-config/profiles";
@@ -610,7 +611,7 @@ export class PiBackend implements AgentBackend {
 			.filter((m) => !cwd || m.cwd === cwd)
 			.filter((m) => m.lastPromptAt) // never-prompted chats are not history
 			.slice(0, limit)
-			.map((m) => ({ id: m.id, cwd: m.cwd, title: m.title, createdAt: m.createdAt, updatedAt: m.updatedAt, lastPromptAt: m.lastPromptAt, forkedFrom: m.forkedFrom }));
+			.map((m) => ({ id: m.id, cwd: m.cwd, title: m.title, createdAt: m.createdAt, updatedAt: m.updatedAt, lastPromptAt: m.lastPromptAt, forkedFrom: m.forkedFrom, costUsd: m.costUsd }));
 	}
 
 	/** Resolves a ModelRef to the Pi model registered for its binding. */
@@ -780,7 +781,6 @@ class PiSession implements BackendSession {
 	private onApproved?: (toolCallId: string, toolName: string) => void;
 	private readonly alwaysAllowed = new Set<string>();
 	/** Cost of this chat since it was opened in this agent process. */
-	private costUsd = 0;
 	/**
 	 * Where the current turn is, for steering: "dispatching" (preparing, Pi not called yet), "running"
 	 * (inside Pi's prompt, messages can be queued), "command" (a command like /compact, no messages).
@@ -886,6 +886,7 @@ class PiSession implements BackendSession {
 				? [{ name: PLAN_COMMAND, description: "Switch to plan mode with an optional task, or leave it with /plan off", hint: "describe what to plan, or use 'off'", kind: "plan_mode" } satisfies CommandInfo]
 				: []),
 			{ name: "compact", description: "Summarize the conversation so far to free up context", hint: "optional instructions for the summary", kind: "builtin" },
+			{ name: "stats", description: "Tokens and cost of this chat: per model and per prompt", kind: "builtin", aliases: ["usage", "cost", "credits"] },
 			...resourceLoader.getSkills().skills.map(
 				(sk): CommandInfo => ({ name: sk.name, description: sk.description, hint: "optional task for the skill", kind: "skill", skillPath: sk.filePath }),
 			),
@@ -894,6 +895,44 @@ class PiSession implements BackendSession {
 	}
 
 	/** `/compact [instructions]`: Pi's compaction of the current conversation. */
+	/** Usage of this chat from its transcript (so it survives restarts): Junie Lite counts as free. */
+	private usage(pending?: AssistantMessage) {
+		const manager = this.pi?.sessionManager ?? openPiTranscript(this.backend.store, this.id, this.cwd);
+		const entries = manager?.getEntries() ?? [];
+		// A response that has ended but is not in the transcript yet still counts.
+		const missing = pending && !entries.some((e) => e.type === "message" && e.message === pending);
+		return sessionUsage(missing ? [...entries, { type: "message", message: pending }] : entries, (provider, model) => provider === bridgeProviderId(INGRAZZIO_SLOT.id) && model === JUNIE_LITE.id);
+	}
+
+	/** Junie's /stats report for the current session (JUNIE-6310): tokens and credits, per model and per prompt. */
+	private statsReport(): string {
+		const usage = this.usage();
+		const line = (s: string) => `${s}  \n`;
+		const cost = reportedCost(usage);
+		const out = [line("**Pi stats**"), "\n", line("**Current session**"), line(`- Tokens: ${formatStatsNumber(totalTokens(usage.total))}`)];
+		if (cost !== undefined) out.push(line(`- Cost: ${formatCredits(cost)}`));
+		out.push(line(`- Model requests: ${usage.total.calls}`));
+		if (usage.byModel.size) {
+			out.push(line("- Usage by model:"));
+			for (const [model, t] of usage.byModel) {
+				const input = t.input + t.cacheRead + t.cacheWrite;
+				const parts = [`${input} input tokens`, `${t.output} output`, `${t.calls} calls`];
+				if (input > 0) parts.push(`${Math.floor((100 * t.cacheRead) / input)}% token cache hit`);
+				if (t.cost > 0) parts.push(`cost ${formatCredits(t.cost)}`);
+				out.push(line(`  - **${model}**: ${parts.join(", ")}`));
+			}
+		}
+		if (usage.prompts.length) {
+			out.push(line(`- Last ${usage.prompts.length} prompts:`));
+			for (const p of usage.prompts) {
+				const preview = p.preview ? ` ${p.preview} —` : "";
+				const promptCost = p.totals.cost > 0 ? `, cost ${formatCredits(p.totals.cost)}` : "";
+				out.push(line(`  - **Prompt ${p.index}**:${preview} ${formatStatsNumber(totalTokens(p.totals))} tokens${promptCost}`));
+			}
+		}
+		return out.join("").trimEnd();
+	}
+
 	private async compact(args: string, sink: TurnSink): Promise<TurnResult> {
 		const log = this.backend.log;
 		const pi = this.pi;
@@ -1206,6 +1245,12 @@ class PiSession implements BackendSession {
 			this.enterPhase("command");
 			return this.compact(command.args, sink);
 		}
+		// Junie's /stats (also /usage, /cost, /credits).
+		if (command?.name === "stats") {
+			this.enterPhase("command");
+			sink({ kind: "text", delta: this.statsReport() });
+			return { stop: "end_turn" };
+		}
 		// A skill command runs through Pi's own skill invocation (loads SKILL.md, appends the task).
 		const skillCommand = command && (await this.commands()).some((c) => c.kind === "skill" && c.name === command.name);
 		if (skillCommand) text = `/skill:${command.name}${command.args ? ` ${command.args}` : ""}`;
@@ -1289,14 +1334,20 @@ class PiSession implements BackendSession {
 				total.cacheRead += u.cacheRead;
 				total.cacheWrite += u.cacheWrite;
 				total.cost += u.cost.total;
-				this.costUsd += u.cost.total;
+				// The chat's cost from its transcript: earlier runs and processes, and Junie Cost's summaries, count too.
+				const usage = this.usage(last);
+				const costUsd = reportedCost(usage);
+				if (costUsd !== this.meta.costUsd) {
+					this.meta.costUsd = costUsd;
+					this.persist(); // the session list shows it
+				}
 				sink({
 					kind: "usage",
 					inputTokens: u.input,
 					outputTokens: u.output,
 					contextUsed: u.input + u.cacheRead + u.cacheWrite + u.output,
 					contextSize: model.contextWindow,
-					costUsd: this.costUsd, // cumulative for the chat, like Junie's usage_update
+					costUsd: this.meta.costUsd, // cumulative for the chat, like Junie's usage_update
 				});
 			}
 		});

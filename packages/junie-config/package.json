@@ -10,7 +10,8 @@
 		"./credentials": "./src/credentials.ts",
 		"./profiles": "./src/profiles.ts",
 		"./profile-provider": "./src/profile-provider.ts",
-		"./behavior": "./src/behavior.ts"
+		"./behavior": "./src/behavior.ts",
+		"./usage": "./src/usage.ts"
 	},
 	"pi": {
 		"extensions": ["./src/index.ts"]

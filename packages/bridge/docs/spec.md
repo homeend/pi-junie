@@ -293,6 +293,14 @@ that unlock each one:
   `ADD_PROJECT_STR=true` adds Junie's root listing as a system prompt section, `SUBAGENTS_ENABLED` / `WEB_SEARCH_MODE` /
   `FETCH_URL_ENABLED` deactivate plugin tools, `PRIMARY_MODEL_*` request options go into each request. main.ts logs
   Junie settings that are set but have no effect.
+- Cost (Junie's JUNIE-6310, `packages/junie-config/src/usage.ts`): the chat's usage is computed from its Pi transcript
+  (responses, Pi `usage` entries such as Junie Cost's summaries, compaction summaries), so it survives restarts.
+  `usage_update.cost` is the chat's total in USD after every response (Junie's AcpCostPolicy: a 0 total is sent only
+  when Junie Lite answered); it is saved as `SessionMeta.costUsd` and listed as `_meta.jetbrains.air.cost
+  {amount, currency: "USD"}`. `/stats` (aliases `/usage`, `/cost`, `/credits`, `CommandInfo.aliases`) answers in
+  Junie's layout: tokens, cost in credits (1 credit = 1 USD), usage by model, the last prompts (up to 100) with
+  preview, tokens and credits; it does not reach the model or the transcript. AIR derives a turn's cost from the
+  change of `usage_update.cost`, but shows it in the chat only for agents declaring `showsTurnCost` (Claude).
 - Built-in plugins: packages of this repository passed as `bundledPlugins` (main.ts) and loaded the same way. Today
   Junie Config (`packages/junie-config`: Junie's settings from the environment; inert without them, records them in
   the session as a `junie-config` custom entry and the startup log lists the ones set) and Junie Cost
