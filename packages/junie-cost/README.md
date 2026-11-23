@@ -12,6 +12,8 @@
 >   model; the registry lives on `globalThis`, since the runner's import and Pi's extension loader make two instances
 >   of the module. An Eco target may name the implementation model's thinking level (the account's
 >   `ECO_MODE_IMPLEMENTATION` effort). Tests: `test/router.test.ts`.
+> - The `jetbrains-ai/<id>-eco` models are registered at session start and only when the JetBrains AI provider is
+>   loaded; without it Pi showed a placeholder `jetbrains-ai ✓ virtual` provider with no browser login.
 > - package name `pi-junie-cost`, private; the live integration tests (`test/*.integration.test.ts`, which need
 >   junie-pi's `jetbrains-ai` package and model quota) are not copied, the bridge tests it offline
 >   (`packages/bridge/test/junie-cost.test.ts`).

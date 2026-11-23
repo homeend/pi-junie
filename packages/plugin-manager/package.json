@@ -1,0 +1,22 @@
+{
+	"name": "pi-junie-plugin-manager",
+	"version": "0.1.0",
+	"private": true,
+	"description": "/plugins: turn installed Pi packages on and off from inside Pi",
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts",
+		"./packages": "./src/packages.ts"
+	},
+	"pi": {
+		"extensions": ["./src/index.ts"]
+	},
+	"scripts": {
+		"check": "tsc --noEmit -p .",
+		"test": "vitest run"
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-coding-agent": "*"
+	},
+	"keywords": ["pi-package", "pi-extension", "packages"]
+}

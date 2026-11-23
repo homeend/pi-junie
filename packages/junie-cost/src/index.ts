@@ -34,7 +34,15 @@ export default function junieCost(pi: ExtensionAPI): void {
 	// Virtual `<id>-eco` models keep the user-selected model and ctx.model stable while each physical request is routed
 	// by its conversation: the cheap model takes the task only after an accepted plan, and after three failed turns
 	// in a row one request goes back to the primary model.
-	for (const model of ecoModels()) pi.registerVirtualModel(model);
+	// pi-junie change: only when the JetBrains AI provider is loaded (its physical models are there at session start).
+	// Without it the `-eco` models alone made Pi list a placeholder "jetbrains-ai ✓ virtual" provider that cannot log in.
+	let ecoRegistered = false;
+	pi.on("session_start", (_event, ctx) => {
+		if (ecoRegistered) return;
+		if (!ctx.modelRegistry.getAll().some((m) => m.provider === "jetbrains-ai" && !m.id.endsWith("-eco"))) return;
+		for (const model of ecoModels()) pi.registerVirtualModel(model);
+		ecoRegistered = true;
+	});
 	pi.registerTool(planner.createPlanTool);
 	pi.registerTool(planner.reportPlanTool);
 	// A new or resumed session starts without planning. Pi restores the tool set from the transcript,

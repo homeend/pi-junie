@@ -80,6 +80,7 @@ packages/bridge/           pi-junie, the ACP bridge (package "pi-junie")
 packages/junie-cost/       Junie Cost, built-in plugin (copy of junie-pi's package, adapted here)
 packages/junie-config/     Junie Config, built-in plugin: Junie's settings, keys and model profiles applied to Pi
 packages/jetbrains-ai/     JetBrains AI provider (copy of junie-pi's package), used with JUNIE_API_KEY
+packages/plugin-manager/   /plugins for Pi in the terminal: switch installed Pi packages on and off from inside Pi
 ```
 
 ## Tests and the replay workflow
