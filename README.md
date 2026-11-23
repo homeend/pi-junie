@@ -72,6 +72,7 @@ packages/bridge/           pi-junie, the ACP bridge (package "pi-junie")
   scripts/                 fixture extraction
   docs/spec.md             the bridge's spec
 packages/junie-cost/       Junie Cost, built-in plugin (copy of junie-pi's package, adapted here)
+packages/junie-config/     Junie Config, built-in plugin: Junie's settings, keys and model profiles applied to Pi
 ```
 
 ## Tests and the replay workflow

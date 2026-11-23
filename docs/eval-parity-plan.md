@@ -6,7 +6,7 @@ Decisions (§7): both targets (eval and local runs); assume the eval may set any
 copied into this repository (`packages/junie-cost`) and changed here; `junie-config` lives here too. The repository
 became an npm workspace like junie-pi (`packages/bridge`, `packages/junie-cost`, next `packages/junie-config`).
 
-Done: workspace layout; junie-cost copied and built into the bridge.
+Done: workspace layout; junie-cost copied and built into the bridge; step 1 (`junie-config` settings and record).
 
 ## 1. Where we are
 

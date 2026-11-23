@@ -1,0 +1,22 @@
+{
+	"name": "pi-junie-config",
+	"version": "0.1.0",
+	"private": true,
+	"description": "Junie's configuration (environment, keys, model profiles) applied to Pi",
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts",
+		"./settings": "./src/settings.ts"
+	},
+	"pi": {
+		"extensions": ["./src/index.ts"]
+	},
+	"scripts": {
+		"check": "tsc --noEmit -p .",
+		"test": "vitest run"
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-coding-agent": "*"
+	},
+	"keywords": ["pi-package", "pi-extension", "junie"]
+}

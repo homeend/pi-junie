@@ -8,6 +8,7 @@
 import { fileURLToPath } from "node:url";
 import { appendFileSync } from "node:fs";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { describeJunieSettings, resolveJunieSettings } from "pi-junie-config/settings";
 import { AcpAgent } from "./acp/agent.ts";
 import type { JsonObject, Transport } from "./acp/jsonrpc.ts";
 import { createLogger, type LogLevel, redactSecrets } from "./core/log.ts";
@@ -111,14 +112,20 @@ function stdioTransport(): Transport {
 }
 
 log.info(`starting pid=${process.pid} node=${process.version} cwd=${process.cwd()} log=${LOG_FILE ?? "stderr"}`);
+const junieSettings = describeJunieSettings(resolveJunieSettings());
+if (junieSettings) log.info(`Junie settings from the environment: ${junieSettings}`);
 const backend = await PiBackend.create({
 	logger: log.child("pi"),
 	version: "0.1.0",
 	trustProject: process.env.PI_AIR_TRUST_PROJECT !== "0", // PI_AIR_TRUST_PROJECT=0: no project skills
 	// Junie compatibility: AIR's IDE router as `execute_tool` (PI_AIR_JUNIE_EXECUTE_TOOL=0 keeps the MCP name)
 	junieCompat: { executeToolAlias: process.env.PI_AIR_JUNIE_EXECUTE_TOOL !== "0" },
-	// Built-in plugins from this repository's packages: Junie Cost (PI_AIR_JUNIE_COST=0 leaves it out).
-	bundledPlugins: process.env.PI_AIR_JUNIE_COST === "0" ? [] : [fileURLToPath(new URL("../../junie-cost", import.meta.url))],
+	// Built-in plugins from this repository's packages: Junie Config (Junie's settings from the environment; inert
+	// without them) and Junie Cost (PI_AIR_JUNIE_COST=0 leaves it out).
+	bundledPlugins: [
+		fileURLToPath(new URL("../../junie-config", import.meta.url)),
+		...(process.env.PI_AIR_JUNIE_COST === "0" ? [] : [fileURLToPath(new URL("../../junie-cost", import.meta.url))]),
+	],
 	// Plugins installed with `pi install` (e.g. subagents) are found in the user's Pi agent dir; PI_AIR_PLUGINS=0 skips them.
 	piAgentDir: process.env.PI_AIR_PLUGINS === "0" ? undefined : getAgentDir(),
 	// New chats open with a welcome message (Pi version, subagents available or not); PI_AIR_WELCOME=0 turns it off.

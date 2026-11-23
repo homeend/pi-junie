@@ -258,7 +258,9 @@ that unlock each one:
   and loads it into every session by path (`additionalExtensionPaths`; other on-disk extensions stay off).
   `PI_AIR_PLUGINS=0` skips plugins.
 - Built-in plugins: packages of this repository passed as `bundledPlugins` (main.ts) and loaded the same way. Today
-  only Junie Cost (`packages/junie-cost`); `PI_AIR_JUNIE_COST=0` leaves it out.
+  Junie Config (`packages/junie-config`: Junie's settings from the environment; inert without them, records them in
+  the session as a `junie-config` custom entry and the startup log lists the ones set) and Junie Cost
+  (`packages/junie-cost`; `PI_AIR_JUNIE_COST=0` leaves it out).
 - Welcome: a new chat (session/new only, not resume/load) opens with one `agent_message_chunk` from the agent,
   sent after the response: the Pi version and, for each known plugin (subagents, todo list, plan mode, web access,
   and Junie Cost as built in),
