@@ -1,6 +1,6 @@
 ---
 name: new-feature
-description: Use when the user wants to add or change a feature of pi-junie, or to continue one, e.g. "new feature", "add goal mode", "support plugin X", "change the bridge so that…", or the skill called with no text. Runs the whole start of the process in this chat - questions to the user, the spec, up to three audits by a model from another family, the user's approval - and then starts the task in Cezar.
+description: Use when the user wants to add or change a feature of pi-junie, or to continue one, e.g. "new feature", "add goal mode", "support plugin X", "change the bridge so that…", the skill called with no text, or the skill pointed at a document that lists many features ("draft specs for everything in docs/x.md"). Runs the whole start of the process in this chat - questions to the user, the spec, up to three audits by a model from another family, the user's approval - and then starts the task in Cezar.
 ---
 
 # New feature
@@ -14,10 +14,14 @@ time limit of at least ten minutes, or run them in the background and wait.
 
 ## 1. What to work on
 
+- **Called with a document that lists many features** (a file path alone, or "all features in <file>"): go to
+  "Many features from one document" at the end. Text about one feature that merely mentions a file is one item.
 - **Called with text:** that text is the item. Go to step 2.
 - **Called without text:** run `scripts/feature list`.
   - If it lists specs that are not `rejected` and not queued, show them and ask whether to continue one of them
-    or start something new. Continuing a spec goes to step 4 (or step 6 if its last audit says APPROVED).
+    or start something new. To continue a spec: if it has open questions (drafts made from a document do), ask
+    the user those first, all in one message, and update the spec with the answers. Then go to step 4, or to
+    step 5 if its last audit says APPROVED.
   - Otherwise ask what the user wants to build. If they have no item, offer the open rows of
     `docs/air-pi-feature-map.md`.
 
@@ -97,9 +101,41 @@ through Pi, and stops at its review gate.
 - Tell the user the task id and where to watch it, and what comes after the review gate: the `air-test-handoff`
   skill, then their "merge".
 
+## Many features from one document
+
+For a document that describes many features. The aim is a set of draft specs, made without filling this session
+with the document: you survey, the user picks, sub-agents draft. No questions to the user per feature, no audits,
+no tasks started; each draft later goes through steps 1 to 6 on its own.
+
+1. **Survey, cheaply.** Do not read the whole document. List its headings with their line numbers
+   (`grep -n '^#' <file>`), and read `docs/air-pi-feature-map.md`. From those two, make a table of the document's
+   features: number, feature, section (heading and line range), state in pi-junie (done / partly / missing /
+   unknown, from the feature map), and whether a spec for it already exists in `.ai/specs/`. Read a section only
+   when its heading does not tell what the feature is. Save the table to `.ai/runs/survey-<file name>.md` and
+   show it.
+2. **Ask which rows to draft.** Suggest the rows that are missing or partly done and have no spec. In the same
+   message say that two sub-agents run at a time and that the user can name another number, from 1 to 8. Wait
+   for the answer. "All" means all rows that are not done. A number above 8 is 8; say so.
+3. **One fresh sub-agent per picked feature**, with your sub-agent tool (`Agent`): two at a time unless the
+   user chose another number (never more than 8). Start the next one when one finishes. Give
+   each this prompt and nothing more:
+
+   > Read `.agents/skills/new-feature/references/draft-brief.md` and follow it. Feature: <name>. Source file:
+   > <path>. Section: "<heading>", lines <from>-<to>. Today is <date>.
+
+   Wait for each batch: start the sub-agents so that their results come back in this same turn (not as
+   background work you leave behind), or wait for them with the tool your sub-agent plugin gives you
+   (`get_subagent_result`). Do not end your turn while a sub-agent is still running.
+   Keep only the four result lines each one returns. Do not read the specs they wrote into this session.
+   If you have no sub-agent tool, say so and offer to draft the picked features one after another in this session.
+4. **Report.** Add the results to the survey file and show one table: feature, spec path, type, open questions.
+   List separately the features a sub-agent found to be done already, and any that failed. Then stop: tell the
+   user that `/skill:new-feature` (Pi) or `/new-feature` (Claude Code) without text continues one draft at a
+   time, starting with its open questions.
+
 ## Rules
 
-- You edit only the spec and your reply files. No implementation and no branch in this skill; the only commit is
+- You edit only the spec, your reply files and the survey file. No implementation and no branch in this skill; the only commit is
   the one `scripts/feature queue` makes after the user's approval.
 - The reviewer reports and changes nothing; you do not edit its audits.
 - Never copy keys, tokens, headers or home paths out of `acp-examples/` into a spec.

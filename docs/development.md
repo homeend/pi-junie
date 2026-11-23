@@ -86,6 +86,12 @@ whether to continue one or start something new.
 | 6 | Test in AIR | Try it in a new chat with `pi-junie-dev` | `scripts/dev.sh air-test <worktree>` points the test entry at the worktree |
 | 7 | Merge | Say "merge" | The branch is synced with `main` in its worktree, the checks are rerun, then merged |
 
+**Many features at once.** Point the skill at a document that lists features, for example
+`/skill:new-feature docs/acp-air-communication.md`. It lists the document's features against
+`docs/air-pi-feature-map.md`, you pick the rows, and a fresh sub-agent drafts a spec for each (two at a time; you can ask for up to 8). Those drafts ask
+you nothing and are not audited; their questions wait under "Open questions". Each draft then goes through the
+flow above one at a time: call the skill without text and pick it.
+
 The four types of change and what each requires are in `.agents/skills/new-feature/references/`: a bridge change,
 an adopted Pi plugin (checked first with the `plugin-check` skill), an own plugin package, a change to a copied
 package.
