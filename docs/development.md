@@ -78,8 +78,8 @@ whether to continue one or start something new.
 
 | # | Step | You | The agent |
 | --- | --- | --- | --- |
-| 1 | Start | Call the skill | Names the type of change, reads that type's checklist and the code |
-| 2 | Questions | Answer them | Asks what the repository cannot answer, then writes `.ai/specs/<date>-<title>.md` |
+| 1 | Start | Call the skill | Lists the requirements, checks what existing Pi plugins cover of them, names the type of change, reads that type's checklist and the code |
+| 2 | Questions | Choose the option, answer the questions | Shows the reuse decision and asks what the repository cannot answer, then writes `.ai/specs/<date>-<title>.md` |
 | 3 | Audit | Answer what the reviewer leaves to you | Up to three audits by a model from another family (`.ai/review-matrix`); after each, it asks you the findings only you can settle and revises the spec |
 | 4 | Approve | Say start, change something, or stop | Shows the spec, the last verdict and the open questions |
 | 5 | Implement, check, review | Nothing | Commits the spec on `main` and creates the Cezar task: worktree, implementation (Claude), `npm run check`, `npm test`, a review with fixes, then Opus and Sol each review through Pi and only report |
@@ -92,9 +92,18 @@ whether to continue one or start something new.
 you nothing and are not audited; their questions wait under "Open questions". Each draft then goes through the
 flow above one at a time: call the skill without text and pick it.
 
+**Reuse, alter or build.** Before a feature gets its type, the skill finds out what already exists
+(`.agents/skills/new-feature/references/reuse-decision.md`). It writes the feature as numbered requirements,
+looks for candidate plugins in the feature map and on npm, and has `plugin-check` read each candidate's source:
+one row per requirement, covered (with file and line) or a gap. For the gaps it walks the options from smallest
+to largest: the plugin's settings, adopt it and let the bridge convert, an add-on package beside it, a change
+upstream, a local copy that we alter, our own plugin modelled on it, or build nothing. Each option gets its pros
+and cons and what we would own afterwards. A fresh sub-agent attacks the recommendation, and you choose. The
+method is taken from Open Mercato's `om-gap-analysis`, `om-eject-and-customize` and `om-brainstorm`.
+
 The four types of change and what each requires are in `.agents/skills/new-feature/references/`: a bridge change,
-an adopted Pi plugin (checked first with the `plugin-check` skill), an own plugin package, a change to a copied
-package.
+an adopted Pi plugin, an own plugin package, and a copied package (a change to one of our copies, or a new local
+copy of a third-party plugin, recorded with its version and checksum and committed unchanged before our changes).
 
 ### The helper script
 

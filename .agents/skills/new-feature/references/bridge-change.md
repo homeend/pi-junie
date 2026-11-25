@@ -2,6 +2,9 @@
 
 Work in `packages/bridge`. The spec must cover each point.
 
+If the feature is agent behaviour (something the agent does, remembers or decides) and not only how AIR is told
+about it, the reuse decision (`reuse-decision.md`) comes first: a plugin may already do it.
+
 1. **How Junie does it.** Find the ACP messages in a recording (`acp-examples/<session>/derived/acp-messages.jsonl`,
    git-ignored) or in `junie-agent/docs/acp-air-communication.md`. No recording of this feature: the first task is
    for the user to record one in AIR with Junie.

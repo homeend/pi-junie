@@ -22,14 +22,21 @@ The result is a report. Nothing is installed into Pi and nothing in the reposito
 3. **Without a terminal UI.** Bridge sessions have none. For each place it uses Pi's UI (dialogs, pickers,
    widgets, key bindings, status lines), say whether the core function still works and what the bridge would have
    to provide instead.
-4. **Fit to AIR.** Name the AIR shape its state maps to (plan entries, child sessions, config options, permission
+4. **Coverage of the requirements.** When you were given a numbered list of requirements (the `new-feature`
+   skill gives one), answer each: `covered` with the file and line that prove it, or `gap` with what is missing
+   or different (another unit, another shape of state, no setting for it). Decide from the source only; the
+   README says where to look and proves nothing. A requirement you could not settle is `unverified`.
+   Also name the points where the package can be extended without changing it: settings, events it emits,
+   entries it saves, tools another package could call.
+5. **Fit to AIR.** Name the AIR shape its state maps to (plan entries, child sessions, config options, permission
    requests…) and what does not map.
-5. **Facts.** Version, licence, weekly downloads, last publish date, its own Pi version requirement, and whether
+6. **Facts.** Version, licence, weekly downloads, last publish date, its own Pi version requirement, and whether
    it expects other plugins.
 
 ## Report
 
 - **Verdict:** adopt as it is, adopt with bridge work (listed), or do not adopt (reason).
-- The answers to steps 2 to 5, each with the file and line they come from.
+- The answers to steps 2 to 6, each with the file and line they come from.
+- With a requirements list: one row per requirement (covered / gap / unverified) and the count, e.g. "3 of 5".
 - What a stand-in for fast tests has to imitate (the smallest contract).
 - Open questions for the user.

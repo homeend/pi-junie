@@ -21,6 +21,7 @@ Both must pass before a change is called done. Node 22.19 or newer.
 - **Test first, from the wire.** Whatever AIR sees is covered by a replay test built from a Junie ↔ AIR recording
   (`packages/bridge/scripts/extract-fixture.ts` makes the fixture). Model calls in tests go to the fake proxy.
 - **Adopt before writing.** Behaviour comes from Pi core, then from an existing Pi plugin, then from bridge code.
+  A plugin that fits only partly goes through `.agents/skills/new-feature/references/reuse-decision.md`.
   `docs/air-pi-feature-map.md` records the choice per feature; keep its row current in the same change.
 - **AIR is told only what works.** A capability is advertised through `packages/bridge/src/compat/features.ts`
   when its implementation (and plugin, if any) is present.

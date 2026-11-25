@@ -30,6 +30,13 @@ time limit of at least ten minutes, or run them in the background and wait.
 Read `AGENTS.md`. Find the feature in `docs/air-pi-feature-map.md` (its row says whether Pi core, a Pi plugin or
 the bridge provides it) and in `docs/eval-parity-plan.md` if it concerns headless or eval runs.
 
+**What already exists.** Unless the feature only changes how the bridge presents something Pi core already does,
+read `references/reuse-decision.md` and follow it: the requirements as a numbered list, the candidate plugins,
+what each one covers according to its source, and the options from "use its settings" to "our own plugin" and
+"build nothing", each with pros, cons and what we take on. A plugin that covers the feature only partly, or in
+another unit or shape than we need, is the normal case, not a reason to skip this. The user chooses the option
+in step 3; until then name the type your recommendation leads to.
+
 Classify the change into exactly one type and say which and why. A feature that needs two types is split into
 two specs, plugin first.
 
@@ -38,7 +45,7 @@ two specs, plugin first.
 | Bridge change | the work is in `packages/bridge` and no new plugin is involved | `references/bridge-change.md` |
 | Adopted Pi plugin | an existing npm Pi package provides the behaviour and the bridge maps it to AIR | `references/adopt-plugin.md` |
 | Own plugin package | new behaviour that should also work in plain Pi, as a package in `packages/` | `references/own-plugin.md` |
-| Copied package | a change inside `packages/junie-cost` or `packages/jetbrains-ai` | `references/copied-package.md` |
+| Copied package | a change inside a copy we keep (`packages/junie-cost`, `packages/jetbrains-ai`), or a new local copy of a third-party plugin that we alter | `references/copied-package.md` |
 
 Read that checklist and collect what it asks for from the repository (recordings, fixtures, plugin source,
 upstream state).
@@ -47,7 +54,10 @@ upstream state).
 
 Ask the user what the repository cannot answer: scope, behaviour where there is a choice, what is out of scope,
 anything the checklist says to ask. Ask everything in one message, numbered, each with the answer you would
-pick. Do not ask what you can read in the code. Wait for the answers.
+pick. Do not ask what you can read in the code. The reuse decision goes into the same message, before the
+questions: the coverage table, the options, your recommendation and the challenger's findings
+(`references/reuse-decision.md`, section 6). Wait for the answers. If the user picks another option than you
+recommended, the type and its checklist change with it.
 
 Then write the spec with the `om-spec-writing` skill. Its repo overlay (`.ai/skills/om-spec-writing/SKILL.md`)
 adds this repository's sections. Put every item of the checklist into the spec as a task or an acceptance check.
