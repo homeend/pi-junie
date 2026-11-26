@@ -321,6 +321,7 @@ cmd_cli_test() {
   for pkg in "$wt"/packages/*/; do
     [[ "$(jq -r '.pi.extensions // empty | length' "$pkg/package.json" 2>/dev/null)" -gt 0 ]] 2>/dev/null && ext+=(-e "${pkg%/}")
   done
+  cd "$wt"   # Pi reads project skills and context files from where it starts
   say "plain Pi from: $wt" >&2
   say "Pi folder:     $PI_CODING_AGENT_DIR (delete it to start clean; ~/.pi/agent is not used)" >&2
   exec "$wt/node_modules/.bin/pi" "${ext[@]}" "$@"

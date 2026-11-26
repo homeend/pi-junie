@@ -1,6 +1,6 @@
 ---
 name: air-test-handoff
-description: Use when a pi-junie branch has passed its checks and reviews and the user has to try it by hand, in JetBrains AIR or in plain Pi, e.g. "hand over for testing", "ready to test in AIR", "try it in the CLI". Points the pi-junie-dev agent entry at the branch's worktree, gives the plain-Pi command, and gives the user the exact steps to check.
+description: Use when a pi-junie branch has passed its checks and reviews and the user has to try it by hand, in JetBrains AIR or in plain Pi, e.g. "hand over for testing", "ready to test in AIR", "try it in the CLI". Covers AIR on the same machine, AIR on Windows with the repository in WSL, and plain Pi.
 ---
 
 # Hand over a branch for testing by hand
@@ -12,7 +12,17 @@ test in AIR at a time.
 Hand over only what the spec says can be tried. A spec with no "Check in AIR" section, or with the line "After
 this spec: … nothing to try in AIR …", gets no AIR steps: tell the user in one line that this branch cannot be
 seen in AIR yet and which spec brings it there. Never send the user to try a command, skill or tool you have not
-found in the build AIR is running.
+found in the build they will run: in the log for AIR, in the worktree's files for plain Pi.
+
+- **The user asks for a surface the spec leaves out** ("let me try it in AIR"): say that it cannot work there
+  yet and why, in a few lines, and hand over the surfaces that can. Do not copy the build to AIR "to have a look".
+- **The spec has no check sections at all** (surfaces and hand checks folded into a paragraph): go by what it
+  says it supports, write the steps yourself, mark them as yours, and tell the user the spec lacks them.
+- **How things are typed.** Plain Pi: a skill is `/skill:<name>`, a plugin command is `/<name>`. AIR: a skill is
+  `$<name>` from the command list; a plugin command does not exist. A tool has no command anywhere: the user
+  asks for it in words. Correct the user when they name a form that does not exist on that surface.
+
+The AIR steps (2 to 5) apply only when the spec has a "Check in AIR" section.
 
 ## Steps
 
@@ -21,8 +31,6 @@ found in the build AIR is running.
    artifacts (`.ai/cezar/artifacts/<task>/`): both must end in "approve", or the user accepted the branch at
    Cezar's "Reviews not clean" question. Show the user the "For the owner" items and `for-the-owner.md` before
    the hand test. If a precondition fails, say so and stop.
-Steps 2 to 5 apply when the spec has a "Check in AIR" section.
-
 2. **Put the branch where AIR runs it.** Ask the user where their AIR runs if you do not know; do not guess from
    the files you can see.
    - AIR reads the same machine's `~/.jetbrains/acp.json` (Linux, macOS, or an IDE running inside WSL):
@@ -53,9 +61,11 @@ Steps 2 to 5 apply when the spec has a "Check in AIR" section.
 6. **Plain Pi**, when the spec has a "Check in plain Pi" section: give the user the command
    `scripts/dev.sh cli-test <worktree path>` (add `-- -p "<prompt>"` for a headless check) and the steps from that
    section. It runs the worktree's Pi with all its packages and a Pi folder inside the worktree
-   (`.pi-dev/cli-agent`); the user's `~/.pi/agent` is not touched. To start clean, delete that folder.
+   (`.pi-dev/cli-agent`); the user's `~/.pi/agent` is not touched. To start clean, delete that folder. Pi starts
+   in the worktree, so the worktree's own skills (`.agents/skills`) are found. Without a "Check in plain Pi"
+   section, see the rule above.
 7. **Wait for the result.** Do not merge and do not ask to merge before the user reports that it works on each
-   surface. If it fails, read the log with the user's description (in plain Pi: the session file in
+   surface the spec has a check for. If it fails, read the log with the user's description (in plain Pi: the session file in
    `.pi-dev/cli-agent/sessions/`) and go back to the implementation.
 
 ## Rules
