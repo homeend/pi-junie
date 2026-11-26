@@ -11,6 +11,7 @@
 #   scripts/dev.sh review [spec]        second review of the current branch, headless Pi (default: Opus and Sol)
 #   scripts/dev.sh air-test [dir]       put a worktree under test in AIR (the pi-junie-dev agent entry)
 #   scripts/dev.sh cli-test [dir] [-- pi args]  try a worktree in plain Pi, with its own Pi folder (not ~/.pi/agent)
+#   scripts/dev.sh win-test [dir] [name]  from WSL, for AIR on Windows: copy a worktree's commit to %LOCALAPPDATA%\<name>
 #
 # What `setup` installs, and where:
 #   in the repo, git-ignored   node_modules/ (npm ci)
@@ -22,6 +23,7 @@
 #                              .dev-tools/pi-agent/  its Pi folder, with the plugins in scripts/dev-tools/pi-plugins.txt
 #   outside the repo           nothing. Tools started later write their own state:
 #                              ~/.cezar (Cezar), ~/.local/state/pi-junie (air-test link);
+#                              win-test writes one folder on Windows: %LOCALAPPDATA%\pi-junie-dev (and .previous);
 #                              cli-test keeps its Pi folder inside the worktree (.pi-dev/cli-agent, git-ignored)
 # Network: npm registry and github.com/open-mercato/skills. Telemetry of both tools is switched off here.
 #
@@ -324,6 +326,46 @@ cmd_cli_test() {
   exec "$wt/node_modules/.bin/pi" "${ext[@]}" "$@"
 }
 
+# AIR on Windows cannot run a WSL worktree: it needs Windows paths and Windows node modules. This copies the
+# worktree's HEAD commit (git archive: no uncommitted change, no git-ignored file) to %LOCALAPPDATA%\<name>,
+# installs its modules with Windows npm and prints the AIR entry. The folder it replaces is kept as <name>.previous.
+cmd_win_test() {
+  local wt name="${2:-pi-junie-dev}" local_w target target_w node_w head branch
+  wt="$(cd "${1:-.}" && git rev-parse --show-toplevel)"
+  command -v cmd.exe >/dev/null 2>&1 && command -v wslpath >/dev/null 2>&1 || die "win-test runs in WSL (needs cmd.exe and wslpath)"
+  [[ "$name" =~ ^[A-Za-z0-9._-]+$ ]] || die "bad folder name: $name"
+  local_w="$(cd /mnt/c && cmd.exe /c 'echo %LOCALAPPDATA%' 2>/dev/null | tr -d '\r')"
+  [[ -n "$local_w" && "$local_w" != "%LOCALAPPDATA%" ]] || die "cannot read %LOCALAPPDATA% from Windows"
+  target_w="$local_w\\$name"
+  target="$(wslpath -u "$target_w")"
+  node_w="$(cd /mnt/c && cmd.exe /c 'where node' 2>/dev/null | tr -d '\r' | head -1)"
+  [[ -n "$node_w" ]] || die "Windows has no node on its PATH"
+  head="$(git -C "$wt" rev-parse --short HEAD)"
+  branch="$(git -C "$wt" rev-parse --abbrev-ref HEAD)"
+  [[ -z "$(git -C "$wt" status --porcelain --untracked-files=no)" ]] || say "note: $wt has uncommitted changes; they are NOT copied (only commit $head is)"
+  if [[ -e "$target" ]]; then
+    [[ -f "$target/WINDOWS-SOURCE.txt" ]] || die "$target_w exists and was not made by win-test (no WINDOWS-SOURCE.txt); move it away first"
+    rm -rf "$target.previous"
+    mv "$target" "$target.previous" || die "cannot move $target_w (files in use?); close the AIR chats that run it"
+    say "kept the previous copy: $target_w.previous"
+  fi
+  mkdir -p "$target/.pi-dev"
+  git -C "$wt" archive HEAD | tar -x -C "$target"
+  printf 'Copy of pi-junie for AIR on Windows: branch %s, commit %s, made %s by scripts/dev.sh win-test. Not a git checkout.\n' \
+    "$branch" "$head" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$target/WINDOWS-SOURCE.txt"
+  say "copied $branch ($head) to $target_w; installing modules with Windows npm ..."
+  (cd "$target" && cmd.exe /c 'npm ci --no-audit --no-fund --loglevel=error' 2>&1 | tr -d '\r' | sed 's/^/  /') || die "npm ci failed in $target_w"
+  [[ -d "$target/node_modules" ]] || die "npm ci left no node_modules in $target_w"
+  say
+  say "AIR agent entry (once, in %USERPROFILE%\\.jetbrains\\acp.json):"
+  say "  \"$name\": { \"command\": \"${node_w//\\/\\\\}\", \"args\": [\"${target_w//\\/\\\\}\\\\packages\\\\bridge\\\\src\\\\main.ts\"], \"env\": { \"PI_AIR_LOG\": \"${target_w//\\/\\\\}\\\\.pi-dev\\\\pi-air.log\" } }"
+  say
+  say "AIR keeps one bridge process per agent entry: a new chat does NOT load the new copy. Restart that process"
+  say "(restart the IDE if nothing else does it), then check the log before testing:"
+  say "  grep -v ':wire ' '$target/.pi-dev/pi-air.log' | grep -E 'starting pid=| plugin ' | tail"
+  say "The last 'starting pid=' line must be later than now, $(date -u +%H:%M:%S) UTC."
+}
+
 case "${1:-help}" in
   setup)    shift; cmd_setup "$@" ;;
   check)    cmd_check ;;
@@ -334,5 +376,6 @@ case "${1:-help}" in
   review)   shift; cmd_review "$@" ;;
   air-test) shift; cmd_air_test "$@" ;;
   cli-test) shift; cmd_cli_test "$@" ;;
-  *)        sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//' ;;
+  win-test) shift; cmd_win_test "$@" ;;
+  *)        sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//' ;;
 esac

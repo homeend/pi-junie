@@ -40,7 +40,7 @@ You work on pi-junie with pi-junie, but not with the copy you are changing. Ther
 | | What it is | Where | Changes when |
 | --- | --- | --- | --- |
 | The development agent | pi-junie's Pi with all its packages and plugins; what `scripts/pi-jbai` runs, interactive and headless (audits, reviews, Cezar's Pi steps) | `.dev-tools/pi-junie/` and `.dev-tools/pi-agent/` | you run `scripts/dev.sh agent update` |
-| The build under test | the worktree of the feature being tried in AIR (`pi-junie-dev` entry) | a task worktree | `scripts/dev.sh air-test <worktree>` |
+| The build under test | the worktree of the feature being tried in AIR (`pi-junie-dev` entry) | a task worktree | `scripts/dev.sh air-test <worktree>`, or `win-test` for AIR on Windows |
 | Your installed agent | what you use in AIR every day (`pi-junie` entry) and your normal Pi | wherever you installed it; `~/.pi/agent` | you update it |
 
 The development agent loads Pi and pi-junie's own packages (`packages/*`) from its copy of the repository, and
@@ -83,7 +83,7 @@ whether to continue one or start something new.
 | 3 | Audit | Answer what the reviewer leaves to you | Up to three audits by a model from another family (`.ai/review-matrix`); after each, it asks you the findings only you can settle and revises the spec |
 | 4 | Approve | Say start, change something, or stop | Shows the spec, the last verdict and the open questions |
 | 5 | Implement, check, review | Nothing | Commits the spec on `main` and creates the Cezar task: worktree, implementation (Claude), `npm run check`, `npm test`, a review with fixes, then Opus and Sol each review through Pi and end with a verdict; "changes" from either sends both reports back to the implementer, for at most two rounds |
-| 6 | Test by hand | Try it in a new chat with `pi-junie-dev`, and in plain Pi when the spec has a "Check in plain Pi" section | `scripts/dev.sh air-test <worktree>` points the test entry at the worktree; `scripts/dev.sh cli-test <worktree>` runs it in plain Pi |
+| 6 | Test by hand | Try it in a new chat with `pi-junie-dev`, and in plain Pi when the spec has a "Check in plain Pi" section | `scripts/dev.sh air-test <worktree>` points the test entry at the worktree (`win-test` copies it to Windows when AIR runs there); `scripts/dev.sh cli-test <worktree>` runs it in plain Pi |
 | 7 | Merge | Say "merge" | The branch is synced with `main` in its worktree, the checks are rerun, then merged; `scripts/feature done <spec>` marks the spec implemented, which lets a spec that depends on it be queued |
 
 **Many features at once.** Point the skill at a document that lists features, for example
@@ -169,7 +169,8 @@ By hand, without Cezar: make a worktree and a branch, run `scripts/dev.sh worktr
 ### Test by hand
 
 ```bash
-scripts/dev.sh air-test <worktree>              # AIR: the pi-junie-dev entry runs this worktree
+scripts/dev.sh air-test <worktree>              # AIR on this machine: the pi-junie-dev entry runs this worktree
+scripts/dev.sh win-test <worktree> [name]       # repository in WSL, AIR on Windows: copy the commit to Windows
 scripts/dev.sh cli-test <worktree> [-- pi args] # plain Pi: this worktree's Pi and packages
 ```
 
@@ -177,6 +178,41 @@ In AIR one build is under test at a time; a chat that is already open keeps the 
 `cli-test` uses a Pi folder inside the worktree (`.pi-dev/cli-agent`, git-ignored), so your `~/.pi/agent` is
 neither read nor changed; delete that folder to start clean. The JetBrains AI key comes from the same env file as
 the development agent's.
+
+A branch is tried only on the surfaces its spec names. A plugin package alone is not in AIR: the bridge has to
+list it and switch its tools on (`.agents/skills/new-feature/references/own-plugin.md`, item 6). When that is a
+second spec, the first one says "After this spec: … nothing to try in AIR", and its hand test is `cli-test` only.
+
+### Repository in WSL, AIR on Windows
+
+Cezar, the worktrees and all `scripts/` commands live in WSL. An IDE on Windows starts agents as Windows
+processes, so it cannot run a WSL worktree: paths, node and the modules are different.
+
+| What | Where | How |
+| --- | --- | --- |
+| A Cezar task's build | `.ai/cezar/worktrees/<task id>` in WSL (branch `cez/<short id>`) | `scripts/feature status <spec>` shows the task; `git worktree list` shows the folder |
+| Try it in plain Pi | WSL | `scripts/dev.sh cli-test .ai/cezar/worktrees/<task id>` |
+| Try it in AIR | a copy on Windows, `%LOCALAPPDATA%\pi-junie-dev` | `scripts/dev.sh win-test .ai/cezar/worktrees/<task id>` |
+
+`win-test` copies the worktree's last commit (`git archive`: no uncommitted change, no git-ignored file), runs
+`npm ci` with Windows npm, writes `WINDOWS-SOURCE.txt` (branch, commit, time) and prints the entry for
+`%USERPROFILE%\.jetbrains\acp.json`. The folder it replaces is kept as `pi-junie-dev.previous`. A second
+argument names another folder, for example `scripts/dev.sh win-test . pi-junie` to refresh the copy your everyday
+`pi-junie` entry runs, from `main`.
+
+After every `win-test`:
+
+1. Restart the agent's process. AIR keeps one bridge process per agent entry and reuses it for new chats, so a
+   new chat alone still runs the old code. Restarting the IDE does it.
+2. Check the log from WSL before testing; the command prints this line with your paths:
+   `grep -v ':wire ' <copy>/.pi-dev/pi-air.log | grep -E 'starting pid=| plugin ' | tail`.
+   The last `starting pid=` line must be later than the copy, and each plugin the feature needs has a
+   `plugin <name> … built in` line.
+3. Start a new chat with `pi-junie-dev`. Skills are in the command list as `$<name>`; they come from the open
+   project and from `%USERPROFILE%\.agents\skills`, not from the copy.
+
+Not checked: an agent entry that starts the WSL build through `wsl.exe`. AIR would send Windows paths to a Linux
+process.
 
 ## What lives where
 

@@ -22,8 +22,19 @@ New behaviour as a Pi package in `packages/<name>`, usable in plain Pi and loade
    with arguments and tools. A terminal dialog is allowed as plain Pi's front end, only when `ctx.hasUI`, with
    the same action reachable by arguments (as `/plugins` in `packages/plugin-manager/src/index.ts` does). A
    plugin's dialogs never reach AIR: an AIR front end is bridge code, a second spec (`surfaces.md`).
-6. **Loading in the bridge.** How the bridge loads it (by path, like Junie Cost and Junie Config) and the switch
-   that leaves it out (`PI_AIR_<NAME>=0`).
+6. **Loading in the bridge.** A package in `packages/` does nothing in AIR by itself. The bridge needs all of
+   these, and each is bridge code (a bridge change, so a second spec when this one is plugin-only):
+   - the package in the bridge's plugin list (`bundledPlugins` in `packages/bridge/src/main.ts`, by path, like
+     Junie Cost and Junie Config) with the switch that leaves it out (`PI_AIR_<NAME>=0`);
+   - every tool the plugin registers in the bridge's list of switched-on tools (`pluginTools` in
+     `packages/bridge/src/pi/plugins.ts`, used for `tools:` in `backend.ts`). A tool that is not in it is loaded
+     and never offered to the model: the log says "plugin … built in" and the tool still does not exist;
+   - a test through the bridge that the tool is offered with the package loaded.
+   A skill the package's repository keeps in `.agents/skills` is not shipped with the plugin: in AIR a skill
+   comes from the open project, from the user's `~/.agents/skills` or from AIR's skill roots, and shows in the
+   command list as `$<name>`. A `/command` of the plugin has no front end there (`surfaces.md`).
+   Until that bridge part is merged the spec says plainly: "After this spec: plain Pi only; nothing to try in
+   AIR" (`surfaces.md`, "What to write", item 3).
 7. **Docs.** README layout section, `docs/architecture.html` package list if it changes the picture, feature map
    row when an AIR feature depends on it.
 8. **Hand check in plain Pi.** `scripts/dev.sh cli-test <worktree>` runs the worktree's Pi with its packages and

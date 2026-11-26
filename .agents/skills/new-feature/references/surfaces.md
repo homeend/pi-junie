@@ -10,7 +10,7 @@ that is not about AIR at all, is planned per surface.
 | --- | --- | --- | --- | --- |
 | Plain Pi, interactive | `pi` with our packages (`pi -e ./packages/<name>`) | Pi's terminal: commands, `ctx.ui` dialogs, `/model` | `~/.pi/agent` (user's own) | `scripts/dev.sh cli-test <worktree>` |
 | Plain Pi, headless | `pi -p`, `--mode rpc`, eval runs | none: arguments, settings, environment | as above, or the eval's | `scripts/dev.sh cli-test <worktree> -- -p "<prompt>"` |
-| AIR | the bridge (`bin/pi-air`) | AIR's own UI, driven by ACP messages; bridge commands; elicitation forms | `~/.pi/pi-junie/agent`, kept apart: from `~/.pi/agent` only the installed plugins are loaded; its `models.json` and logins are not used | `scripts/dev.sh air-test <worktree>` |
+| AIR | the bridge (`bin/pi-air`) | AIR's own UI, driven by ACP messages; bridge commands; elicitation forms | `~/.pi/pi-junie/agent`, kept apart: from `~/.pi/agent` only the installed plugins are loaded; its `models.json` and logins are not used | `scripts/dev.sh air-test <worktree>`; AIR on Windows: `scripts/dev.sh win-test <worktree>` |
 
 Facts that decide a design, with their source:
 - **A plugin command has no front end in AIR.** AIR's command list holds `new`, `compact`, the skills and the
@@ -18,6 +18,9 @@ Facts that decide a design, with their source:
   without a UI (`session.bindExtensions({})` in `packages/bridge/src/pi/backend.ts`), so a plugin's dialogs never
   reach the user there. Whether a typed `/name` still reaches the plugin is not verified. An AIR front end is
   bridge code: a bridge command, an elicitation form, or AIR's own dialog.
+- **A plugin in `packages/` is not in AIR until the bridge lists it**, and its tools are not offered until the
+  bridge switches them on (`own-plugin.md`, item 6). Skills show in AIR's command list as `$<name>` and come
+  from the open project, the user's `~/.agents/skills` or AIR's skill roots, not from a plugin package.
 - **AIR may already own the UI.** Some AIR dialogs exist and call the agent through a protocol method (for example
   the BYOK provider dialog: `_providers/models`, then `providers/set`, in `docs/acp-air-communication.md`). Then
   the AIR side is implementing that method, not building a UI. Find out whether AIR sends it to pi-junie, not
@@ -39,7 +42,10 @@ Facts that decide a design, with their source:
      its own;
    - say `Depends on: <spec path>` under `Status:` in the second spec. `scripts/feature queue` refuses it until
      the first spec is `implemented` (set by `scripts/feature done <spec>` after its merge); `scripts/feature list`
-     shows the link.
+     shows the link;
+   - say, in the first spec, what the user has after it alone, as one line under the surface table: "After this
+     spec: works in <surfaces>; nothing to try in <surface> until <second spec>". A surface that waits for the
+     second spec has no hand check in the first one, and nobody is sent to test it there.
 4. **A test per surface, and one across.** Each surface has its own first test. A feature in both a plugin
    package and the bridge also has one test that runs through the bridge with the package loaded (as
    `packages/bridge/test/junie-config.test.ts` does); the package itself never imports `packages/bridge`

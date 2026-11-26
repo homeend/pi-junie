@@ -15,7 +15,9 @@ Every spec for this repository also has:
 - **Surfaces**: the table from `.agents/skills/new-feature/references/surfaces.md`: each surface (plain Pi
   interactive, plain Pi headless, AIR) with its UI, where its state is saved and its hand test, or "not
   supported" and why; for a feature that exists only in AIR, the one line "Surfaces: AIR only". Requirements carry their surfaces, e.g. `R3 [CLI, AIR]`. The second of two split specs has
-  `Depends on: <spec path>` under `Status:` and uses the first spec's R-numbers.
+  `Depends on: <spec path>` under `Status:` and uses the first spec's R-numbers. The first of two split specs
+  has the line "After this spec: works in <surfaces>; nothing to try in <surface> until <second spec>". The table
+  and that line are their own lines in the spec, never folded into a paragraph.
 - **Credentials** (when the feature takes, saves or sends a key): where the key lives per surface and the checks
   of `.agents/skills/new-feature/references/credentials.md`.
 - **Wire contract**: the ACP messages involved, with the fixture or recording they come from. Say "no recording yet"

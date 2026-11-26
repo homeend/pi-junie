@@ -18,6 +18,13 @@ Then check:
 - **More than one type.** A spec whose work needs two types (for example a plugin package and a bridge change)
   has to be split: plugin first, one shared requirements list, `Depends on:` in the second. An unsplit one blocks.
   A spec with `Depends on:` names an existing spec and uses its R-numbers.
+- **What the user has after this spec.** When a surface waits for a dependent spec, the first spec says so in one
+  line of its own ("After this spec: works in …; nothing to try in … until …") and has no hand check for that
+  surface. Missing, or buried in a paragraph, blocks. A plugin-only spec that claims AIR must show the bridge
+  part: the plugin in the bridge's plugin list and its tools in the bridge's switched-on tools
+  (`references/own-plugin.md`, item 6); otherwise AIR is not one of its surfaces.
+- **Readable shape.** The surface table, the hand checks and the test plan are sections with their own headings,
+  not one paragraph. A spec whose sections are folded into running text blocks: nobody can test from it.
 - **State that crosses.** Anything plain Pi saves that the bridge would read (or the reverse) is named as a
   decision with its reason; the bridge's Pi folder is separate on purpose. Silent sharing is a finding.
 - **Keys.** If any requirement takes, saves or sends a key, password or token: the spec says where it lives per
