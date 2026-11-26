@@ -12,7 +12,10 @@ test in AIR at a time.
 ## Steps
 
 1. **Preconditions.** In the branch's worktree: `npm run check` and `npm test` pass, and the second review has no
-   open blocker. If not, say so and stop.
+   open blocker. Read the newest `second-review-opus-<n>.md` and `second-review-sol-<n>.md` in the task's
+   artifacts (`.ai/cezar/artifacts/<task>/`): both must end in "approve", or the user accepted the branch at
+   Cezar's "Reviews not clean" question. Show the user the "For the owner" items and `for-the-owner.md` before
+   the hand test. If a precondition fails, say so and stop.
 Steps 2 to 4 apply when the spec has a "Check in AIR" section.
 
 2. **Point the test entry at this worktree:** `scripts/dev.sh air-test <worktree path>`. It moves one fixed link;

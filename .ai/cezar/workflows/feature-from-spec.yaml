@@ -1,30 +1,66 @@
+version: 2
 name: feature-from-spec
-description: Implement an approved spec, check it, review it (Claude fixes, then Opus and Sol report through Pi).
+description: Implement an approved spec, check it, review it (Claude fixes), then Opus and Sol each give a verdict; "changes" goes back to the implementer for up to 2 rounds, then you decide.
 # The task text is the path of an approved spec, e.g. .ai/specs/2026-11-24-session-instructions.md
-# Pi steps run scripts/pi-jbai (set as CEZ_PI_BIN by `scripts/dev.sh cezar`), which pays through JetBrains AI.
-steps:
-  # Dependencies and skill links for the new worktree. A step here, because Cezar does not run
+# Pi nodes run scripts/pi-jbai (set as CEZ_PI_BIN by `scripts/dev.sh cezar`), which pays through JetBrains AI.
+#
+# The shape follows Cezar's built-in implement-review-pr and Open Mercato's om-auto-review-pr: a review ends
+# with a verdict, "changes" starts a fix round, and the fixed branch is checked and reviewed again.
+#
+#   prepare -> implement -> checks -> first review (fixes) -> checks
+#     -> second review Opus -> second review Sol
+#          both approve                -> done (Cezar's review gate: your turn)
+#          either says changes         -> implementer fixes -> checks -> both second reviews again (2 rounds)
+#          still changes after 2 rounds, or a reviewer failed -> you decide (a question in the cockpit)
+#
+# Reports are files in the task's artifacts folder ($CEZ_ARTIFACTS_DIR, .ai/cezar/artifacts/<task>/):
+#   second-review-opus-<n>.md, second-review-sol-<n>.md, fix-reply-<n>.md
+# A node's {{nodes.x.summary}} is only the last 4,000 characters of its answer, so findings travel in the files.
+nodes:
+  - id: start
+    type: start
+
+  # Dependencies and skill links for the new worktree. A node here, because Cezar does not run
   # worktree scripts from a git-tracked config.json.
   - id: prepare
+    type: check
     name: Prepare worktree
     command: "bash scripts/dev.sh worktree ."
 
   - id: implement
+    type: agent
     name: Implement
     runner: claude
     prompt: |
       Implement the spec at {{task}}.
       Read AGENTS.md first. Write the spec's "First test" before the implementation.
       Stay inside the spec's scope. Commit on this branch; do not push and do not touch main.
+      If you must deviate from the spec, or a task in it can only be done by the owner (a recording in AIR,
+      a key, a decision), do not guess: write it to $CEZ_ARTIFACTS_DIR/for-the-owner.md, one item per
+      heading with what you did instead, and go on with the rest.
 
   - id: verify
+    type: check
     name: Checks
     command: "npm run check && npm test"
-    onFail:
-      retry: implement
-      max: 2
+  - id: verify-retry
+    type: loop
+    name: Check retries
+    max: 2
+  - id: fix-checks
+    type: agent
+    name: Fix failing checks
+    runner: claude
+    session: { continue: implement }
+    prompt: |
+      `npm run check && npm test` failed:
+
+      {{nodes.verify.output}}
+
+      Fix the cause and commit.
 
   - id: review
+    type: agent
     name: First review (fixes)
     runner: claude
     skill: om-code-review
@@ -32,27 +68,199 @@ steps:
       Review this branch against main and against the spec at {{task}}.
       After the report, fix the blocker and major findings and commit the fixes. Leave the rest listed.
 
-  - id: verify-again
-    name: Checks after review
+  - id: verify-review
+    type: check
+    name: Checks after first review
     command: "npm run check && npm test"
-    onFail:
-      retry: review
-      max: 1
+  - id: verify-review-retry
+    type: loop
+    name: Check retries after first review
+    max: 1
+  - id: fix-review
+    type: agent
+    name: Fix failing checks (first review)
+    runner: claude
+    session: { continue: review }
+    prompt: |
+      `npm run check && npm test` failed after your fixes:
+
+      {{nodes.verify-review.output}}
+
+      Fix the cause and commit.
 
   - id: second-review-opus
-    name: Second review, Opus (report only)
+    type: agent
+    name: Second review, Opus
     runner: pi
     model: jetbrains-ai/claude-opus-5-5
     skill: om-code-review
+    verdicts: [approve, changes]
     prompt: |
       Review this branch against main and against the spec at {{task}}.
-      Report only: change, commit and stash nothing. Give the full report as your answer.
+      You report and change nothing in the repository: no edit, no commit, no stash.
+
+      Earlier rounds: if $CEZ_ARTIFACTS_DIR holds second-review-opus-<n>.md or fix-reply-<n>.md files, read
+      the newest of each first. Check that each earlier finding is fixed, or that the implementer's reason
+      for declining it holds. Also read $CEZ_ARTIFACTS_DIR/for-the-owner.md if it exists.
+
+      Write the full report to $CEZ_ARTIFACTS_DIR/second-review-opus-<n>.md, where <n> is 1 or the next free
+      number. That file is the only place outside your answer you may write. Give every finding an id, a
+      severity (blocker, major, minor, nit), the file and line, and how you checked it.
+
+      Put findings that only the owner can resolve under a heading "For the owner": a missing recording from
+      AIR, a decision the spec leaves open, a deviation listed in for-the-owner.md. They do not count for
+      the verdict; the owner sees them before the hand test.
+
+      Verdict, from the remaining findings: any blocker, or any major the spec does not waive, is "changes".
+      Only minors and nits is "approve". End your answer with the path of the report and the counts per
+      severity.
 
   - id: second-review-sol
-    name: Second review, Sol (report only)
+    type: agent
+    name: Second review, Sol
     runner: pi
     model: jetbrains-ai/gpt-6.1-sol
     skill: om-code-review
+    verdicts: [approve, changes]
     prompt: |
       Review this branch against main and against the spec at {{task}}.
-      Report only: change, commit and stash nothing. Give the full report as your answer.
+      You report and change nothing in the repository: no edit, no commit, no stash.
+      Review on your own: do not read the second-review-opus files.
+
+      Earlier rounds: if $CEZ_ARTIFACTS_DIR holds second-review-sol-<n>.md or fix-reply-<n>.md files, read
+      the newest of each first. Check that each earlier finding is fixed, or that the implementer's reason
+      for declining it holds. Also read $CEZ_ARTIFACTS_DIR/for-the-owner.md if it exists.
+
+      Write the full report to $CEZ_ARTIFACTS_DIR/second-review-sol-<n>.md, where <n> is 1 or the next free
+      number. That file is the only place outside your answer you may write. Give every finding an id, a
+      severity (blocker, major, minor, nit), the file and line, and how you checked it.
+
+      Put findings that only the owner can resolve under a heading "For the owner": a missing recording from
+      AIR, a decision the spec leaves open, a deviation listed in for-the-owner.md. They do not count for
+      the verdict; the owner sees them before the hand test.
+
+      Verdict, from the remaining findings: any blocker, or any major the spec does not waive, is "changes".
+      Only minors and nits is "approve". End your answer with the path of the report and the counts per
+      severity.
+
+  # Sol approved; did Opus?
+  - id: opus-asked-changes
+    type: if
+    name: Did Opus ask for changes?
+    condition: { kind: output, ref: second-review-opus.verdict, op: equals, value: changes }
+
+  # Neither asked for changes; a failed Opus review has an empty verdict and goes to the owner.
+  - id: opus-approved
+    type: if
+    name: Did Opus approve?
+    condition: { kind: output, ref: second-review-opus.verdict, op: equals, value: approve }
+
+  - id: rounds
+    type: loop
+    name: Fix rounds
+    max: 2
+
+  - id: address
+    type: agent
+    name: Address second reviews
+    runner: claude
+    session: { continue: implement }
+    prompt: |
+      The second reviews asked for changes (round {{nodes.rounds.iteration}} of {{nodes.rounds.max}};
+      Opus: {{nodes.second-review-opus.verdict}}, Sol: {{nodes.second-review-sol.verdict}}).
+
+      Read the newest second-review-opus-<n>.md and second-review-sol-<n>.md in $CEZ_ARTIFACTS_DIR.
+      Fix every blocker and major, each with a test that fails without the fix. Fix a minor when it is
+      cheap. Leave "For the owner" items alone. If a finding is wrong, do not change the code for it.
+
+      Then write $CEZ_ARTIFACTS_DIR/fix-reply-<n>.md (<n> is 1 or the next free number): one line per
+      finding id with "fixed in <commit>", "declined: <reason>" or "left: <reason>".
+      Commit on this branch; do not push and do not touch main.
+
+  - id: verify-fix
+    type: check
+    name: Checks after fix round
+    command: "npm run check && npm test"
+  - id: verify-fix-retry
+    type: loop
+    name: Check retries after fix round
+    max: 3
+  - id: fix-after-round
+    type: agent
+    name: Fix failing checks (fix round)
+    runner: claude
+    session: { continue: implement }
+    prompt: |
+      `npm run check && npm test` failed after the fix round:
+
+      {{nodes.verify-fix.output}}
+
+      Fix the cause and commit.
+
+  - id: owner-decides
+    type: gate.human
+    name: Reviews not clean
+    message: |
+      The second reviews are not clean for {{task}}.
+      Opus: {{nodes.second-review-opus.verdict}} — Sol: {{nodes.second-review-sol.verdict}}. At most {{nodes.rounds.max}} fix rounds are run.
+      An empty verdict means that reviewer failed or gave none.
+      The reports are the second-review-*.md and fix-reply-*.md files under Assets.
+
+      Approve: accept the branch as it is and go on to your own review.
+      Reject: stop the task as failed; the branch and worktree stay.
+
+  - id: done
+    type: end
+    name: Reviewed
+    status: success
+  - id: checks-failed
+    type: end
+    name: Checks still failing
+    status: failed
+  - id: stopped
+    type: end
+    name: Stopped by the owner
+    status: failed
+
+edges:
+  - { from: start, to: prepare }
+  - { from: prepare.pass, to: implement }
+  - { from: prepare.fail, to: checks-failed }
+
+  - { from: implement.done, to: verify }
+  - { from: verify.pass, to: review }
+  - { from: verify.fail, to: verify-retry }
+  - { from: verify-retry.repeat, to: fix-checks }
+  - { from: verify-retry.exhausted, to: checks-failed }
+  - { from: fix-checks.done, to: verify }
+
+  - { from: review.done, to: verify-review }
+  - { from: verify-review.pass, to: second-review-opus }
+  - { from: verify-review.fail, to: verify-review-retry }
+  - { from: verify-review-retry.repeat, to: fix-review }
+  - { from: verify-review-retry.exhausted, to: checks-failed }
+  - { from: fix-review.done, to: verify-review }
+
+  # Sol reviews whatever Opus said, so both reports exist for a fix round.
+  - { from: second-review-opus.approve, to: second-review-sol }
+  - { from: second-review-opus.changes, to: second-review-sol }
+  - { from: second-review-opus.failed, to: second-review-sol }
+  - { from: second-review-sol.changes, to: rounds }
+  - { from: second-review-sol.approve, to: opus-asked-changes }
+  - { from: second-review-sol.failed, to: owner-decides }
+  - { from: opus-asked-changes.true, to: rounds }
+  - { from: opus-asked-changes.false, to: opus-approved }
+
+  - { from: rounds.repeat, to: address }
+  - { from: rounds.exhausted, to: owner-decides }
+  - { from: address.done, to: verify-fix }
+  - { from: verify-fix.pass, to: second-review-opus }
+  - { from: verify-fix.fail, to: verify-fix-retry }
+  - { from: verify-fix-retry.repeat, to: fix-after-round }
+  - { from: verify-fix-retry.exhausted, to: checks-failed }
+  - { from: fix-after-round.done, to: verify-fix }
+
+  - { from: opus-approved.true, to: done }
+  - { from: opus-approved.false, to: owner-decides }
+  - { from: owner-decides.approve, to: done }
+  - { from: owner-decides.reject, to: stopped }
