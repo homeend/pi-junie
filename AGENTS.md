@@ -17,7 +17,8 @@ Both must pass before a change is called done. Node 22.19 or newer.
 
 - **Layer boundaries** in `packages/bridge/src`, enforced by `test/architecture.test.ts`: `core` imports only
   itself; `acp` never imports Pi; `pi` never imports ACP; `compat` is standalone. Something that must cross goes
-  through a neutral type or port in `core`.
+  through a neutral type or port in `core`. The other packages never import the bridge (same test): they must
+  work in plain Pi.
 - **Test first, from the wire.** Whatever AIR sees is covered by a replay test built from a Junie ↔ AIR recording
   (`packages/bridge/scripts/extract-fixture.ts` makes the fixture). Model calls in tests go to the fake proxy.
 - **Adopt before writing.** Behaviour comes from Pi core, then from an existing Pi plugin, then from bridge code.
@@ -33,6 +34,23 @@ Both must pass before a change is called done. Node 22.19 or newer.
   credential store (`auth.json`, or `models.json` with `$VAR` / `!command`) or leaves it to AIR's proxy; never in
   a file of ours, a log or a transcript (`.agents/skills/new-feature/references/credentials.md`).
 - **Docs are plain.** Say what was checked and what was not.
+
+## Task router
+
+Find every row your task touches (a task can match several) and read its files before you write, audit or review.
+
+| The task | Read first | Key rule |
+| --- | --- | --- |
+| A new or changed feature | `.agents/skills/new-feature/SKILL.md` | spec first; one type per spec |
+| Runs in plain Pi and in AIR, or is not an AIR feature | `.agents/skills/new-feature/references/surfaces.md` | a surface table; a test and a hand check per surface; split specs linked by `Depends on:` |
+| Takes, saves or sends a key, password or token | `.agents/skills/new-feature/references/credentials.md` | only Pi's store or AIR's proxy; never in a log or transcript |
+| Something an existing plugin or Pi core may already do | `.agents/skills/new-feature/references/reuse-decision.md` | smallest option first, proven from the source |
+| Code in `packages/bridge` | `.agents/skills/new-feature/references/bridge-change.md`, `packages/bridge/docs/spec.md` | replay test first; layers |
+| A new package in `packages/` | `.agents/skills/new-feature/references/own-plugin.md` | works in plain Pi, no import from the bridge |
+| A third-party Pi plugin | `.agents/skills/new-feature/references/adopt-plugin.md`, the `plugin-check` skill | read its source, never run it |
+| `packages/junie-cost`, `packages/jetbrains-ai`, or a new copy | `.agents/skills/new-feature/references/copied-package.md` | list every divergence |
+| Anything AIR shows | `docs/acp-air-communication.md`, `docs/air-pi-feature-map.md` | advertise only what works |
+| A hand test before a merge | `.agents/skills/air-test-handoff/SKILL.md` | AIR and plain Pi, per the spec |
 
 ## Process
 

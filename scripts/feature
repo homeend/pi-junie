@@ -6,6 +6,10 @@
 #   scripts/feature audit <spec> --writer <id>    one audit of the spec by a model from another family
 #   scripts/feature queue <spec>                  approve: commit the spec on main and send it to Cezar
 #   scripts/feature reject <spec>                 mark a spec rejected (the file stays)
+#   scripts/feature done <spec>                   after its branch is merged: mark it implemented and commit that
+#
+# A spec with a line `Depends on: <spec path>` under its Status line is queued only when that spec is
+# implemented (`done`); `list` shows the link.
 #
 # <spec> is a path, a file name, or the number from the list.
 # --writer <id>    model id of whoever wrote the spec (e.g. claude-opus-5-5, gpt-6.1-sol); the reviewer is
@@ -96,6 +100,10 @@ set_status() { # spec status
   fi
 }
 
+spec_deps() { # the paths on the spec's "Depends on:" lines (header only: before the first "## " heading)
+  sed -n '/^## /q; s/^[*_]*[Dd]epends on[*_]*:[*_]* *//p' "$1" | sed 's/^`//; s/`.*$//; s/[[:space:]].*$//'
+}
+
 resolve_spec() { # path, file name, or number from the list -> path
   local in="${1:-}" f=""
   [[ -n "$in" ]] || die "which spec? give its path or its number from: scripts/feature list"
@@ -112,11 +120,16 @@ resolve_spec() { # path, file name, or number from the list -> path
 cmd_list() {
   local f i=0 v run n
   [[ -n "$(spec_files)" ]] || { say "No specs in $SPECS yet."; return; }
-  printf '%3s  %-9s  %-34s  %s\n' "#" "status" "audit" "spec"
+  printf '%3s  %-11s  %-34s  %s\n' "#" "status" "audit" "spec"
   while IFS= read -r f; do
     i=$((i + 1)); v="$(state_get "$f" verdict)"; run="$(state_get "$f" run)"; n="$(state_get "$f" audits)"
-    printf '%3d  %-9s  %-34s  %s\n' "$i" "$(spec_status "$f")" "${run:+queued, }${v:-not audited}${n:+ (audit $n)}" "$f"
-    printf '%52s%s\n' "" "$(spec_title "$f")"
+    printf '%3d  %-11s  %-34s  %s\n' "$i" "$(spec_status "$f")" "${run:+queued, }${v:-not audited}${n:+ (audit $n)}" "$f"
+    printf '%54s%s\n' "" "$(spec_title "$f")"
+    while IFS= read -r v; do
+      [[ -n "$v" ]] || continue
+      if [[ -f "$v" ]]; then printf '%54sdepends on %s (%s)\n' "" "$v" "$(spec_status "$v")"
+      else printf '%54sdepends on %s (NOT FOUND)\n' "" "$v"; fi
+    done < <(spec_deps "$f")
   done < <(spec_files)
 }
 
@@ -196,6 +209,13 @@ cmd_queue() {
   branch="$(git rev-parse --abbrev-ref HEAD)"
   [[ "$branch" == "$base" ]] || die "approve specs on $base (you are on $branch): the task's worktree starts from $base"
   [[ "$(spec_status "$spec")" != rejected ]] || die "$spec is rejected; set its Status line back to draft first"
+  local dep
+  while IFS= read -r dep; do
+    [[ -n "$dep" ]] || continue
+    [[ -f "$dep" ]] || die "$spec depends on $dep, which does not exist (fix its Depends on: line)"
+    [[ "$(spec_status "$dep")" == implemented ]] \
+      || die "$spec depends on $dep, which is $(spec_status "$dep"), not implemented. Merge that one first, then: scripts/feature done $dep"
+  done < <(spec_deps "$spec")
 
   set_status "$spec" approved
   if [[ -n "$(git status --porcelain -- "$spec")" ]]; then
@@ -227,6 +247,18 @@ cmd_reject() {
   say "$spec is marked rejected. The file stays; nothing was committed."
 }
 
+cmd_done() {
+  local spec base branch; spec="$(resolve_spec "${1:-}")" || exit 1
+  base="$(jq -r '.baseBranch // "main"' .ai/agentic.config.json 2>/dev/null || echo main)"
+  branch="$(git rev-parse --abbrev-ref HEAD)"
+  [[ "$branch" == "$base" ]] || die "mark specs implemented on $base (you are on $branch), after the merge"
+  [[ "$(spec_status "$spec")" == approved ]] || die "$spec is $(spec_status "$spec"); only an approved spec can be marked implemented"
+  set_status "$spec" implemented
+  git add -- "$spec"
+  git commit -q -m "Spec implemented: $(spec_title "$spec")" -- "$spec"
+  say "$spec is marked implemented ($(git rev-parse --short HEAD) on $base). Nothing is pushed."
+}
+
 # ---------------------------------------------------------------- arguments
 
 ARGS=()
@@ -245,5 +277,6 @@ case "${ARGS[0]:-list}" in
   audit)  cmd_audit "${ARGS[1]:-}" ;;
   queue)  cmd_queue "${ARGS[1]:-}" ;;
   reject) cmd_reject "${ARGS[1]:-}" ;;
+  done)   cmd_done "${ARGS[1]:-}" ;;
   *)      die "unknown command: ${ARGS[0]} (see --help)" ;;
 esac

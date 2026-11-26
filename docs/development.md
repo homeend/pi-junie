@@ -84,7 +84,7 @@ whether to continue one or start something new.
 | 4 | Approve | Say start, change something, or stop | Shows the spec, the last verdict and the open questions |
 | 5 | Implement, check, review | Nothing | Commits the spec on `main` and creates the Cezar task: worktree, implementation (Claude), `npm run check`, `npm test`, a review with fixes, then Opus and Sol each review through Pi and only report |
 | 6 | Test by hand | Try it in a new chat with `pi-junie-dev`, and in plain Pi when the spec has a "Check in plain Pi" section | `scripts/dev.sh air-test <worktree>` points the test entry at the worktree; `scripts/dev.sh cli-test <worktree>` runs it in plain Pi |
-| 7 | Merge | Say "merge" | The branch is synced with `main` in its worktree, the checks are rerun, then merged |
+| 7 | Merge | Say "merge" | The branch is synced with `main` in its worktree, the checks are rerun, then merged; `scripts/feature done <spec>` marks the spec implemented, which lets a spec that depends on it be queued |
 
 **Many features at once.** Point the skill at a document that lists features, for example
 `/skill:new-feature docs/acp-air-communication.md`. It lists the document's features against
@@ -107,6 +107,12 @@ and hand test. Before the reuse decision the skill writes a table of the surface
 are two specs, plugin first, sharing one requirements list; the second says `Depends on:` and is queued after the
 first is merged. A feature that asks the user for a key also follows `references/credentials.md`.
 
+The check is repeated at every stage, as Open Mercato repeats its cross-module check: the `AGENTS.md` task router
+sends every agent to these files; the audit (`.ai/skills/om-pre-implement-spec/SKILL.md`) works out the surfaces
+from the requirements and blocks a spec that lacks one, is not split, shares state silently or mishandles a key;
+the code reviews (`.ai/skills/om-code-review/SKILL.md`) compare the packages a diff touches with the spec's
+surface table; `packages/bridge/test/architecture.test.ts` keeps the other packages from importing the bridge.
+
 The four types of change and what each requires are in `.agents/skills/new-feature/references/`: a bridge change,
 an adopted Pi plugin, an own plugin package, and a copied package (a change to one of our copies, or a new local
 copy of a third-party plugin, recorded with its version and checksum and committed unchanged before our changes).
@@ -120,10 +126,13 @@ scripts/feature list                          # the specs and where each one sta
 scripts/feature audit <spec> --writer <id>    # one audit by a model from another family than <id>
 scripts/feature queue <spec>                  # approve: commit the spec on main, send it to Cezar
 scripts/feature reject <spec>                 # mark it rejected; the file stays
+scripts/feature done <spec>                   # after the merge: mark it implemented, commit that on main
 ```
 
 `<spec>` is a path, a file name, or the number from the list. Audits and the writer's replies are in
-`.ai/runs/<spec name>/` (not tracked). A spec's state is its `Status:` line: draft, approved or rejected.
+`.ai/runs/<spec name>/` (not tracked). A spec's state is its `Status:` line: draft, approved, implemented or
+rejected. A spec with `Depends on: <spec path>` under that line is refused by `queue` until the named spec is
+implemented; `list` shows the link.
 
 ### Cezar
 
@@ -162,7 +171,7 @@ the development agent's.
 | `AGENTS.md` | Rules every agent reads | yes |
 | `.ai/specs/` | One spec per feature | yes |
 | `.ai/agentic.config.json`, `.ai/trackers/local.md` | Config for the Open Mercato skills: the checks to run, and "there is no tracker" | yes |
-| `.ai/skills/<skill>/SKILL.md` | This repository's additions to an upstream skill | yes |
+| `.ai/skills/<skill>/SKILL.md` | This repository's additions to an upstream skill (spec writing, spec audit, code review) | yes |
 | `.ai/cezar/` | Cezar's project config and the workflow | yes |
 | `.agents/skills/new-feature`, `plugin-check`, `air-test-handoff` | This repository's own skills | yes |
 | `skills-lock.json` | Which upstream skills, at which commit | yes |

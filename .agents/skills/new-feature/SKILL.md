@@ -18,7 +18,7 @@ time limit of at least ten minutes, or run them in the background and wait.
   "Many features from one document" at the end. Text about one feature that merely mentions a file is one item.
 - **Called with text:** that text is the item. Go to step 2.
 - **Called without text:** run `scripts/feature list`.
-  - If it lists specs that are not `rejected` and not queued, show them and ask whether to continue one of them
+  - If it lists specs that are not `rejected`, not `implemented` and not queued, show them and ask whether to continue one of them
     or start something new. To continue a spec: if it has open questions (drafts made from a document do), ask
     the user those first, all in one message, and update the spec with the answers. Then go to step 4, or to
     step 5 if its last audit says APPROVED.
@@ -118,7 +118,8 @@ through Pi, and stops at its review gate.
 - If the script says Cezar is not running, pass on the two commands it prints and stop; do not start Cezar.
 - Tell the user the task id and where to watch it, and what comes after the review gate: the `air-test-handoff`
   skill (hand checks in AIR and in plain Pi), then their "merge".
-- A spec with `Depends on: <spec>` is queued only after that spec's branch is merged; until then say so and stop.
+- A spec with `Depends on: <spec>` is queued only after that spec is merged and marked with
+  `scripts/feature done <spec>`; the script refuses it before. Say so and stop.
 
 ## Many features from one document
 

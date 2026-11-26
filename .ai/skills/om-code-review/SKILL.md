@@ -13,6 +13,16 @@
 - A new or changed AIR feature has its row in `docs/air-pi-feature-map.md` and its entry in
   `packages/bridge/src/compat/features.ts` updated in the same change.
 - Nothing from `acp-examples/` and no key, token or home path is added to a tracked file.
+- **Surfaces.** List the packages the diff touches. A diff in `packages/bridge` and in another package, or in a
+  package that plain Pi loads, is a change on more than one surface: read
+  `.agents/skills/new-feature/references/surfaces.md`. The spec's surface table must cover every surface the diff
+  changes; code for a surface the spec does not name is a finding. Each surface has a test, and a feature in both
+  a package and the bridge has one test through the bridge with the package loaded.
+- **Keys.** If the diff reads, saves or sends a key, password or token: check it against
+  `.agents/skills/new-feature/references/credentials.md` (where it is kept, never in a log, transcript, session
+  entry or error message, a test that greps for the fake key).
+- A package outside `packages/bridge` does not import the bridge (`packages/bridge/test/architecture.test.ts`),
+  and plain Pi's saved state is not read by the bridge unless the spec names that as a decision.
 
 ## Output (extend)
 

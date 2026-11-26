@@ -37,7 +37,12 @@ Facts that decide a design, with their source:
    Pi, a bridge change for AIR). Then there are two specs, plugin first, and both:
    - share one requirements list: it lives in the first spec; the second refers to its R-numbers and adds only
      its own;
-   - say `Depends on: <spec path>` under `Status:` in the second spec; it is queued after the first is merged.
-     Nothing checks this line (`scripts/feature` does not read it): the `new-feature` skill does, in its step 6.
-4. **A hand check per surface**: "Check in plain Pi" and "Check in AIR" sections, each with steps and what should
+   - say `Depends on: <spec path>` under `Status:` in the second spec. `scripts/feature queue` refuses it until
+     the first spec is `implemented` (set by `scripts/feature done <spec>` after its merge); `scripts/feature list`
+     shows the link.
+4. **A test per surface, and one across.** Each surface has its own first test. A feature in both a plugin
+   package and the bridge also has one test that runs through the bridge with the package loaded (as
+   `packages/bridge/test/junie-config.test.ts` does); the package itself never imports `packages/bridge`
+   (`packages/bridge/test/architecture.test.ts`).
+5. **A hand check per surface**: "Check in plain Pi" and "Check in AIR" sections, each with steps and what should
    be seen.

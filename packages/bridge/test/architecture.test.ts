@@ -13,7 +13,26 @@ function imports(dir: string): { file: string; spec: string }[] {
 		});
 }
 
+/** Imports of every other package in the workspace (packages/<name>/src). */
+function otherPackages(): { file: string; spec: string }[] {
+	const packages = join(SRC, "..", "..");
+	return readdirSync(packages, { withFileTypes: true })
+		.filter((d) => d.isDirectory() && d.name !== "bridge")
+		.flatMap((d) => {
+			try {
+				return imports(join("..", "..", d.name, "src"));
+			} catch {
+				return []; // a package without src/
+			}
+		});
+}
+
 describe("architecture boundaries", () => {
+	it("no other package imports the bridge (they must work in plain Pi)", () => {
+		const all = otherPackages();
+		expect(all.length).toBeGreaterThan(0);
+		for (const i of all) expect(i.spec, i.file).not.toMatch(/^pi-junie(\/|$)|(^|\/)bridge(\/|$)/);
+	});
 	it("core depends on nothing but itself", () => {
 		for (const i of imports("core")) expect(i.spec, i.file).toMatch(/^\.\/|^node:/);
 	});
