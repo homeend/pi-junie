@@ -119,6 +119,9 @@ The skill calls `scripts/feature` for the parts that need another model or Cezar
 scripts/feature list                          # the specs and where each one stands
 scripts/feature audit <spec> --writer <id>    # one audit by a model from another family than <id>
 scripts/feature queue <spec>                  # approve: commit the spec on main, send it to Cezar
+scripts/feature status <spec>                 # where the Cezar task stands: steps, verdicts, next step
+scripts/feature wait <spec>                   # block until the task stops, then print the status
+scripts/feature fix <spec> [--note <file>]    # send a stopped task back to the implementer with the reviews
 scripts/feature reject <spec>                 # mark it rejected; the file stays
 ```
 

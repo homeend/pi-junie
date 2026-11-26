@@ -6,8 +6,9 @@ description: Use when the user wants to add or change a feature of pi-junie, or 
 # New feature
 
 The entry point of this repository's development process (`docs/development.md`). You are the writer: you talk
-to the user, write the spec and revise it. A second model audits it. The skill ends when the task is in Cezar's
-queue, or when the user stops it.
+to the user, write the spec and revise it. A second model audits it. The skill goes on after the task is in
+Cezar's queue: it follows the task and reports the reviews' verdicts (step 6). It ends at the hand test, or when
+the user stops it.
 
 `scripts/feature` does the parts that need another model or Cezar. Its commands can take minutes: give them a
 time limit of at least ten minutes, or run them in the background and wait.
@@ -117,8 +118,7 @@ through Pi. Each of them ends with a verdict; "changes" sends the task back to t
 rounds. It stops at its review gate, or earlier with a question to the user when the reviews are still not clean.
 
 - If the script says Cezar is not running, pass on the two commands it prints and stop; do not start Cezar.
-- Tell the user the task id and where to watch it, and what comes after the review gate: the `air-test-handoff`
-  skill (hand checks in AIR and in plain Pi), then their "merge".
+- Tell the user the task id and where to watch it, then go on with step 6.
 - A spec with `Depends on: <spec>` is queued only after that spec's branch is merged; until then say so and stop.
 
 ## Many features from one document
@@ -160,3 +160,34 @@ no tasks started; each draft later goes through steps 1 to 6 on its own.
 - The reviewer reports and changes nothing; you do not edit its audits.
 - Never copy keys, tokens, headers or home paths out of `acp-examples/` into a spec.
 - If the request is a bug rather than a feature, say so and use `om-troubleshooter` instead.
+
+## 6. Follow the task
+
+A queued task is not a finished feature. Stay with it, or pick it up when the user asks how it is going:
+
+```bash
+scripts/feature wait <spec>      # blocks until the task stops; exit 4 = still running, run it again
+scripts/feature status <spec>    # the same report without waiting
+```
+
+A task takes an hour or more. Give `wait` a timeout of 30 minutes and call it again while it exits with 4; if
+your tool cannot wait that long, tell the user to ask you again later and stop.
+
+When it stops, read the files the report names (the two second reviews, the implementer's reply,
+`for-the-owner.md`) and tell the user, in this order:
+
+1. Each reviewer's verdict, and every open blocker and major in one line each.
+2. What only they can decide or do: the "For the owner" items and every deviation from the spec.
+3. The next step the report gives.
+
+Then, by what the report says:
+
+- **Both second reviews approve:** offer the `air-test-handoff` skill (hand checks in AIR and in plain Pi), then
+  their "merge".
+- **Not clean, or Cezar asks the owner a question:** the workflow has already used its two fix rounds, or a
+  reviewer failed. Do not hand over for testing. The user decides: accept the branch as it is, or send it back.
+  On their word, write their decisions to a file and run `scripts/feature fix <spec> --note <file>`; then
+  `wait` again, and after the fix `scripts/dev.sh review <spec>` in the task's worktree for a fresh second review.
+- **Failed:** say which step failed and quote its error. Do not repair the branch yourself: only Cezar's
+  implementer edits it.
+

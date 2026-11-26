@@ -6,6 +6,11 @@
 #   scripts/feature audit <spec> --writer <id>    one audit of the spec by a model from another family
 #   scripts/feature queue <spec>                  approve: commit the spec on main and send it to Cezar
 #   scripts/feature reject <spec>                 mark a spec rejected (the file stays)
+#   scripts/feature status <spec>                 where the spec's Cezar task stands: steps, review verdicts, next step
+#   scripts/feature wait <spec> [--timeout <min>] block until the task stops (done, failed, or it needs someone),
+#                                                 then print the status; exit 4 if it still runs after the timeout (25)
+#   scripts/feature fix <spec> [--note <file>]    send the task back to the implementer with the newest second
+#                                                 reviews; --note adds the owner's decisions from a file
 #
 # <spec> is a path, a file name, or the number from the list.
 # --writer <id>    model id of whoever wrote the spec (e.g. claude-opus-5-5, gpt-6.1-sol); the reviewer is
@@ -31,7 +36,7 @@ PI_TIMEOUT="${PI_TIMEOUT:-1800}"            # seconds for one audit
 REVIEWER_TOOLS="read,grep,find,ls,bash"
 MAX_AUDITS=3
 
-OPT_WRITER="" OPT_REVIEWER=""
+OPT_WRITER="" OPT_REVIEWER="" OPT_TIMEOUT=25 OPT_NOTE=""
 
 say()  { printf '%s\n' "$*"; }
 warn() { printf 'feature: %s\n' "$*" >&2; }
@@ -227,6 +232,131 @@ cmd_reject() {
   say "$spec is marked rejected. The file stays; nothing was committed."
 }
 
+# ---------------------------------------------------------------- the Cezar task of a spec
+
+task_of() { # spec -> task id; the state file is written where `queue` ran, usually the main checkout
+  local run; run="$(state_get "$1" run)"
+  [[ -n "$run" ]] || run="$(sed -n 's/^run=//p' "$MAIN/$RUNS/$(spec_name "$1")/state" 2>/dev/null | tail -1)"
+  [[ -n "$run" ]] || die "$1 has no Cezar task yet; send it with: scripts/feature queue $1"
+  printf '%s' "$run"
+}
+
+task_json() { # task id -> the task record
+  curl -fsS -m 10 "$CEZ_URL/api/v1/runs/$1" 2>/dev/null | jq -e '.run // .' 2>/dev/null \
+    || die "Cezar at $CEZ_URL does not answer for task $1; start it with: scripts/dev.sh cezar"
+}
+
+cezar_root() { curl -fsS -m 5 "$CEZ_URL/api/v1/repo" 2>/dev/null | jq -r '.info.root // empty' 2>/dev/null; }
+
+newest() { # folder, name prefix -> the file <prefix>-<n>.md with the highest n
+  find "$1" -maxdepth 1 -name "$2-*.md" 2>/dev/null | sort -V | tail -1
+}
+
+last_verdict() { # log file, node id -> the verdict that node last ended with
+  [[ -f "$1" ]] || return 0
+  jq -r --arg s "$2" 'select(.type == "note" and .stepId == $s and ((.message // "") | startswith("verdict: "))) | .message[9:]' "$1" 2>/dev/null | tail -1
+}
+
+task_running() { case "$1" in queued|starting|running) return 0 ;; *) return 1 ;; esac; }
+
+cmd_status() {
+  local spec run j status root art log opus sol q f open
+  spec="$(resolve_spec "${1:-}")" || exit 1
+  run="$(task_of "$spec")"; j="$(task_json "$run")"
+  status="$(jq -r '.status' <<<"$j")"
+  root="$(cezar_root)"; art="$root/.ai/cezar/artifacts/$run"; log="$root/.ai/cezar/runs/$run.ndjson"
+
+  say "Task $run for $spec"
+  say "Status:    $status$(jq -r 'if .error then " (" + .error + ")" else "" end' <<<"$j"), cost $(jq -r '(.costUsd // 0) * 100 | round / 100' <<<"$j") USD"
+  say "Branch:    $(jq -r '.branch // "-"' <<<"$j") in $(jq -r '.worktreePath // "-"' <<<"$j")"
+  say "Steps:"
+  jq -r '.steps[] | select(.status != "pending") | "  \(.status)\t\(.name // .id)\(if (.iterations // 1) > 1 then " (\(.iterations) times)" else "" end)"' <<<"$j" | column -t -s $'\t'
+
+  opus="$(last_verdict "$log" second-review-opus)"; sol="$(last_verdict "$log" second-review-sol)"
+  say "Second reviews:"
+  f="$(newest "$art" second-review-opus)"; say "  Opus: ${opus:-no verdict}${f:+, report $f}"
+  f="$(newest "$art" second-review-sol)";  say "  Sol:  ${sol:-no verdict}${f:+, report $f}"
+  f="$(newest "$art" fix-reply)"; [[ -z "$f" ]] || say "  Implementer's reply: $f"
+  [[ ! -f "$art/for-the-owner.md" ]] || say "For the owner (deviations, tasks only the owner can do): $art/for-the-owner.md"
+
+  q="$(jq -r '.attentionRequest.questions[0].question // empty' <<<"$j")"
+  open=0; [[ "$opus" == approve && "$sol" == approve ]] || open=1
+  if task_running "$status"; then
+    say "Next: it is still running. Wait for it with: scripts/feature wait $spec"
+  elif [[ -n "$q" ]]; then
+    say "Cezar asks the owner, in the cockpit at $CEZ_URL:"; sed 's/^/  | /' <<<"$q"
+    say "Next: the owner answers there. Show them the reports first."
+  elif [[ "$status" == waiting ]]; then
+    say "Next: an agent's turn ended and its session is still open. After a fix (scripts/feature fix): read the"
+    say "      reply file above, then get a fresh second review in the worktree: scripts/dev.sh review $spec"
+    say "      The owner closes the session with Finish in the cockpit."
+  elif [[ "$status" == failed || "$status" == cancelled ]]; then
+    say "Next: tell the owner why it stopped. The branch and worktree are kept."
+  elif [[ "$open" == 1 ]]; then
+    say "Next: the second reviews are not clean. Do not hand over for testing. Tell the owner the open findings;"
+    say "      on their word send the task back: scripts/feature fix $spec"
+  else
+    say "Next: both second reviews approve. Hand over for the test by hand: the air-test-handoff skill."
+  fi
+}
+
+cmd_wait() {
+  local spec run status deadline
+  spec="$(resolve_spec "${1:-}")" || exit 1
+  run="$(task_of "$spec")"
+  deadline=$(( $(date +%s) + OPT_TIMEOUT * 60 ))
+  while :; do
+    status="$(task_json "$run" | jq -r '.status')"
+    task_running "$status" || break
+    if (( $(date +%s) >= deadline )); then
+      say "Task $run is still $status after $OPT_TIMEOUT minutes. Run the same command again to keep waiting."
+      return 4
+    fi
+    sleep 20
+  done
+  cmd_status "$spec"
+}
+
+cmd_fix() {
+  local spec run j status root art opus sol text resp
+  spec="$(resolve_spec "${1:-}")" || exit 1
+  run="$(task_of "$spec")"; j="$(task_json "$run")"
+  status="$(jq -r '.status' <<<"$j")"
+  case "$status" in
+    review|done|failed|cancelled) ;;
+    waiting) die "task $run waits for an answer or has an open session; answer or finish it in the cockpit first" ;;
+    *) die "task $run is $status; wait until it stops: scripts/feature wait $spec" ;;
+  esac
+  [[ -z "$OPT_NOTE" || -f "$OPT_NOTE" ]] || die "note file not found: $OPT_NOTE"
+  root="$(cezar_root)"; art="$root/.ai/cezar/artifacts/$run"
+  opus="$(newest "$art" second-review-opus)"; sol="$(newest "$art" second-review-sol)"
+  [[ -n "$opus$sol" ]] || die "no second-review-*.md report in $art; nothing to send back"
+
+  text="The second reviews of this branch asked for changes. The spec is $spec. Read AGENTS.md first.
+
+Read these reports:${opus:+
+- $opus}${sol:+
+- $sol}
+
+Fix every blocker and major, each with a test that fails without the fix. Fix a minor when it is cheap.
+Leave findings that only the owner can resolve. If a finding is wrong, do not change the code for it.
+Run \`npm run check && npm test\` until both pass. Commit on this branch; do not push and do not touch main.
+Then write $art/fix-reply-<n>.md (<n> is 1 or the next free number): one line per finding id with
+\"fixed in <commit>\", \"declined: <reason>\" or \"left: <reason>\". End your turn with that file's path."
+  [[ -z "$OPT_NOTE" ]] || text+=$'\n\nThe owner decided:\n\n'"$(cat "$OPT_NOTE")"
+
+  # runner claude: the implementer. The task's last session is a reviewer's and must not be reopened for this.
+  resp="$(curl -sS -m 30 -X POST -H 'content-type: application/json' \
+    -d "$(jq -n --arg t "$text" '{runner: "claude", text: $t}')" "$CEZ_URL/api/v1/runs/$run/continue")" \
+    || die "Cezar did not accept the fix request"
+  [[ "$(jq -r '.error // empty' <<<"$resp" 2>/dev/null)" == "" ]] || die "Cezar answered: $(jq -r .error <<<"$resp")"
+  say "Sent task $run back to the implementer (Claude) with the newest second reviews."
+  say "Wait for it:   scripts/feature wait $spec"
+  say "When it stops: read the fix-reply file, then get a fresh second review in the worktree:"
+  say "               (cd $(jq -r '.worktreePath // "<worktree>"' <<<"$j") && scripts/dev.sh review $spec)"
+  say "The session stays open after the fix; close it with Finish in the cockpit."
+}
+
 # ---------------------------------------------------------------- arguments
 
 ARGS=()
@@ -234,6 +364,8 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --writer)    OPT_WRITER="${2:?--writer needs a value}"; shift 2 ;;
     --reviewer)  OPT_REVIEWER="${2:?--reviewer needs a value}"; shift 2 ;;
+    --timeout)   OPT_TIMEOUT="${2:?--timeout needs minutes}"; shift 2 ;;
+    --note)      OPT_NOTE="${2:?--note needs a file}"; shift 2 ;;
     -h|--help)   sed -n '2,/^set -euo/{/^set -euo/d;s/^# \{0,1\}//;p}' "${BASH_SOURCE[0]}"; exit 0 ;;
     *)           ARGS+=("$1"); shift ;;
   esac
@@ -245,5 +377,8 @@ case "${ARGS[0]:-list}" in
   audit)  cmd_audit "${ARGS[1]:-}" ;;
   queue)  cmd_queue "${ARGS[1]:-}" ;;
   reject) cmd_reject "${ARGS[1]:-}" ;;
+  status) cmd_status "${ARGS[1]:-}" ;;
+  wait)   cmd_wait "${ARGS[1]:-}" ;;
+  fix)    cmd_fix "${ARGS[1]:-}" ;;
   *)      die "unknown command: ${ARGS[0]} (see --help)" ;;
 esac
