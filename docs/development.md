@@ -83,7 +83,7 @@ whether to continue one or start something new.
 | 3 | Audit | Answer what the reviewer leaves to you | Up to three audits by a model from another family (`.ai/review-matrix`); after each, it asks you the findings only you can settle and revises the spec |
 | 4 | Approve | Say start, change something, or stop | Shows the spec, the last verdict and the open questions |
 | 5 | Implement, check, review | Nothing | Commits the spec on `main` and creates the Cezar task: worktree, implementation (Claude), `npm run check`, `npm test`, a review with fixes, then Opus and Sol each review through Pi and only report |
-| 6 | Test in AIR | Try it in a new chat with `pi-junie-dev` | `scripts/dev.sh air-test <worktree>` points the test entry at the worktree |
+| 6 | Test by hand | Try it in a new chat with `pi-junie-dev`, and in plain Pi when the spec has a "Check in plain Pi" section | `scripts/dev.sh air-test <worktree>` points the test entry at the worktree; `scripts/dev.sh cli-test <worktree>` runs it in plain Pi |
 | 7 | Merge | Say "merge" | The branch is synced with `main` in its worktree, the checks are rerun, then merged |
 
 **Many features at once.** Point the skill at a document that lists features, for example
@@ -94,12 +94,18 @@ flow above one at a time: call the skill without text and pick it.
 
 **Reuse, alter or build.** Before a feature gets its type, the skill finds out what already exists
 (`.agents/skills/new-feature/references/reuse-decision.md`). It writes the feature as numbered requirements,
-looks for candidate plugins in the feature map and on npm, and has `plugin-check` read each candidate's source:
-one row per requirement, covered (with file and line) or a gap. For the gaps it walks the options from smallest
-to largest: the plugin's settings, adopt it and let the bridge convert, an add-on package beside it, a change
+looks at what Pi core and AIR already do, then for candidate plugins in the feature map and on npm, and has
+`plugin-check` read each candidate's source: one row per requirement, covered (with file and line) or a gap. For
+the gaps it walks the options from smallest to largest: Pi core or AIR already does it, the plugin's settings, adopt it and let the bridge convert, an add-on package beside it, a change
 upstream, a local copy that we alter, our own plugin modelled on it, or build nothing. Each option gets its pros
 and cons and what we would own afterwards. A fresh sub-agent attacks the recommendation, and you choose. The
 method is taken from Open Mercato's `om-gap-analysis`, `om-eject-and-customize` and `om-brainstorm`.
+
+**Surfaces.** pi-junie runs in plain Pi (interactive and headless) and in AIR, each with its own UI, saved state
+and hand test. Before the reuse decision the skill writes a table of the surfaces the feature must work in
+(`.agents/skills/new-feature/references/surfaces.md`). When the parts for two surfaces need different types, there
+are two specs, plugin first, sharing one requirements list; the second says `Depends on:` and is queued after the
+first is merged. A feature that asks the user for a key also follows `references/credentials.md`.
 
 The four types of change and what each requires are in `.agents/skills/new-feature/references/`: a bridge change,
 an adopted Pi plugin, an own plugin package, and a copied package (a change to one of our copies, or a new local
@@ -137,13 +143,17 @@ Try Cezar without spending anything: `CEZ_DRY_RUN=1 scripts/dev.sh cezar` uses m
 By hand, without Cezar: make a worktree and a branch, run `scripts/dev.sh worktree` in it, implement there, then
 `scripts/dev.sh review .ai/specs/<file>` for the two second reviews.
 
-### Test in AIR
+### Test by hand
 
 ```bash
-scripts/dev.sh air-test <worktree>
+scripts/dev.sh air-test <worktree>              # AIR: the pi-junie-dev entry runs this worktree
+scripts/dev.sh cli-test <worktree> [-- pi args] # plain Pi: this worktree's Pi and packages
 ```
 
-One build is under test at a time. A chat that is already open keeps the old build; start a new one.
+In AIR one build is under test at a time; a chat that is already open keeps the old build, so start a new one.
+`cli-test` uses a Pi folder inside the worktree (`.pi-dev/cli-agent`, git-ignored), so your `~/.pi/agent` is
+neither read nor changed; delete that folder to start clean. The JetBrains AI key comes from the same env file as
+the development agent's.
 
 ## What lives where
 

@@ -6,7 +6,8 @@ If the feature is agent behaviour (something the agent does, remembers or decide
 about it, the reuse decision (`reuse-decision.md`) comes first: a plugin may already do it.
 
 1. **How Junie does it.** Find the ACP messages in a recording (`acp-examples/<session>/derived/acp-messages.jsonl`,
-   git-ignored) or in `junie-agent/docs/acp-air-communication.md`. No recording of this feature: the first task is
+   git-ignored) or in `docs/acp-air-communication.md`. If AIR has its own dialog for the feature, say whether it
+   sends the method to pi-junie or only to Junie (`surfaces.md`). No recording of this feature: the first task is
    for the user to record one in AIR with Junie.
 2. **Fixture.** Turn the recording into a fixture; the script redacts headers, tokens and home paths:
    `node packages/bridge/scripts/extract-fixture.ts acp-examples/<session>/derived/acp-messages.jsonl <name> [--max-prompts N]`

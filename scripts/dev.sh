@@ -10,6 +10,7 @@
 #   scripts/dev.sh audit <spec>         spec audit by a second model, headless Pi (default: Sol)
 #   scripts/dev.sh review [spec]        second review of the current branch, headless Pi (default: Opus and Sol)
 #   scripts/dev.sh air-test [dir]       put a worktree under test in AIR (the pi-junie-dev agent entry)
+#   scripts/dev.sh cli-test [dir] [-- pi args]  try a worktree in plain Pi, with its own Pi folder (not ~/.pi/agent)
 #
 # What `setup` installs, and where:
 #   in the repo, git-ignored   node_modules/ (npm ci)
@@ -20,7 +21,8 @@
 #                              .dev-tools/pi-junie/  the development agent: a copy of this repository at a fixed commit
 #                              .dev-tools/pi-agent/  its Pi folder, with the plugins in scripts/dev-tools/pi-plugins.txt
 #   outside the repo           nothing. Tools started later write their own state:
-#                              ~/.cezar (Cezar), ~/.local/state/pi-junie (air-test link)
+#                              ~/.cezar (Cezar), ~/.local/state/pi-junie (air-test link);
+#                              cli-test keeps its Pi folder inside the worktree (.pi-dev/cli-agent, git-ignored)
 # Network: npm registry and github.com/open-mercato/skills. Telemetry of both tools is switched off here.
 #
 # Settings: PI_JUNIE_ENV (key file, default ~/.config/pi-junie/env), PI_REVIEW_MODELS, PI_AUDIT_MODEL.
@@ -303,6 +305,25 @@ cmd_air_test() {
   say "  \"pi-junie-dev\": { \"command\": \"$STATE_DIR/under-test/bin/pi-air\", \"args\": [], \"env\": {} }"
 }
 
+# Plain Pi from a worktree: its own Pi, all its Pi packages (packages/* with pi.extensions, as pi-jbai loads them),
+# the JetBrains AI key from $ENV_FILE, and a Pi folder inside the worktree, so ~/.pi/agent is never read or written.
+cmd_cli_test() {
+  local wt=. ext=() pkg
+  if [[ $# -gt 0 && "$1" != -* ]]; then wt="$1"; shift; fi
+  [[ "${1:-}" == "--" ]] && shift
+  wt="$(cd "$wt" && git rev-parse --show-toplevel)"
+  [[ -x "$wt/node_modules/.bin/pi" ]] || die "$wt has no dependencies; run: scripts/dev.sh worktree $wt"
+  if [[ -r "$ENV_FILE" ]]; then set -a; . "$ENV_FILE"; set +a; fi
+  export PI_CODING_AGENT_DIR="$wt/.pi-dev/cli-agent"
+  mkdir -p "$PI_CODING_AGENT_DIR"
+  for pkg in "$wt"/packages/*/; do
+    [[ "$(jq -r '.pi.extensions // empty | length' "$pkg/package.json" 2>/dev/null)" -gt 0 ]] 2>/dev/null && ext+=(-e "${pkg%/}")
+  done
+  say "plain Pi from: $wt" >&2
+  say "Pi folder:     $PI_CODING_AGENT_DIR (delete it to start clean; ~/.pi/agent is not used)" >&2
+  exec "$wt/node_modules/.bin/pi" "${ext[@]}" "$@"
+}
+
 case "${1:-help}" in
   setup)    shift; cmd_setup "$@" ;;
   check)    cmd_check ;;
@@ -312,5 +333,6 @@ case "${1:-help}" in
   audit)    shift; cmd_audit "$@" ;;
   review)   shift; cmd_review "$@" ;;
   air-test) shift; cmd_air_test "$@" ;;
-  *)        sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//' ;;
+  cli-test) shift; cmd_cli_test "$@" ;;
+  *)        sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//' ;;
 esac

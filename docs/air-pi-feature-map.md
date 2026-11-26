@@ -18,7 +18,7 @@ AIR.
 | Initialize / client identity | Bridge (ACP driver) | Done |
 | Auth status | Bridge | Done (`_auth/status_update`, JetBrains AI label) |
 | Eco mode (Junie's Model Mix) | Bridge + Junie Cost (copied plugin: planner, router) | Done (Junie's `eco` switch and markers, Default levels' Eco, per-model memory; implementation model from the account flag) |
-| Provider model discovery + provider config | Bridge (Pi core model runtime) | Done (proxy discovery, all providers incl. Vertex and Ingrazzio; Junie's Default group and Junie Lite, Eco reported off) |
+| Provider model discovery + provider config | Bridge (Pi core model runtime) | Partly: provider config done (`providers/list`/`set`, proxy discovery, all providers incl. Vertex and Ingrazzio; Junie's Default group and Junie Lite, Eco reported off); AIR's BYOK catalog probe `_providers/models` (capability `providerModels`) not yet |
 | Session instructions | Pi core (`appendSystemPrompt`) | Not yet; trivial |
 | Additional skill roots | Pi core (`additionalSkillPaths`) | Done |
 | Session index / list / load / resume | Pi core (`SessionManager`) + bridge store | Done (list, load, resume, loadReplayEnd) |

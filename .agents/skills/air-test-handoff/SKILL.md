@@ -1,17 +1,20 @@
 ---
 name: air-test-handoff
-description: Use when a pi-junie branch has passed its checks and reviews and the user has to try it by hand in JetBrains AIR, e.g. "hand over for testing", "ready to test in AIR". Points the pi-junie-dev agent entry at the branch's worktree and gives the user the exact steps to check.
+description: Use when a pi-junie branch has passed its checks and reviews and the user has to try it by hand, in JetBrains AIR or in plain Pi, e.g. "hand over for testing", "ready to test in AIR", "try it in the CLI". Points the pi-junie-dev agent entry at the branch's worktree, gives the plain-Pi command, and gives the user the exact steps to check.
 ---
 
-# Hand over a branch for testing in AIR
+# Hand over a branch for testing by hand
 
-Tests and reviews cannot see what AIR shows. A person tries each feature in AIR before it is merged. Only one
-build is under test at a time.
+Tests and reviews cannot see what AIR or Pi's terminal shows. A person tries each feature before it is merged, on
+every surface its spec names: AIR ("Check in AIR") and plain Pi ("Check in plain Pi"). Only one build is under
+test in AIR at a time.
 
 ## Steps
 
 1. **Preconditions.** In the branch's worktree: `npm run check` and `npm test` pass, and the second review has no
    open blocker. If not, say so and stop.
+Steps 2 to 4 apply when the spec has a "Check in AIR" section.
+
 2. **Point the test entry at this worktree:** `scripts/dev.sh air-test <worktree path>`. It moves one fixed link;
    AIR's `pi-junie-dev` agent entry runs whatever the link points at. If the command reports that another worktree
    was under test, tell the user which one it replaced.
@@ -22,8 +25,13 @@ build is under test at a time.
    - start a **new** chat with **pi-junie-dev** (a running chat keeps the old build);
    - the test steps;
    - where the log is: `<worktree>/.pi-dev/pi-air.log` (readable part: `grep -v ':wire ' …`).
-5. **Wait for the result.** Do not merge and do not ask to merge before the user reports that it works. If it
-   fails, read the log with the user's description and go back to the implementation.
+5. **Plain Pi**, when the spec has a "Check in plain Pi" section: give the user the command
+   `scripts/dev.sh cli-test <worktree path>` (add `-- -p "<prompt>"` for a headless check) and the steps from that
+   section. It runs the worktree's Pi with all its packages and a Pi folder inside the worktree
+   (`.pi-dev/cli-agent`); the user's `~/.pi/agent` is not touched. To start clean, delete that folder.
+6. **Wait for the result.** Do not merge and do not ask to merge before the user reports that it works on each
+   surface. If it fails, read the log with the user's description (in plain Pi: the session file in
+   `.pi-dev/cli-agent/sessions/`) and go back to the implementation.
 
 ## Rules
 

@@ -18,9 +18,13 @@ New behaviour as a Pi package in `packages/<name>`, usable in plain Pi and loade
    - `tsconfig.json` extending `../../tsconfig.base.json`;
    - `README.md`: what it does, how to load it in plain Pi (`pi -e ./packages/<name>`), its settings.
 4. **Works without the bridge.** No import from `packages/bridge`. A test or a documented manual run in plain Pi.
-5. **Works without a terminal UI.** Bridge sessions have none: no dialogs, widgets or key bindings in the core
-   path; commands and tools only.
+5. **Works without a terminal UI.** Bridge sessions and headless runs have none, so the core path is commands
+   with arguments and tools. A terminal dialog is allowed as plain Pi's front end, only when `ctx.hasUI`, with
+   the same action reachable by arguments (as `/plugins` in `packages/plugin-manager/src/index.ts` does). A
+   plugin's dialogs never reach AIR: an AIR front end is bridge code, a second spec (`surfaces.md`).
 6. **Loading in the bridge.** How the bridge loads it (by path, like Junie Cost and Junie Config) and the switch
    that leaves it out (`PI_AIR_<NAME>=0`).
 7. **Docs.** README layout section, `docs/architecture.html` package list if it changes the picture, feature map
    row when an AIR feature depends on it.
+8. **Hand check in plain Pi.** `scripts/dev.sh cli-test <worktree>` runs the worktree's Pi with its packages and
+   a Pi folder inside the worktree; the spec's "Check in plain Pi" section gives the steps.

@@ -28,14 +28,17 @@ Both must pass before a change is called done. Node 22.19 or newer.
 - **Copied packages** (`packages/junie-cost`, `packages/jetbrains-ai`) come from junie-pi. List every divergence in
   the note at the top of the package's README.
 - **Secrets.** `acp-examples/` holds raw recordings with keys and is git-ignored: never commit it, never quote
-  headers or tokens from it. No key, token or home path in a tracked file. Keys are read from the environment only.
+  headers or tokens from it. No key, token or home path in a tracked file. The repository, its tests and its dev
+  tools read keys from the environment only. A feature that asks the user for a key keeps it only in Pi's own
+  credential store (`auth.json`, or `models.json` with `$VAR` / `!command`) or leaves it to AIR's proxy; never in
+  a file of ours, a log or a transcript (`.agents/skills/new-feature/references/credentials.md`).
 - **Docs are plain.** Say what was checked and what was not.
 
 ## Process
 
 New work follows `docs/development.md`: a spec in `.ai/specs/` (start with the `new-feature` skill), an audit of
 the spec by a second model, implementation on a branch in its own worktree, checks, two reviews, a hand test in
-AIR, then a merge by the owner.
+AIR (and in plain Pi when the feature runs there), then a merge by the owner.
 
 - One task, one branch, one worktree. Never work on `main` and never push.
 - Never merge into `main` without the owner's explicit OK. Before asking, the branch is merge-ready in its own

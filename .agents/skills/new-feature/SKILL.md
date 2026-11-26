@@ -28,7 +28,14 @@ time limit of at least ten minutes, or run them in the background and wait.
 ## 2. Understand and classify
 
 Read `AGENTS.md`. Find the feature in `docs/air-pi-feature-map.md` (its row says whether Pi core, a Pi plugin or
-the bridge provides it) and in `docs/eval-parity-plan.md` if it concerns headless or eval runs.
+the bridge provides it) and in `docs/eval-parity-plan.md` if it concerns headless or eval runs. The map's status
+is where to look, not proof: confirm it in the code, and for an AIR capability in its entry in
+`packages/bridge/src/compat/features.ts`. A feature with no row (one that is not an AIR feature) is normal.
+
+**Where it must work.** Read `references/surfaces.md` and write the surface table: each surface the feature must
+work in (plain Pi interactive, plain Pi headless, AIR), what provides its UI there, where its state is saved, how
+it is tested by hand. Tag each requirement with its surfaces. If the feature asks for, saves or sends a key,
+password or token, also read `references/credentials.md`.
 
 **What already exists.** Unless the feature only changes how the bridge presents something Pi core already does,
 read `references/reuse-decision.md` and follow it: the requirements as a numbered list, the candidate plugins,
@@ -37,8 +44,9 @@ what each one covers according to its source, and the options from "use its sett
 another unit or shape than we need, is the normal case, not a reason to skip this. The user chooses the option
 in step 3; until then name the type your recommendation leads to.
 
-Classify the change into exactly one type and say which and why. A feature that needs two types is split into
-two specs, plugin first.
+Classify the change into exactly one type and say which and why. A feature that needs two types (often one per
+surface) is split into two specs, plugin first, with one shared requirements list and a `Depends on:` line in
+the second (`references/surfaces.md`, "What to write").
 
 | Type | It is this when | Checklist |
 | --- | --- | --- |
@@ -54,8 +62,8 @@ upstream state).
 
 Ask the user what the repository cannot answer: scope, behaviour where there is a choice, what is out of scope,
 anything the checklist says to ask. Ask everything in one message, numbered, each with the answer you would
-pick. Do not ask what you can read in the code. The reuse decision goes into the same message, before the
-questions: the coverage table, the options, your recommendation and the challenger's findings
+pick. Do not ask what you can read in the code. The surface table and the reuse decision go into the same
+message, before the questions: the coverage table, the options, your recommendation and the challenger's findings
 (`references/reuse-decision.md`, section 6). Wait for the answers. If the user picks another option than you
 recommended, the type and its checklist change with it.
 
@@ -109,7 +117,8 @@ through Pi, and stops at its review gate.
 
 - If the script says Cezar is not running, pass on the two commands it prints and stop; do not start Cezar.
 - Tell the user the task id and where to watch it, and what comes after the review gate: the `air-test-handoff`
-  skill, then their "merge".
+  skill (hand checks in AIR and in plain Pi), then their "merge".
+- A spec with `Depends on: <spec>` is queued only after that spec's branch is merged; until then say so and stop.
 
 ## Many features from one document
 

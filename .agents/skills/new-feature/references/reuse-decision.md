@@ -16,12 +16,16 @@ show, what must work in a headless run. Requirements you are unsure of go to the
 
 ## 2. Candidates
 
+- **Pi core**: its docs in `node_modules/@earendil-works/pi-coding-agent/docs/` (configuration files such as
+  `models.json`, commands, the extension API). `AGENTS.md` puts Pi core first; look here before npm.
+- **The client**: whether AIR already has a dialog for it and only calls the agent through a protocol method
+  (`docs/acp-air-communication.md`; `surfaces.md`, "AIR may already own the UI").
 - The feature's row and notes in `docs/air-pi-feature-map.md`.
 - The packages in `packages/` and the plugins the bridge already supports (`packages/bridge/src/pi/`).
 - npm: `npm search --json "keywords:pi-package <words>"` with two or three wordings of the feature.
 
-List each candidate with version, licence, weekly downloads and last publish date. No candidate: write
-"No existing plugin found" with the searches you ran, and skip to section 4 with only options 6 and 7 open.
+List each plugin candidate with version, licence, weekly downloads and last publish date. No plugin candidate:
+write "No existing plugin found" with the searches you ran; in section 4 options 1 to 5 are then closed.
 
 ## 3. Coverage, from the source
 
@@ -32,6 +36,7 @@ gives one row per requirement:
 | --- | --- | --- |
 | R1 … | covered: `src/file.ts:120` | gap: counts tokens, has no credit unit |
 
+- For Pi core and the client the evidence is the doc section or the source file and line, by the same rule.
 - **Only the package's source at that exact version is evidence.** A README, the feature map and your memory say
   where to look; they never prove a row. A row without a file and line is `unverified`, not `covered`.
 - The verdict per candidate follows from the rows: all covered, partly (n of m), or none.
@@ -41,6 +46,9 @@ gives one row per requirement:
 For the gaps, walk the options in this order. Reject an option with evidence (a file and line, a documented
 limit) or recommend it. Give every option that is not rejected its pros, its cons and what we take on.
 
+0. **Pi core or the client already does it.** A Pi setting or file (for example `models.json`), a Pi command, or
+   a dialog AIR already has. What is left is a thin part: mapping it for AIR, or a small command around it.
+   Rejected only with evidence of what it does not cover.
 1. **The plugin's own settings.** A setting, environment variable or documented hook already does it.
 2. **Adopt as it is; the bridge converts.** The plugin runs unchanged and the bridge translates between it and
    AIR. Only when the conversion is honest: a unit the plugin does not know cannot be converted into one it does
@@ -64,7 +72,8 @@ plugin installed, and the work each time the original publishes a new version.
 Before showing the recommendation, start one fresh sub-agent with only the requirements, the coverage table and
 the options with your recommendation, and this instruction:
 
-> You review a reuse decision for pi-junie. Attack it. Is a smaller option rejected without evidence? Is a
+> You review a reuse decision for pi-junie. Attack it. Was Pi core or the client (option 0) checked? Is a
+> smaller option rejected without evidence? Is a
 > "covered" row not proven by a file and line? Is a requirement missing or invented? Would the recommended option
 > cost more in updates than a larger one? Is "build nothing" priced honestly? Answer with CRITICAL (the decision
 > is wrong or unproven), WARNING and OK lines. No praise.
@@ -81,6 +90,7 @@ The choice gives the type of change:
 
 | Chosen option | Type | Checklist |
 | --- | --- | --- |
+| 0 | the type of the thin part that is left (a bridge change for AIR, an own plugin package for a plain-Pi command), or none | that type's checklist |
 | 1 or 2 | Adopted Pi plugin | `adopt-plugin.md` |
 | 3 | Own plugin package, plus the adopted plugin | `own-plugin.md` after `adopt-plugin.md`; two specs, plugin first |
 | 4 | Adopted Pi plugin, with the upstream request as its first task | `adopt-plugin.md` |

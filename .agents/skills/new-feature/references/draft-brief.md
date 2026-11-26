@@ -7,7 +7,9 @@ You were given: the feature's name, the source file, and the section (heading an
 
 1. Read `AGENTS.md`. Read only your section of the source file, not the whole file.
 2. Find the feature in `docs/air-pi-feature-map.md` and in the code. Check what pi-junie already does for it.
-3. Classify the change and read its checklist, as in step 2 of `.agents/skills/new-feature/SKILL.md`.
+3. Write the surface table (`.agents/skills/new-feature/references/surfaces.md`), read `credentials.md` if the
+   feature handles a key, then classify the change and read its checklist, as in step 2 of
+   `.agents/skills/new-feature/SKILL.md`.
    For the reuse decision (`reuse-decision.md`) do sections 1 and 2 only: the numbered requirements and the
    candidate plugins. Do not run `plugin-check`, start no sub-agent and choose no option. Classify by what the
    feature map says and write the choice of option as the first open question.
