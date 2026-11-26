@@ -112,8 +112,9 @@ scripts/feature queue <spec>
 ```
 
 This sets `Status: approved`, commits that one file on `main` and creates a Cezar task with the workflow
-`feature-from-spec`. Cezar then makes the worktree, implements, runs the checks, reviews, has Opus and Sol review
-through Pi, and stops at its review gate.
+`feature-from-spec`. Cezar then makes the worktree, implements, runs the checks, reviews, and has Opus and Sol review
+through Pi. Each of them ends with a verdict; "changes" sends the task back to the implementer, for at most two
+rounds. It stops at its review gate, or earlier with a question to the user when the reviews are still not clean.
 
 - If the script says Cezar is not running, pass on the two commands it prints and stop; do not start Cezar.
 - Tell the user the task id and where to watch it, and what comes after the review gate: the `air-test-handoff`

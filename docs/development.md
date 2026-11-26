@@ -82,7 +82,7 @@ whether to continue one or start something new.
 | 2 | Questions | Choose the option, answer the questions | Shows the reuse decision and asks what the repository cannot answer, then writes `.ai/specs/<date>-<title>.md` |
 | 3 | Audit | Answer what the reviewer leaves to you | Up to three audits by a model from another family (`.ai/review-matrix`); after each, it asks you the findings only you can settle and revises the spec |
 | 4 | Approve | Say start, change something, or stop | Shows the spec, the last verdict and the open questions |
-| 5 | Implement, check, review | Nothing | Commits the spec on `main` and creates the Cezar task: worktree, implementation (Claude), `npm run check`, `npm test`, a review with fixes, then Opus and Sol each review through Pi and only report |
+| 5 | Implement, check, review | Nothing | Commits the spec on `main` and creates the Cezar task: worktree, implementation (Claude), `npm run check`, `npm test`, a review with fixes, then Opus and Sol each review through Pi and end with a verdict; "changes" from either sends both reports back to the implementer, for at most two rounds |
 | 6 | Test by hand | Try it in a new chat with `pi-junie-dev`, and in plain Pi when the spec has a "Check in plain Pi" section | `scripts/dev.sh air-test <worktree>` points the test entry at the worktree; `scripts/dev.sh cli-test <worktree>` runs it in plain Pi |
 | 7 | Merge | Say "merge" | The branch is synced with `main` in its worktree, the checks are rerun, then merged |
 
@@ -135,7 +135,18 @@ scripts/dev.sh cezar                    # cockpit at http://127.0.0.1:4321; keep
 `scripts/feature queue` creates a task with the workflow **feature-from-spec** and the spec's path as its text.
 Cezar makes the worktree and runs `.ai/cezar/workflows/feature-from-spec.yaml`: prepare the worktree
 (`scripts/dev.sh worktree`), then step 5 above, stopping at its review gate. Its Pi steps run `scripts/pi-jbai`:
-the development agent. Without a running Cezar, `queue` commits the approved spec and tells you how to send it
+the development agent.
+
+The second reviews decide what happens next. Each reviewer ends with a verdict: a blocker, or a major the spec
+does not waive, is "changes"; only minors and nits is "approve". If either says "changes", the implementer gets
+both reports, fixes, the checks run again and both reviewers review again. After two such rounds, or when a
+reviewer fails, the task stops with a question to you in the cockpit: accept the branch as it is, or stop the
+task. Findings only you can resolve (a recording from AIR, an open decision, a deviation from the spec) are
+listed under "For the owner" and do not count for the verdict.
+
+Everything is a file in the task's artifacts (`.ai/cezar/artifacts/<task>/`, "Assets" in the cockpit):
+`second-review-opus-<n>.md`, `second-review-sol-<n>.md`, the implementer's `fix-reply-<n>.md` and
+`for-the-owner.md`. Without a running Cezar, `queue` commits the approved spec and tells you how to send it
 later.
 
 Try Cezar without spending anything: `CEZ_DRY_RUN=1 scripts/dev.sh cezar` uses mock agents.
@@ -186,7 +197,11 @@ the development agent's.
 ## Not tried yet
 
 See section 11 of [agentic-process.html](agentic-process.html). In short: setup, worktree preparation, the audit
-and queue commands of `scripts/feature` and the headless second review have been run. Cezar has only run the
-workflow with mock agents; a real feature has not gone through it.
+and queue commands of `scripts/feature` and the headless second review have been run. One real feature (goal setup)
+went through the first, straight-line workflow; its second reviews had no effect there, which is why the workflow
+now has verdicts and fix rounds. That version has run with Cezar's mock agents only, on the Claude runner: all
+approve, all ask for changes (two rounds, then the question to the owner, approve and reject), mixed verdicts,
+and a reviewer that forgets its verdict. Not tried: real Pi reviewers ending with a verdict and writing their
+report file.
 
 The flow needs these files on `main`: task worktrees start from `main`.
